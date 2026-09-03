@@ -1,0 +1,14 @@
+{
+  "owner": "fpai-forge-os",
+  "assignment_id": "assignment-e40980f2-51cb-4df6-b06b-a886cf342700",
+  "attempt": 2,
+  "project": "FPAI Film Studio",
+  "repo": "/Users/thegoat/.fpai-forge-os/service-repositories/fpai-film-studio-80dcc6c4",
+  "branch": "forge/fpai-film-studio/e40980f2-51c/attempt-2-e5fcb20fd6",
+  "worktree": "/Users/thegoat/.fpai-forge-os/worktrees/fpai-film-studio/e40980f2-51c/attempt-2-e5fcb20fd6",
+  "base_sha": "ea9290c129c8df8e37329ffc72cb35ba831c515e",
+  "schema_version": 2,
+  "runner_id": "tjs-macbook-pro-2-local-products",
+  "base_ref": "main",
+  "created_at": "2026-09-03T17:17:09Z"
+}

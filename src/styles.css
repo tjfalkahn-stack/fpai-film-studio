@@ -18,3 +18,14 @@ main{padding:30px 38px;max-width:1550px;width:100%;margin:auto}header{display:fl
 .expression>div{pointer-events:none;position:relative}
 .expression>div>svg{width:18px;height:18px;color:#8f72b7}
 .expression>div>span{font-size:5.5px;color:#846c9f;margin-top:3px}
+.ledgerrow small{display:block;color:#716978;margin-top:3px}
+.budgetMetric.warning,.budgetState.warning{color:#e3bb68}
+.budgetMetric.strong,.budgetState.strong{color:#ffad61}
+.budgetMetric.over,.budgetState.over{color:#ff7f94}
+.budgetForm{margin-top:14px;border-top:1px solid #29232f;padding-top:12px}
+.budgetActions{display:flex;gap:8px;flex-wrap:wrap}
+.budgetActions button{font-size:8px}
+.refslot label{margin:0!important}
+.refslot input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.iconBtn{position:absolute;right:6px;top:6px;z-index:2;width:24px;height:24px;border:1px solid #3a3144;border-radius:7px;background:#120f18;color:#d8cadf;display:grid;place-items:center;cursor:pointer}
+.iconBtn svg{width:13px;height:13px}
