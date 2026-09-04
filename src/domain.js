@@ -136,8 +136,14 @@ export function adjustProductionBudget(project, amount, note = "", actor = OWNER
   };
 }
 
+function optionalNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export function normalizeLedgerEntry(entry, defaults = {}) {
-  const actualCost = Number(entry.actualCost ?? entry.amount ?? 0);
+  const actualCost = optionalNumber(entry.actualCost ?? entry.amount, 0);
+  const estimatedCost = optionalNumber(entry.estimatedCost, 0);
   return {
     id: entry.id || `ledger-${Date.now()}`,
     projectId: entry.projectId || defaults.projectId || PROJECT_ID,
@@ -147,12 +153,29 @@ export function normalizeLedgerEntry(entry, defaults = {}) {
     generationId: entry.generationId || entry.takeId || null,
     provider: entry.provider || defaults.provider || "manual",
     model: entry.model || defaults.model || "uploaded-asset",
+    routeId: entry.routeId || defaults.routeId || null,
+    shotClass: entry.shotClass || defaults.shotClass || null,
     generationType: entry.generationType || defaults.generationType || GENERATION_TYPES.FINAL_IMAGE,
-    estimatedCost: Number(entry.estimatedCost ?? 0),
-    actualCost: Number.isFinite(actualCost) ? Math.round(actualCost * 100) / 100 : 0,
-    generationStatus: entry.generationStatus || "completed",
-    approvalStatus: entry.approvalStatus || (entry.approved === false ? "rejected" : "approved"),
+    estimatedCost: Math.round(estimatedCost * 10000) / 10000,
+    actualCost: Math.round(actualCost * 10000) / 10000,
+    generationStatus: GENERATION_STATUSES.includes(entry.generationStatus) ? entry.generationStatus : "completed",
+    approvalStatus: APPROVAL_STATUSES.includes(entry.approvalStatus)
+      ? entry.approvalStatus
+      : entry.approved === false
+        ? "rejected"
+        : "approved",
     timestamp: entry.timestamp || entry.date || nowIso(),
+    requestHash: entry.requestHash || null,
+    requestSeconds: optionalNumber(entry.requestSeconds, 0),
+    generatedSeconds: optionalNumber(entry.generatedSeconds, 0),
+    usableSeconds: optionalNumber(entry.usableSeconds, 0),
+    attemptNumber: Math.max(0, Math.round(optionalNumber(entry.attemptNumber, 0))),
+    maxAttempts: Math.max(0, Math.round(optionalNumber(entry.maxAttempts, 0))),
+    budgetCap: optionalNumber(entry.budgetCap, 0),
+    salvageStatus: entry.salvageStatus || null,
+    reusableAssetId: entry.reusableAssetId || null,
+    currency: entry.currency || "USD",
+    metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
     label: entry.label || "",
   };
 }
@@ -197,7 +220,7 @@ export function budgetWarningState(percentageUsed) {
 
 export function summarizeLedgerForReporting(ledger = []) {
   const normalized = normalizeLedger(ledger);
-  const empty = () => ({ spent: 0, entries: 0 });
+  const empty = () => ({ spent: 0, entries: 0, generatedSeconds: 0, usableSeconds: 0 });
   return normalized.reduce(
     (summary, entry) => {
       const cost = ledgerActualCost(entry);
@@ -205,20 +228,28 @@ export function summarizeLedgerForReporting(ledger = []) {
         ["byScene", entry.sceneId],
         ["byCharacter", entry.characterId],
         ["byProviderModel", `${entry.provider}/${entry.model}`],
+        ["byRoute", entry.routeId],
         ["byApproval", entry.approvalStatus],
       ]) {
         const id = key || "none";
         summary[bucket][id] ||= empty();
         summary[bucket][id].spent += cost;
         summary[bucket][id].entries += 1;
+        summary[bucket][id].generatedSeconds += entry.generatedSeconds;
+        summary[bucket][id].usableSeconds += entry.usableSeconds;
       }
+      summary.generatedSeconds += entry.generatedSeconds;
+      summary.usableSeconds += entry.usableSeconds;
       return summary;
     },
     {
       byScene: {},
       byCharacter: {},
       byProviderModel: {},
+      byRoute: {},
       byApproval: {},
+      generatedSeconds: 0,
+      usableSeconds: 0,
       projectedCompletionCost: null,
     }
   );

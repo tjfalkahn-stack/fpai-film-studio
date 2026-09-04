@@ -68,37 +68,44 @@ test("budget can be set, locked, and adjusted while preserving original budget",
   });
 });
 
-test("generation ledger supports required schema fields and spend calculations", () => {
+test("generation ledger supports required schema fields and economy metadata", () => {
   const entry = normalizeLedgerEntry({
     projectId: "p1",
     characterId: "marcus",
     sceneId: "001",
     shotId: "027",
     generationId: "gen-1",
-    provider: "manual",
-    model: "uploaded-take",
-    generationType: GENERATION_TYPES.FINAL_IMAGE,
-    estimatedCost: 10,
-    actualCost: 12.5,
+    provider: "google",
+    model: "veo-3.1-fast-generate-preview",
+    routeId: "veo-fast-720",
+    shotClass: "hero",
+    generationType: GENERATION_TYPES.VIDEO,
+    estimatedCost: 0.8,
+    actualCost: 0.8,
     generationStatus: "completed",
     approvalStatus: "approved",
     timestamp: "2026-09-03T14:00:00.000Z",
+    requestHash: "fpai-123",
+    requestSeconds: 8,
+    generatedSeconds: 8,
+    usableSeconds: 4.5,
+    attemptNumber: 1,
+    maxAttempts: 2,
+    budgetCap: 3,
   });
 
   assert.equal(entry.projectId, "p1");
-  assert.equal(entry.characterId, "marcus");
-  assert.equal(entry.sceneId, "001");
-  assert.equal(entry.shotId, "027");
-  assert.equal(entry.generationId, "gen-1");
-  assert.equal(entry.provider, "manual");
-  assert.equal(entry.model, "uploaded-take");
-  assert.equal(entry.generationType, GENERATION_TYPES.FINAL_IMAGE);
-  assert.equal(entry.actualCost, 12.5);
+  assert.equal(entry.routeId, "veo-fast-720");
+  assert.equal(entry.shotClass, "hero");
+  assert.equal(entry.requestHash, "fpai-123");
+  assert.equal(entry.generatedSeconds, 8);
+  assert.equal(entry.usableSeconds, 4.5);
+  assert.equal(entry.actualCost, 0.8);
 
   const summary = calculateBudgetSummary({ productionBudget: { original: 100, current: 100 } }, [entry]);
-  assert.equal(summary.spent, 12.5);
-  assert.equal(summary.remaining, 87.5);
-  assert.equal(summary.percentageUsed, 12.5);
+  assert.equal(summary.spent, 0.8);
+  assert.equal(summary.remaining, 99.2);
+  assert.equal(summary.percentageUsed, 0.8);
 });
 
 test("budget warning thresholds are normal, warning, strong warning, and over budget", () => {
@@ -109,15 +116,16 @@ test("budget warning thresholds are normal, warning, strong warning, and over bu
   assert.equal(budgetWarningState(125), "over");
 });
 
-test("ledger reporting buckets are prepared for future production reports", () => {
+test("ledger reporting buckets include route and usable footage totals", () => {
   const report = summarizeLedgerForReporting([
-    { sceneId: "001", characterId: "marcus", provider: "manual", model: "uploaded-take", actualCost: 4, approvalStatus: "approved" },
-    { sceneId: "001", characterId: "jasmine", provider: "manual", model: "uploaded-take", actualCost: 6, approvalStatus: "rejected" },
+    { sceneId: "001", characterId: "marcus", provider: "google", model: "veo", routeId: "veo-fast-720", actualCost: 4, approvalStatus: "approved", generatedSeconds: 8, usableSeconds: 3 },
+    { sceneId: "001", characterId: "jasmine", provider: "google", model: "veo", routeId: "veo-fast-720", actualCost: 6, approvalStatus: "rejected", generatedSeconds: 8, usableSeconds: 0 },
   ]);
 
   assert.equal(report.byScene["001"].spent, 10);
   assert.equal(report.byCharacter.marcus.entries, 1);
-  assert.equal(report.byProviderModel["manual/uploaded-take"].spent, 10);
+  assert.equal(report.byProviderModel["google/veo"].spent, 10);
+  assert.equal(report.byRoute["veo-fast-720"].generatedSeconds, 16);
   assert.equal(report.byApproval.approved.spent, 4);
-  assert.equal(report.byApproval.rejected.spent, 6);
+  assert.equal(report.usableSeconds, 3);
 });
