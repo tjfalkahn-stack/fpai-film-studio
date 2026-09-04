@@ -1,0 +1,11 @@
+name = "fpai-film-studio"
+main = "frontend-worker/index.js"
+compatibility_date = "2026-09-04"
+
+[vars]
+VIDEO_ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
