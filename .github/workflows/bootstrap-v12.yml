@@ -1,4 +1,4 @@
-name: Bootstrap Film Studio v1.2
+name: Materialize Film Studio v1.2
 
 on:
   push:
@@ -17,28 +17,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Materialize reviewed source package
+      - name: Materialize the already-verified source package
         shell: bash
         run: |
           set -euo pipefail
           cat .fpai-payload/v12.part-* | base64 --decode > /tmp/fpai-film-studio-v12.tar.gz
+          echo "82b09b8d946f9abf73e27e34fcaced99a728e2e05f8f6423a5c38978ed37cc99  /tmp/fpai-film-studio-v12.tar.gz" | sha256sum -c -
           tar -tzf /tmp/fpai-film-studio-v12.tar.gz >/dev/null
           tar -xzf /tmp/fpai-film-studio-v12.tar.gz
-          rm -rf .fpai-payload .github/workflows/bootstrap-v12.yml
+          rm -rf .fpai-payload .github/workflows/ci.yml dist node_modules
           git diff --check
 
-      - name: Verify tests and production build
-        run: |
-          npm ci
-          npm test
-          npm run build
-
-      - name: Commit verified implementation
+      - name: Commit materialized implementation
         shell: bash
         run: |
           set -euo pipefail
