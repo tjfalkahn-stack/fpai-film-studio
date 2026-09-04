@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "build": "vite build"
+    "build": "vite build",
+    "adapter:dev": "npx wrangler dev --config wrangler.toml",
+    "adapter:deploy": "npx wrangler deploy --config wrangler.toml",
+    "adapter:schema:local": "npx wrangler d1 execute fpai-film-studio-generation --local --file=worker/schema.sql",
+    "adapter:schema:remote": "npx wrangler d1 execute fpai-film-studio-generation --remote --file=worker/schema.sql"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
