@@ -37,3 +37,17 @@ test("adapter refuses live submission while the client execution gate is closed"
   const adapter = createGoogleVideoAdapter({ fetchImpl: async () => { throw new Error("should not execute"); } });
   assert.throws(() => adapter.submit({ packet: { ...packet, gate: { generateAllowed: false, executionBlockers: ["Server adapter disconnected."] } }, project: { id: "p1" } }), /Server adapter disconnected/);
 });
+
+test("same-origin health checks do not send a browser token", async () => {
+  let captured;
+  const adapter = createGoogleVideoAdapter({
+    fetchImpl: async (url, init) => {
+      captured = { url, init };
+      return new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json" } });
+    },
+  });
+  const payload = await adapter.health();
+  assert.equal(payload.ok, true);
+  assert.equal(captured.url, "/health");
+  assert.equal(captured.init?.headers?.authorization, undefined);
+});
