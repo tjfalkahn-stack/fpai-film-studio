@@ -42,7 +42,11 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
     const catalogResponse = await mf.dispatchFetch("http://localhost/api/renderers", { headers });
     assert.equal(catalogResponse.status, 200);
     const catalog = await catalogResponse.json();
-    assert.deepEqual(catalog.providers.map(p => p.id), ["mock", "veo-fast"]);
+    assert.deepEqual(catalog.providers.map(p => p.id), [
+      "mock",
+      "comfy-video",
+      "veo-fast",
+    ]);
     assert.equal(catalog.policy.liveEnabled, false);
     assert.equal(catalog.policy.sessionCeiling, 10);
     assert.equal(catalog.policy.projectCeiling, 20);
