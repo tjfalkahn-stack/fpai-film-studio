@@ -32,6 +32,9 @@ export function config(env) {
       fail("INVALID_CONFIG", `${key} must be non-negative.`, 503);
     return n;
   };
+  const comfyConfigured = Boolean(
+    env.COMFYUI_BASE_URL && (env.COMFYUI_WORKFLOW_KEY || env.COMFYUI_WORKFLOW_JSON),
+  );
   return {
     projectCeiling: amount("RENDER_PROJECT_CEILING_USD", 20),
     sessionCeiling: amount("RENDER_SESSION_CEILING_USD", 10),
@@ -41,7 +44,7 @@ export function config(env) {
     liveEnabled:
       env.LIVE_RENDERING_ENABLED === "true" &&
       env.MOCK_E2E_VERIFIED === "true" &&
-      Boolean(env.GEMINI_API_KEY),
+      (Boolean(env.GEMINI_API_KEY) || comfyConfigured),
   };
 }
 export function publicRender(row) {
@@ -77,7 +80,6 @@ export function publicRender(row) {
 async function readBody(request) {
   if (!request.headers.get("content-type")?.includes("application/json"))
     fail("INVALID_INPUT", "JSON content type is required.", 415);
-  // Bound the streamed body even if Content-Length is missing or falsified.
   const reader = request.body?.getReader();
   if (!reader) fail("INVALID_INPUT", "Request body required.");
   let size = 0;
@@ -146,7 +148,6 @@ function liveGate(input, env) {
       "CONTINUITY_BLOCKED",
       "Character continuity, shot timing, and scene animatic must be approved.",
     );
-  // Continuity is an owner-attested local production snapshot, not computer-vision validation.
   if (c.hasCharacters && !input.referenceImages.length)
     fail(
       "CONTINUITY_BLOCKED",
@@ -197,7 +198,6 @@ async function create(request, env) {
   if (quote.estimatedCost > policy.singleCeiling)
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   const id = crypto.randomUUID();
-  // D1 has a per-row size limit. Keep large reference payloads privately in R2.
   const storedInput = {
     ...input,
     referenceImages: input.referenceImages.map((ref) => ({
@@ -210,8 +210,6 @@ async function create(request, env) {
       JSON.stringify(input),
       { httpMetadata: { contentType: "application/json" } },
     );
-  // One SQL statement checks spend and inserts the reservation: no check/insert race.
-  // Count legacy v1.3 liabilities as well; unknown outcomes retain their reservation.
   await db
     .prepare(
       `INSERT INTO renders (id,project_id,session_id,scene_id,shot_id,request_key,request_hash,provider,model,status,estimated_cost,reserved_cost,input_json,created_at,updated_at)
@@ -272,7 +270,7 @@ async function create(request, env) {
 export async function advance(env, row) {
   const db = dbOf(env);
   const provider = providerFor(row.provider, env);
-  if (row.provider !== "mock" && !config(env).liveEnabled) return row; // Kill switch covers polling and downloads, too.
+  if (row.provider !== "mock" && !config(env).liveEnabled) return row;
   if (
     row.status === "starting" &&
     Date.now() - Date.parse(row.updated_at) > 120000
@@ -357,7 +355,6 @@ export async function advance(env, row) {
     if (row.status === "running") {
       const result = await provider.status(row);
       if (result.status === "running") return row;
-      // Persist charge and provider asset before R2 work: a download failure is still billable.
       await db
         .prepare(
           "UPDATE renders SET status=?,actual_cost=?,reserved_cost=0,cost_basis=?,asset_json=?,error_json=?,updated_at=? WHERE id=? AND lease_until=? AND status='running'",
@@ -414,13 +411,19 @@ async function cancel(env, row) {
     .run();
   if (claim.meta.changes) return get(env, row.id);
   row = await get(env, row.id);
-  if (row.status === "running" && row.provider === "mock") {
-    await providerFor(row.provider, env).cancel(row);
+  const provider = providerFor(row.provider, env);
+  if (row.status === "running" && provider.capabilities.cancelRunning) {
+    const result = await provider.cancel(row);
     await db
       .prepare(
-        "UPDATE renders SET status='canceled',reserved_cost=0,actual_cost=0,updated_at=? WHERE id=? AND status='running' AND lease_until=0",
+        "UPDATE renders SET status='canceled',reserved_cost=0,actual_cost=?,cost_basis=?,updated_at=? WHERE id=? AND status='running' AND lease_until=0",
       )
-      .bind(stamp(), row.id)
+      .bind(
+        Number(result.actualCost ?? 0),
+        result.costBasis || null,
+        stamp(),
+        row.id,
+      )
       .run();
     return get(env, row.id);
   }
