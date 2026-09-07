@@ -1,6 +1,7 @@
+import { authorizeStudio } from "./auth.js";
 const DEFAULT_ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev";
 
-const PROXY_HEADER_ALLOWLIST = ["content-type", "accept", "x-fpai-owner-override"];
+const PROXY_HEADER_ALLOWLIST = ["content-type", "accept", "range", "if-range", "x-fpai-owner-override"];
 const STRIP_RESPONSE_HEADERS = [
   "access-control-allow-origin",
   "access-control-allow-credentials",
@@ -147,6 +148,9 @@ async function proxyToAdapter(request, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname !== "/health" && !await authorizeStudio(request, env)) return jsonResponse({ error: "Sign in through the configured Cloudflare Access application." }, 401);
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && request.headers.get("origin") && request.headers.get("origin") !== url.origin) return jsonResponse({ error: "Cross-origin writes are blocked." }, 403);
 
     if (isProxyPath(url.pathname)) {
       return proxyToAdapter(request, env);

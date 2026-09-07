@@ -1,3 +1,4 @@
+import { renderRoutes, config as renderConfig } from "./renders.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -302,7 +303,7 @@ async function handleCreate(request, env) {
 async function handleGetJob(env, id) {
   let row = await env.GENERATION_DB.prepare("SELECT * FROM generation_jobs WHERE id=?").bind(id).first();
   if (!row) return json({ error: "Job not found." }, 404);
-  if (row.status === "running" && row.provider_operation) row = await pollVeo(env, row);
+  if (row.status === "running" && row.provider_operation && renderConfig(env).liveEnabled) row = await pollVeo(env, row);
   return json({ job: publicJob(row) });
 }
 
@@ -330,13 +331,16 @@ export default {
         controlTokenConfigured: Boolean(env.FPAI_CONTROL_TOKEN),
         d1Configured: Boolean(env.GENERATION_DB),
         r2Configured: Boolean(env.GENERATION_MEDIA),
-        liveExecutionReady: Boolean(env.GEMINI_API_KEY && env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA),
+        liveExecutionReady: renderConfig(env).liveEnabled && Boolean(env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA),
+        liveRenderingEnabled: renderConfig(env).liveEnabled,
       }, 200, cors);
     }
 
     const auth = authorize(request, env);
     if (!auth.ok) return json({ error: auth.error }, auth.status, cors);
     try {
+      if (url.pathname.startsWith("/api/renders") || url.pathname === "/api/renderers") return renderRoutes(request, env);
+      if (url.pathname.startsWith("/api/generation-jobs") && request.method === "POST") return json({ error: "Legacy provider execution is disabled. Use /api/renders with the render cost gate." }, 403, cors);
       if (request.method === "POST" && url.pathname === "/api/generation-jobs") {
         const response = await handleCreate(request, env);
         for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);

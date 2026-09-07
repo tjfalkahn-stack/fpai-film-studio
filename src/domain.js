@@ -35,7 +35,7 @@ export function normalizeCharacterRefs(refs = {}) {
     const legacy = category.legacyKeys?.map((key) => referenceEntry(refs[key])).find(Boolean);
     if (current || legacy) next[category.key] = current || legacy;
     return next;
-  }, {});
+  }, { ...refs });
 }
 
 export function characterReferenceCount(character) {

@@ -18,7 +18,7 @@ const TOKEN = "frontend-control-token";
 const ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev";
 
 function request(path, init = {}) {
-  return new Request(`https://fpai-film-studio.tjfalkahn.workers.dev${path}`, init);
+  return new Request(`http://localhost${path}`, init);
 }
 
 test("proxies health and api paths only", () => {
@@ -76,6 +76,7 @@ test("GET /health is proxied through the VIDEO_ADAPTER service binding", async (
   };
   let captured;
   const env = {
+    LOCAL_DEV: "true",
     FPAI_CONTROL_TOKEN: TOKEN,
     VIDEO_ADAPTER_URL: ADAPTER_URL,
     VIDEO_ADAPTER: {
@@ -116,6 +117,7 @@ test("GET /health is proxied through the VIDEO_ADAPTER service binding", async (
 test("POST /api/* forwards the body and owner override through the service binding", async () => {
   let captured;
   const env = {
+    LOCAL_DEV: "true",
     FPAI_CONTROL_TOKEN: TOKEN,
     VIDEO_ADAPTER: {
       async fetch(req) {
@@ -153,6 +155,7 @@ test("POST /api/* forwards the body and owner override through the service bindi
 
 test("non-api routes stay on the SPA assets binding", async () => {
   const env = {
+    LOCAL_DEV: "true",
     FPAI_CONTROL_TOKEN: TOKEN,
     VIDEO_ADAPTER: { fetch: async () => new Response("adapter-should-not-run", { status: 500 }) },
     ASSETS: {
@@ -169,6 +172,7 @@ test("non-api routes stay on the SPA assets binding", async () => {
 
 test("same-zone HTML 404 is converted to JSON instead of being passed through", async () => {
   const env = {
+    LOCAL_DEV: "true",
     FPAI_CONTROL_TOKEN: TOKEN,
     ASSETS: { fetch: async () => new Response("nope", { status: 500 }) },
   };

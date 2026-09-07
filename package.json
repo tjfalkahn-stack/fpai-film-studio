@@ -9,14 +9,25 @@
     "adapter:dev": "npx wrangler dev --config wrangler.toml",
     "adapter:deploy": "npx wrangler deploy --config wrangler.toml",
     "adapter:schema:local": "npx wrangler d1 execute fpai-film-studio-generation --local --file=worker/schema.sql",
-    "adapter:schema:remote": "npx wrangler d1 execute fpai-film-studio-generation --remote --file=worker/schema.sql"
+    "adapter:schema:remote": "npx wrangler d1 execute fpai-film-studio-generation --remote --file=worker/schema.sql",
+    "dev": "node scripts/dev.mjs",
+    "test:render": "node --test tests/*.test.js",
+    "render:dev": "wrangler dev --config wrangler.render.local.toml --ip 127.0.0.1 --port 8787",
+    "render:schema:local": "wrangler d1 execute fpai-film-studio-generation --config wrangler.render.local.toml --local --file=worker/render-schema.sql",
+    "render:deploy": "wrangler deploy --config wrangler.toml",
+    "frontend:deploy": "npm run build && wrangler deploy --config wrangler.frontend.toml"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
-    "vite": "^7.1.0",
+    "jose": "^6.2.12",
+    "lucide-react": "^0.468.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "lucide-react": "^0.468.0"
+    "vite": "^7.1.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "miniflare": "^4.20260730.0",
+    "wrangler": "^4.129.0"
+  }
 }

@@ -1,4 +1,10 @@
-# FPAI Film Studio v1.2
+# FPAI Film Studio — Render Engine Foundation
+
+Start with [local testing and deployment](docs/RENDER_ENGINE_SETUP.md) and the [repository audit](docs/RENDER_FOUNDATION_AUDIT.md). Mock renders execute with zero provider spend; Veo Fast is implemented behind disabled server gates. Existing production UI and seed data are preserved.
+
+The remaining v1.2 sections describe the retained economy planner. Executable providers and server cost controls are documented in the foundation runbook.
+
+## Retained Generation Economy Engine
 
 ## Generation Economy Engine
 
@@ -122,15 +128,7 @@ Ledger entries now preserve:
 
 ### 8. Safe queue behavior
 
-The browser application can reserve a request in the ledger, but **live generation remains impossible in this branch** because:
-
-- no API key is included;
-- there is no client-side provider call;
-- `serverAdapterConnected` defaults to `false`;
-- `providerExecutionEnabled` defaults to `false`;
-- the UI separately reports `queueAllowed` and `generateAllowed`.
-
-This separation lets production staff validate cost, continuity, route, and payload before money can be spent.
+The economy queue remains a browser planning feature. The new **Generate Take** panel executes through `/api/renders`. Both `LIVE_RENDERING_ENABLED` and `MOCK_E2E_VERIFIED` default to `false` on the server. Configuring credentials alone cannot enable live generation. See the foundation runbook for server ceilings, authentication and mock verification.
 
 ## 27-minute planning forecast
 
@@ -174,39 +172,12 @@ npm run build
 For local development:
 
 ```bash
-npx vite
+npm run dev
 ```
 
 ## Server adapter contract
 
-The next live-integration layer should be a server-only endpoint such as:
-
-```text
-POST /api/generation-jobs
-```
-
-The server must never trust browser calculations. It should:
-
-1. authenticate the production user and verify project access;
-2. reload the authoritative scene, shot, continuity state, and budget ledger;
-3. recalculate the route, legal duration, price, attempt count, and request hash;
-4. enforce idempotency on the request hash;
-5. reserve the maximum charge transactionally;
-6. call the appropriate Google API surface;
-7. poll the provider operation outside the browser request lifecycle;
-8. download successful outputs immediately into durable project storage;
-9. reconcile estimated versus actual cost;
-10. release failed/canceled reservations;
-11. return a provider-agnostic generation record to the client.
-
-Suggested routing:
-
-- `gemini-omni-1.1-flash` through the Gemini Interactions API;
-- Veo models through `generateVideos`;
-- API keys and credentials stored only as server secrets;
-- provider responses normalized before entering the FPAI ledger.
-
-No live provider adapter, credential, payment logic, or deployment is included in this pull request.
+The implemented provider-neutral render contract, Cloudflare setup, cost accounting and remaining production-state limitations are in [the render runbook](docs/RENDER_ENGINE_SETUP.md). The older `/api/generation-jobs` submission path is disabled so it cannot bypass the atomic render cost guard. Existing adapter code remains for historical integration context.
 
 ## Tests
 

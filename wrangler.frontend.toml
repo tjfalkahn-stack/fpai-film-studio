@@ -7,6 +7,9 @@ workers_dev = true
 # returns Cloudflare HTML/404. Talk to the video adapter through a service
 # binding instead of the public workers.dev URL.
 [vars]
+# Configure an Access self-hosted application covering the entire frontend hostname.
+ACCESS_TEAM_DOMAIN = "YOUR-TEAM.cloudflareaccess.com"
+ACCESS_AUD = "REPLACE_WITH_ACCESS_APPLICATION_AUD"
 VIDEO_ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev"
 
 [assets]

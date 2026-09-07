@@ -448,3 +448,10 @@ svg{display:block}
   .packageSummary{grid-template-columns:1fr 1fr}
 }
 .rangeInput{grid-column:1/-1}
+
+/* Render controls extend the existing shot drawer; production layout is unchanged. */
+.renderPanel { border-block:1px solid var(--border,#332c3c); padding:16px 0; margin:18px 0; }
+.renderPanel p,.renderPanel label,.renderStatus { font-size:14px; }
+.renderStatus { padding:10px 0; border-bottom:1px solid #332c3c; }
+.renderStatus small { display:block; overflow-wrap:anywhere; margin:4px 0; }
+.renderPanel button:disabled { opacity:.5; cursor:not-allowed; }

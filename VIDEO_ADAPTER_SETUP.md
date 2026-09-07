@@ -1,3 +1,5 @@
+> Historical v1.3 setup. For this branch, use [Render Engine Setup](docs/RENDER_ENGINE_SETUP.md). Legacy live submission is disabled; `/api/renders` is the supported execution path.
+
 # FPAI Film Studio — Google Video Adapter Setup
 
 This adapter keeps Gemini/Veo credentials and billable generation on the server. The Film Studio sends a budget-approved generation package to a Cloudflare Worker; the Worker re-validates the paid route, checks duplicate hashes and server-side spend ceilings in D1, starts Google generation, polls long-running Veo operations, and stores completed MP4 files in R2.

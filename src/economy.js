@@ -582,6 +582,7 @@ export function findDuplicateRequest(ledger = [], requestHash) {
 export function attemptsUsedForShot(ledger = [], shotId) {
   return ledger.filter((entry) =>
     entry.shotId === shotId &&
+    entry.provider !== "mock" &&
     entry.routeId &&
     !["canceled"].includes(entry.generationStatus)
   ).length;

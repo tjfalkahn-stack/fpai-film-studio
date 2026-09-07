@@ -76,6 +76,9 @@ import {
   updateEconomySettings,
 } from "./economy.js";
 import "./styles.css";
+import { approveTakeState, updateTakeState } from "./takeReview.js";
+import RenderPanel from "./RenderPanel.jsx";
+import { renderRequest, mergeRender } from "./renderClient.js";
 
 const STORAGE_KEY = "fpai-film-studio-v1.2";
 const MEDIA_DB = "fpai-film-studio-media";
@@ -320,7 +323,7 @@ function Metric({ label, value, detail, tone = "" }) {
   );
 }
 
-function Media({ mediaKey, type = "image" }) {
+function Media({ mediaKey, type = "image", remoteUrl }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
     let objectUrl = "";
@@ -335,6 +338,7 @@ function Media({ mediaKey, type = "image" }) {
     return () => objectUrl && URL.revokeObjectURL(objectUrl);
   }, [mediaKey]);
 
+  if (remoteUrl) return <video src={remoteUrl} controls preload="metadata" />;
   if (!mediaKey) return <div className="emptyMedia"><ImageIcon /></div>;
   if (!url) return <div className="emptyMedia">Loading…</div>;
   return type === "video" ? <video src={url} controls /> : <img src={url} alt="Uploaded production asset" />;
@@ -352,6 +356,31 @@ function App() {
   const [budgetNote, setBudgetNote] = useState("");
   const [ownerOverride, setOwnerOverride] = useState(false);
   const [toast, setToast] = useState(null);
+  const [renders, setRenders] = useState([]);
+  function receiveRender(render) {
+    setRenders(previous => [...previous.filter(r => r.id !== render.id), render]);
+    setData(current => mergeRender(current, render));
+  }
+  useEffect(() => {
+    let canceled = false;
+    let timer;
+    async function sync() {
+      try {
+        const result = await renderRequest('/api/renders');
+        for (const row of result.renders) {
+          if (canceled) return;
+          receiveRender(row);
+          if (['queued','starting','running'].includes(row.status) || (row.status === 'completed' && !row.outputAsset)) {
+            const result = await renderRequest(`/api/renders/${row.id}`);
+            if (!canceled) receiveRender(result.render);
+          }
+        }
+      } catch { /* The shot panel reports connection errors; local production stays usable. */ }
+      if (!canceled) timer = setTimeout(sync, 1500);
+    }
+    sync();
+    return () => { canceled = true; clearTimeout(timer); };
+  }, []);
 
   const tabs = ["Overview", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
   const character = data.characters.find((item) => item.id === characterId) || null;
@@ -508,7 +537,7 @@ function App() {
       key,
       name: file.name,
       status: "Review",
-      cost: plan.oneAttemptCost,
+      cost: 0,
       continuity: 0,
       generatedSeconds: plan.requestSeconds || targetShot.sec,
       usableSeconds: 0,
@@ -520,77 +549,12 @@ function App() {
   }
 
   function updateTake(targetShot, takeId, patch) {
-    updateShot(targetShot.id, {
-      takes: targetShot.takes.map((take) => take.id === takeId ? { ...take, ...patch } : take),
-    });
+    setData(current => updateTakeState(current, targetShot.id, takeId, patch));
   }
 
   function approveTake(targetShot, takeId) {
-    const selected = targetShot.takes.find((take) => take.id === takeId);
-    if (!selected) return;
     const plan = planForShot(targetShot);
-    const sourceDuration = Number(selected.generatedSeconds || plan.requestSeconds || targetShot.sec || 0);
-    const parsedRanges = selected.usableRanges?.length
-      ? selected.usableRanges
-      : parseUsableRangeText(selected.usableRangeText || "", sourceDuration);
-    const salvage = createSalvageRecord({
-      takeId,
-      ranges: parsedRanges,
-      sourceDuration,
-      usableSeconds: Number(selected.usableSeconds || 0),
-      uses: [`scene:${targetShot.scene}/shot:${targetShot.id}`],
-      notes: selected.notes || "",
-    });
-    const reviewedUsableSeconds = salvage.usableSeconds;
-    const reusableAssetId = `take:${targetShot.id}:${takeId}`;
-    const takes = targetShot.takes.map((take) => ({
-      ...take,
-      status: take.id === takeId ? "Approved" : take.status === "Approved" ? "Rejected" : take.status,
-    }));
-
-    setData((current) => {
-      const pendingIndex = [...current.ledger]
-        .map((entry, index) => ({ entry, index }))
-        .reverse()
-        .find(({ entry }) => entry.shotId === targetShot.id && ["planned", "queued", "running"].includes(entry.generationStatus))?.index;
-      const ledger = [...current.ledger];
-      const completed = normalizeLedgerEntry({
-        ...(pendingIndex !== undefined ? ledger[pendingIndex] : {}),
-        id: pendingIndex !== undefined ? ledger[pendingIndex].id : `ledger:${targetShot.id}:${takeId}:${Date.now()}`,
-        projectId: current.project.id || PROJECT_ID,
-        sceneId: targetShot.scene,
-        shotId: targetShot.id,
-        generationId: takeId,
-        provider: plan.route.provider,
-        model: plan.route.model,
-        routeId: plan.route.id,
-        shotClass: plan.shotClass,
-        generationType: GENERATION_TYPES.VIDEO,
-        estimatedCost: plan.oneAttemptCost,
-        actualCost: Number(selected.cost || 0),
-        generationStatus: "completed",
-        approvalStatus: "approved",
-        timestamp: new Date().toISOString(),
-        requestHash: plan.requestHash,
-        requestSeconds: plan.requestSeconds,
-        generatedSeconds: sourceDuration,
-        usableSeconds: reviewedUsableSeconds,
-        salvageStatus: reviewedUsableSeconds > 0 ? "salvaged" : "unreviewed",
-        reusableAssetId,
-        metadata: { salvage },
-        label: `Shot ${targetShot.id} approved take`,
-      });
-      if (pendingIndex !== undefined) ledger[pendingIndex] = completed;
-      else if (completed.actualCost > 0) ledger.push(completed);
-
-      return {
-        ...current,
-        shots: current.shots.map((item) => item.id === targetShot.id
-          ? { ...item, takes, approved: true, cost: Number(selected.cost || 0) }
-          : item),
-        ledger,
-      };
-    });
+    setData(current => approveTakeState(current, targetShot.id, takeId, plan));
     notify(`Shot ${targetShot.id} approved. Usable seconds were added to the learning ledger.`);
   }
 
@@ -609,7 +573,13 @@ function App() {
     notify(`Shot ${targetShot.id} entered the budget-safe queue. No API charge was made.`);
   }
 
-  function cancelQueuedEntry(entryId) {
+  async function cancelQueuedEntry(entryId) {
+    const entry=data.ledger.find(e=>e.id===entryId);
+    if(entry?.metadata?.renderId) {
+      try { const result=await renderRequest(`/api/renders/${entry.metadata.renderId}/cancel`,{}); receiveRender(result.render); }
+      catch(error) { notify(error.message,'bad'); }
+      return;
+    }
     setData((current) => ({
       ...current,
       ledger: current.ledger.map((entry) => entry.id === entryId
@@ -893,6 +863,7 @@ function App() {
       {shot && (
         <ShotDrawer
           shot={shot}
+          renderPanel={<RenderPanel key={shot.id} shot={shot} project={data.project} characters={(shot.characters || []).map(characterById).filter(Boolean)} scene={sceneById(shot.scene)} plan={planForShot(shot)} continuity={continuityForShot(shot)} getMedia={getMedia} onRender={receiveRender} renders={renders} />}
           project={data.project}
           updateShot={updateShot}
           updateShotEconomy={updateShotEconomy}
@@ -1385,7 +1356,7 @@ function CharacterDrawer({ character, dragTarget, setDragTarget, addReference, r
   );
 }
 
-function ShotDrawer({ shot, project, updateShot, updateShotEconomy, plan, packet, setPackageShotId, addTake, updateTake, approveTake, reusableTakes, close }) {
+function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy, plan, packet, setPackageShotId, addTake, updateTake, approveTake, reusableTakes, close }) {
   const economy = normalizeShotEconomy(shot, project);
   return (
     <div className="overlay">
@@ -1430,16 +1401,17 @@ function ShotDrawer({ shot, project, updateShot, updateShotEconomy, plan, packet
         <button className="ghost full" onClick={() => setPackageShotId(shot.id)}><PackageCheck /> Preview Cost-Control Package</button>
         {packet.gate.blockers.length > 0 && <div className="validation"><AlertTriangle /> {packet.gate.blockers[0]}</div>}
 
+        {renderPanel}
         <h3>Takes and Salvage</h3>
         <label className="primary uploadButton"><Upload /> Upload completed take<input type="file" accept="image/*,video/*" onChange={(event) => addTake(shot, event.target.files?.[0])} /></label>
         <div className="takeGrid">
           {shot.takes.map((take) => (
             <div className="takeCard" key={take.id}>
-              <div className="takeMedia"><Media mediaKey={take.key} type={take.name.match(/\.(mp4|mov|webm)$/i) ? "video" : "image"} /></div>
+              <div className="takeMedia"><Media mediaKey={take.key} remoteUrl={take.url} type={take.name.match(/\.(mp4|mov|webm)$/i) ? "video" : "image"} /></div>
               <div className="formGrid two compactForm">
-                <label>Actual Cost<input type="number" step="0.01" value={take.cost} onChange={(event) => updateTake(shot, take.id, { cost: Number(event.target.value) })} /></label>
+                <label>Actual Cost<input type="number" min="0" readOnly={Boolean(take.renderId)} step="0.01" value={take.cost} onChange={(event) => updateTake(shot, take.id, { cost: Number(event.target.value) })} /></label>
                 <label>Continuity<input type="number" min="0" max="100" value={take.continuity} onChange={(event) => updateTake(shot, take.id, { continuity: Number(event.target.value) })} /></label>
-                <label>Generated sec<input type="number" step="0.1" value={take.generatedSeconds} onChange={(event) => {
+                <label>Generated sec<input type="number" readOnly={Boolean(take.renderId)} step="0.1" value={take.generatedSeconds} onChange={(event) => {
                   const generatedSeconds = Number(event.target.value);
                   const usableRanges = parseUsableRangeText(take.usableRangeText || "", generatedSeconds);
                   updateTake(shot, take.id, { generatedSeconds, usableRanges, usableSeconds: usableRanges.reduce((sum, range) => sum + range.end - range.start, 0) });
@@ -1452,9 +1424,9 @@ function ShotDrawer({ shot, project, updateShot, updateShotEconomy, plan, packet
                 }} /></label>
               </div>
               <div className="takeActions">
-                <button onClick={() => updateTake(shot, take.id, { status: "Rejected" })}><ThumbsDown /></button>
+                <button aria-label="Reject take" onClick={() => updateTake(shot, take.id, { status: "Rejected" })}><ThumbsDown /></button>
                 <button onClick={() => updateTake(shot, take.id, { status: "Shortlist" })}><Star /></button>
-                <button onClick={() => approveTake(shot, take.id)}><ThumbsUp /></button>
+                <button aria-label="Approve take" onClick={() => approveTake(shot, take.id)}><ThumbsUp /></button>
               </div>
               <Pill tone={take.status === "Approved" ? "good" : take.status === "Rejected" ? "bad" : "neutral"}>{take.status}</Pill>
             </div>
