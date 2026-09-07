@@ -1,0 +1,26 @@
+name = "fpai-film-studio"
+main = "frontend-worker/index.js"
+compatibility_date = "2026-09-04"
+workers_dev = true
+
+# Same-zone fetch() to another *.workers.dev URL bypasses that Worker and
+# returns Cloudflare HTML/404. Talk to the video adapter through a service
+# binding instead of the public workers.dev URL.
+[vars]
+# Configure an Access self-hosted application covering the entire frontend hostname.
+ACCESS_TEAM_DOMAIN = "YOUR-TEAM.cloudflareaccess.com"
+ACCESS_AUD = "REPLACE_WITH_ACCESS_APPLICATION_AUD"
+VIDEO_ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+html_handling = "auto-trailing-slash"
+# Boolean true guarantees /health and /api/* hit this Worker before assets.
+# Non-proxy routes still fall through to env.ASSETS.fetch().
+run_worker_first = true
+
+[[services]]
+binding = "VIDEO_ADAPTER"
+service = "fpai-film-studio-video-adapter"

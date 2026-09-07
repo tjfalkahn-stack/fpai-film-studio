@@ -1,0 +1,17 @@
+name = "fpai-film-studio-video-adapter"
+main = "worker/index.js"
+compatibility_date = "2026-08-06"
+[vars]
+LIVE_RENDERING_ENABLED = "false"
+MOCK_E2E_VERIFIED = "false"
+FPAI_CONTROL_TOKEN = "local-mock-only-token"
+RENDER_PROJECT_CEILING_USD = "20"
+RENDER_SESSION_CEILING_USD = "10"
+RENDER_SESSION_ID = "foundation-01"
+[[d1_databases]]
+binding = "GENERATION_DB"
+database_name = "fpai-film-studio-generation"
+database_id = "00000000-0000-0000-0000-000000000001"
+[[r2_buckets]]
+binding = "GENERATION_MEDIA"
+bucket_name = "fpai-film-studio-generation-media"

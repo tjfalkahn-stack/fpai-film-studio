@@ -1,0 +1,25 @@
+name = "fpai-film-studio-video-adapter"
+main = "worker/index.js"
+compatibility_date = "2026-09-04"
+
+[vars]
+LIVE_RENDERING_ENABLED = "false"
+MOCK_E2E_VERIFIED = "false"
+RENDER_PROJECT_ID = "enemies-closer-ep01"
+RENDER_PROJECT_CEILING_USD = "20"
+RENDER_SESSION_CEILING_USD = "10"
+RENDER_SESSION_ID = "foundation-01"
+GENERATION_TARGET = "125"
+WORKING_GENERATION_CEILING = "200"
+EMERGENCY_GENERATION_CEILING = "250"
+MAX_SINGLE_JOB_USD = "4"
+ALLOWED_ORIGINS = "https://YOUR-FILM-STUDIO-DOMAIN"
+
+[[d1_databases]]
+binding = "GENERATION_DB"
+database_name = "fpai-film-studio-generation"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "GENERATION_MEDIA"
+bucket_name = "fpai-film-studio-generation-media"
