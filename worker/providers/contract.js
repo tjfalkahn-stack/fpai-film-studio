@@ -4,7 +4,7 @@
  * estimate(input) -> {estimatedCost, currency, priceBasis}
  * start(input) -> {operationId}
  * status(job) -> {status, actualCost?, costBasis?, asset?, error?}
- * cancel(job) -> {status} (must explicitly reject unsupported cancellation)
+ * cancel(job) -> {status, actualCost?, costBasis?} (must explicitly reject unsupported cancellation)
  * asset(job) -> Response containing video bytes (never a credential-bearing URL).
  * ProviderError: code, message, retryable, uncertain, httpStatus.
  * Unknown submission outcomes retain reservations and MUST NOT auto-resubmit.
@@ -76,7 +76,11 @@ export function validateInput(input, capabilities) {
         "Reference bytes do not match their image type.",
       );
   }
-  if ((refs.length || input.resolution !== "720p") && input.duration !== 8)
+  if (
+    capabilities.forceEightSecondSource === true &&
+    (refs.length || input.resolution !== "720p") &&
+    input.duration !== 8
+  )
     fail(
       "UNSUPPORTED_INPUT",
       "Reference images and 1080p require an 8-second source clip.",
