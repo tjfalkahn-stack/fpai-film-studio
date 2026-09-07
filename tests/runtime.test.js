@@ -26,6 +26,7 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
     bindings: {
       FPAI_CONTROL_TOKEN: "runtime-test",
       LIVE_RENDERING_ENABLED: "false",
+      MOCK_E2E_VERIFIED: "false",
     },
   };
   let mf = new Miniflare(opts);
@@ -34,6 +35,17 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
     "content-type": "application/json",
   };
   try {
+    const healthResponse = await mf.dispatchFetch("http://localhost/health");
+    assert.equal(healthResponse.status, 200);
+    const healthBefore = await healthResponse.json();
+    assert.equal(healthBefore.liveExecutionReady, false);
+    const catalogResponse = await mf.dispatchFetch("http://localhost/api/renderers", { headers });
+    assert.equal(catalogResponse.status, 200);
+    const catalog = await catalogResponse.json();
+    assert.deepEqual(catalog.providers.map(p => p.id), ["mock", "veo-fast"]);
+    assert.equal(catalog.policy.liveEnabled, false);
+    assert.equal(catalog.policy.sessionCeiling, 10);
+    assert.equal(catalog.policy.projectCeiling, 20);
     let db = await mf.getD1Database("GENERATION_DB");
     for (const file of ["worker/schema.sql", "worker/render-schema.sql"])
       for (const sql of readFileSync(file, "utf8")

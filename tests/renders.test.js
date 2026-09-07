@@ -186,6 +186,26 @@ test("mock cancel is durable and never paid", async (t) => {
   assert.equal(data.render.status, "canceled");
   assert.equal(data.render.actualCost, 0);
 });
+test("failed mock with missing stored references creates no take and no paid spend", async (t) => {
+  const network = noNetwork(t);
+  const request = body(undefined, {
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+  });
+  let r = (await call("/api/renders", request)).data.render;
+  // Inject a local storage failure in this isolated test database/bucket.
+  await env.GENERATION_MEDIA.delete(`render-inputs/${r.id}.json`);
+  r = (await call(`/api/renders/${r.id}`)).data.render;
+  assert.equal(r.status, "failed");
+  assert.equal(r.error.code, "MISSING_REFERENCES");
+  assert.equal(r.actualCost, 0);
+  assert.equal(r.reservedCost, 0);
+  assert.equal(r.outputAsset, null);
+  const state = mergeRender({ project: { id: request.projectId },
+    shots: [{ id: "027", scene: "001", takes: [] }], ledger: [] }, r);
+  assert.equal(state.shots[0].takes.length, 0);
+  assert.equal(state.ledger[0].actualCost, 0);
+  assert.equal(network.mock.callCount(), 0);
+});
 test("atomic session/project ceilings include in-flight and legacy liabilities; duplicate requests reserve once", async (t) => {
   noNetwork(t);
   Object.assign(env, {
@@ -230,6 +250,29 @@ test("atomic session/project ceilings include in-flight and legacy liabilities; 
     await call(`/api/renders/${duplicates[0].data.render.id}/cancel`, {});
   } finally {
     env.LIVE_RENDERING_ENABLED = "false";
+  }
+});
+test("concurrent reservations cannot exceed the project ceiling even with session headroom", async (t) => {
+  const network = noNetwork(t);
+  const previous = { ...env };
+  Object.assign(env, {
+    LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", GEMINI_API_KEY: "fake-test-key",
+    RENDER_SESSION_ID: "project-concurrency", RENDER_SESSION_CEILING_USD: "8", RENDER_PROJECT_CEILING_USD: "0.8",
+  });
+  try {
+    // Only reserve and cancel synthetic jobs. Never poll/start a paid provider.
+    const outcomes = await Promise.all(Array.from({ length: 8 }, () => call("/api/renders", body(undefined, {
+      provider: "veo-fast", acceptedCost: 0.8,
+      continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+    }))));
+    assert.equal(outcomes.filter(r => r.response.status === 202).length, 1);
+    assert.equal(outcomes.filter(r => r.response.status === 409).length, 7);
+    const accepted = outcomes.find(r => r.response.status === 202).data.render;
+    assert.equal(accepted.reservedCost, 0.8);
+    assert.equal((await call(`/api/renders/${accepted.id}/cancel`, {})).data.render.status, "canceled");
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    Object.assign(env, previous);
   }
 });
 test("Veo adapter maps prompt, reference bytes, duration, aspect, resolution and never fakes cancellation", async () => {

@@ -1,10 +1,14 @@
 # Render engine foundation audit — 2026-09-07
 
-## Repository baseline
+## Verification update — after PR #5
+
+PR #5 merged into `main` at `5a624524da7627869b71749ae191cb44aa03c29e`. The follow-up pass starts from that commit. The complete mock browser flow now passes, with 54 automated tests and screenshot evidence in [MOCK_RENDER_VERIFICATION.md](MOCK_RENDER_VERIFICATION.md). Both live gates remain disabled by instruction. The original findings below are retained as historical audit context.
+
+## Original repository baseline
 
 Audited the tracked source, tests, manifests, SQL, documentation and all remote branch tips. `main` (`3d11813`) contains only the early UI; it is not the current full studio. The implementation is based on `feature/google-video-adapter-v1.3` at `d59874c`, which includes v1.2 economy work and the v1.3 Worker/service-binding bridge. The Forge branch ends at `ad524e7` and lacks the final bridge changes. No AGENTS.md or Sites hosting manifest was present.
 
-The review targets the adapter feature branch so this pass does not overwrite later production work with `main`'s older UI. Promoting the combined feature branch into `main` is a separate repository integration decision.
+The foundation was built on the adapter branch to retain the full production UI. PR #5 subsequently promoted that combined implementation into `main`.
 
 ## Existing functionality and findings
 
@@ -39,15 +43,14 @@ The review targets the adapter feature branch so this pass does not overwrite la
 
 ## Verification and limits
 
-All 48 automated tests pass. Automated checks cover baseline regressions, zero-network mock lifecycle, actual workerd runtime and restart recovery, MP4 range responses, exact-take merge/review/idempotency, auth rejection, input validation, duplicate keys, concurrent budget reservations, disabled legacy/live execution, Veo payload mapping using injected responses, uncertain submission, failure accounting, paid asset-retrieval failure and large reference persistence. FFprobe confirms an 8.000-second H.264 1280×720 fixture. Client build and both Worker dry-run bundles pass.
+The foundation baseline passed 48 automated tests. The follow-up pass now passes 54. Automated checks cover baseline regressions, zero-network mock lifecycle, actual workerd runtime and restart recovery, MP4 range responses, exact-take merge/review/idempotency, auth rejection, input validation, duplicate keys, concurrent budget reservations, disabled legacy/live execution, Veo payload mapping using injected responses, uncertain submission, failure accounting, paid asset-retrieval failure and large reference persistence. FFprobe confirms an 8.000-second H.264 1280×720 fixture. Client build and both Worker dry-run bundles pass.
 
-Browser end-to-end verification is **not complete**: the supervised preview started, but the cloud browser URL policy rejected navigation. No alternate browser was used. Visible playback, layout and user-driven approve/reject must still be checked with the runbook. Therefore `MOCK_E2E_VERIFIED` remains `false`.
+The original foundation browser attempt was blocked by the preview environment. The follow-up pass successfully opened the supported preview, fixed HTTP-preview submission, and completed the Shot 027 browser workflow. Playback, seeking, mute/unmute, approval/rejection, cancellation and refresh recovery are verified. See the linked verification report for screenshots and exact limits. `MOCK_E2E_VERIFIED` and `LIVE_RENDERING_ENABLED` both remain `false` by instruction; a successful local test does not enable live rendering or verify the deployed Access setup.
 
 ## Remaining blockers / scope limits
 
-1. GitHub publication is pending explicit authorization: automatic approval review blocked the push as a potential source-code disclosure. The implementation is committed locally and provided as source ZIP and patch.
-2. Complete the manual browser smoke test before setting `MOCK_E2E_VERIFIED=true`.
-2. Configure real Cloudflare bindings and owner Access application/audience, then deploy. No remote configuration, resource creation or deployment was performed in this pass.
+1. The foundation is published and merged through PR #5; review the follow-up verification PR before deploying its HTTP-preview and mock-audio fixes.
+2. Configure real Cloudflare bindings and owner Access application/audience, deploy with both live gates disabled, and repeat the browser smoke test through Access. No remote configuration, resource creation or deployment was performed in either pass.
 3. Veo has only mocked contract tests, not a live smoke test. Verify account access, current model availability and price, then explicitly enable only when authorized to spend.
 4. Invoice reconciliation is manual; Google operation responses provide no exact billed cost. No refund is invented for local cancellation/download failure.
 5. Production metadata, references before render submission, approvals and salvage edits remain local to this browser/origin. LocalStorage quota/IndexedDB eviction and multi-user production sync are future persistence work.
