@@ -2,38 +2,14 @@
 
 Live rendering is disabled by default. No Gemini key is needed to run Mock. Run this guide instead of the historical v1.3 instructions.
 
-## Test the downloadable source before publication
+## Get the current source
 
-The finished branch is committed locally. GitHub push was blocked by automatic approval review pending explicit publication authorization. Until it is published, use the provided source ZIP. From the directory containing the download:
-
-```bash
-unzip fpai-film-studio-render-foundation.zip
-cd fpai-film-studio-render-foundation
-npm ci
-npm test
-npm run build
-npm run dev
-```
-
-The accompanying patch can also be applied with `git am` to a clean checkout of baseline `d59874c`.
-
-## Get the review branch after publication
-
-In an existing clean checkout:
-
-```bash
-git fetch origin
-git switch feature/render-engine-foundation
-npm ci
-npm test
-npm run build
-npm run dev
-```
+PR #5 is merged into `main`. The browser verification pass and screenshots are in [MOCK_RENDER_VERIFICATION.md](MOCK_RENDER_VERIFICATION.md). Both live gates remain disabled, including after a successful mock test.
 
 For a new checkout:
 
 ```bash
-git clone --branch feature/render-engine-foundation https://github.com/tjfalkahn-stack/fpai-film-studio.git
+git clone https://github.com/tjfalkahn-stack/fpai-film-studio.git
 cd fpai-film-studio
 npm ci
 npm test
@@ -41,16 +17,30 @@ npm run build
 npm run dev
 ```
 
+For an existing clean checkout:
+
+```bash
+git fetch origin
+git switch main
+git pull --ff-only
+npm ci
+npm test
+npm run build
+npm run dev
+```
+
+To review the verification fixes before that PR is merged, use `git switch --track origin/astra/mock-render-e2e-verification` after fetching. If that local branch already exists, use `git switch astra/mock-render-e2e-verification`.
+
 Use Node 22.12+ or Node 24 and an OS supported by Cloudflare workerd. If your Mac is still running macOS 12.4, use a supported Linux development environment or upgrade macOS first; this pass does not remove Cloudflare's native runtime requirement.
 
 `npm run dev` creates both additive local SQL schemas, starts the mock-only Worker at `127.0.0.1:8787`, and starts Vite at `127.0.0.1:5173`. No remote D1/R2 or Gemini services are used. Open [local Film Studio](http://127.0.0.1:5173/). Stop both processes with Ctrl-C. Local render state lives under ignored `.wrangler/`; production state uses the existing browser origin's localStorage/IndexedDB.
 
-## Manual browser smoke test — required before live enablement
+## Repeatable browser smoke test — required on the deployed environment before live enablement
 
 1. Open **Shots → #027 — Marcus hero reveal**. Confirm Scene 001 and the existing 4.5-second final edit.
 2. In **Generate Take**, leave Renderer on **Mock · $0**, Source duration **8 seconds**, Resolution **720p**, Aspect ratio **16:9**. References are optional for a mock slate; do not change Marcus's existing locks just to run the test.
 3. Confirm the estimate is **$0.00** and click **Generate Take · $0.00** once.
-4. Observe `queued → running → completed`. A test slate should appear under **Takes and Salvage**. Play it and seek. It is explicitly labeled as a mock, not a generated character scene.
+4. Observe `queued → running → completed`. A test slate with a quiet synthetic test tone should appear under **Takes and Salvage**. Test play/pause, seeking and mute/unmute. It is explicitly labeled as a mock, not a generated character scene.
 5. Approve the take; approve it again. There should still be one take and one zero-dollar render ledger record. Reject it; the shot must no longer count as approved. Approve it again if desired.
 6. Refresh the app, open Shot 027 and confirm its take, review status and video remain. Also refresh while a new mock render is running and verify recovery.
 7. Start a mock render and cancel it. Confirm canceled status, no resulting take and $0 actual cost.

@@ -4,6 +4,8 @@ Start with [local testing and deployment](docs/RENDER_ENGINE_SETUP.md) and the [
 
 The remaining v1.2 sections describe the retained economy planner. Executable providers and server cost controls are documented in the foundation runbook.
 
+The [mock verification report](docs/MOCK_RENDER_VERIFICATION.md) includes the completed Shot 027 browser test, screenshots, 54 passing tests and deployment limits. Both live gates remain disabled.
+
 ## Retained Generation Economy Engine
 
 ## Generation Economy Engine

@@ -1,3 +1,32 @@
+import { stableHash } from "./economy.js";
+
+export async function renderIdentity(input, cryptoApi = globalThis.crypto) {
+  if (!cryptoApi?.subtle) {
+    if (input.provider !== "mock")
+      throw new Error("Open Film Studio over HTTPS before submitting a paid render.");
+    // HTTP previews lack SubtleCrypto. This is only a local retry hint for $0
+    // mocks; the Worker always verifies the full payload with SHA-256.
+    // Do not copy potentially large reference-image bytes into localStorage.
+    return `mock-preview:${stableHash(input)}`;
+  }
+  const digest = await cryptoApi.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(input)),
+  );
+  return Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+export function renderRequestKey(cryptoApi = globalThis.crypto) {
+  if (!cryptoApi?.getRandomValues)
+    throw new Error("This browser cannot create a secure render request ID.");
+  // getRandomValues works in HTTP previews too; randomUUID requires HTTPS.
+  return Array.from(cryptoApi.getRandomValues(new Uint8Array(16)), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 export async function renderRequest(path, body) {
   const response = await fetch(
     path,

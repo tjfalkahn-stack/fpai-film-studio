@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { renderRequest } from "./renderClient.js";
+import { renderIdentity, renderRequestKey, renderRequest } from "./renderClient.js";
 
 async function encodeImage(file) {
   if (
@@ -144,15 +144,7 @@ export default function RenderPanel({
     const storageKey = `fpai-pending-render:${project.id}:${shot.scene}:${shot.id}`;
     try {
       const body = await input();
-      const identity = Array.from(
-        new Uint8Array(
-          await crypto.subtle.digest(
-            "SHA-256",
-            new TextEncoder().encode(JSON.stringify(body)),
-          ),
-        ),
-        (b) => b.toString(16).padStart(2, "0"),
-      ).join("");
+      const identity = await renderIdentity(body);
       if (!pending.current) {
         try {
           pending.current = JSON.parse(localStorage.getItem(storageKey));
@@ -162,7 +154,7 @@ export default function RenderPanel({
         throw new Error(
           "An earlier submission is unresolved. Restore its inputs or check render status before creating a new request.",
         );
-      pending.current ||= { identity, key: crypto.randomUUID() };
+      pending.current ||= { identity, key: renderRequestKey() };
       localStorage.setItem(storageKey, JSON.stringify(pending.current));
       const { render } = await renderRequest("/api/renders", {
         ...body,
