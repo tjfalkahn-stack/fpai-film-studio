@@ -72,7 +72,8 @@ async function comfyFetch(env, fetchImpl, path, init = {}, options = {}) {
       redirect: "manual",
       signal: AbortSignal.timeout(options.timeout || 30000),
     });
-    if (!response.ok) {
+    const allowedRedirect = options.allowRedirect === true && response.status === 302;
+    if (!response.ok && !allowedRedirect) {
       const message = await parseError(response);
       throw providerError(
         response,
@@ -112,7 +113,6 @@ async function uploadReference(env, fetchImpl, ref, index) {
   );
   form.append("content_type", ref.mimeType);
   form.append("file_path", filePath);
-  form.append("tags", "input");
   const headers = authHeaders(env);
   headers.set("idempotency-key", crypto.randomUUID());
   const response = await comfyFetch(
@@ -350,6 +350,7 @@ export function createComfyProvider(env = {}, fetchImpl = fetch) {
         fetchImpl,
         `/api/v2/assets/${encodeURIComponent(asset.id)}/content`,
         { headers: authHeaders(env) },
+        { allowRedirect: true },
       );
       if (response.status === 302) {
         const location = response.headers.get("location");
