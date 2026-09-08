@@ -56,6 +56,10 @@ test("ComfyUI accepts references on 6-second jobs and injects API workflow place
       assert.equal(init.method, "POST");
       assert.ok(init.body instanceof FormData);
       assert.equal(init.body.get("content_type"), "image/png");
+      assert.match(
+        init.body.get("file_path"),
+        /^input\/fpai\/reference-[0-9a-f-]+-1\.png$/,
+      );
       return Response.json(
         {
           id: "asset-ref-1",
