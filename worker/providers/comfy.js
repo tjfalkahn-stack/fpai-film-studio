@@ -104,7 +104,7 @@ function decodeBase64(value) {
 
 async function uploadReference(env, fetchImpl, ref, index) {
   const extension = ref.mimeType === "image/png" ? "png" : "jpg";
-  const filePath = `fpai/reference-${crypto.randomUUID()}-${index + 1}.${extension}`;
+  const filePath = `input/fpai/reference-${crypto.randomUUID()}-${index + 1}.${extension}`;
   const form = new FormData();
   form.append(
     "file",
