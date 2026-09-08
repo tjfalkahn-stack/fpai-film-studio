@@ -58,6 +58,7 @@ export function createVeoProvider(env, fetchImpl = fetch) {
       aspectRatios: ["16:9", "9:16"],
       maxReferences: 3,
       cancelRunning: false,
+      forceEightSecondSource: true,
     },
     estimate: (input) => ({
       estimatedCost:
@@ -127,8 +128,6 @@ export function createVeoProvider(env, fetchImpl = fetch) {
             retryable: false,
           },
         };
-      // Google does not return invoice cost. Record completed usage at the reserved tariff;
-      // expose the basis explicitly and reconcile it with the provider bill later.
       return {
         status: "completed",
         actualCost: job.estimated_cost,
@@ -154,7 +153,6 @@ export function createVeoProvider(env, fetchImpl = fetch) {
           "Google returned an unexpected asset location.",
           502,
         );
-      // A redirect is followed without credentials; never forward the API key to another host.
       let response = await fetchImpl(uri, {
         headers: { "x-goog-api-key": env.GEMINI_API_KEY },
         redirect: "manual",
