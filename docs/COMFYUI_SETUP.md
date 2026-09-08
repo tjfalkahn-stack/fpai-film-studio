@@ -6,6 +6,7 @@ Film Studio treats ComfyUI as a server-side renderer behind the existing render 
 
 - Comfy API v2 job submission and polling.
 - Up to three PNG/JPEG Character Bible references.
+- References are uploaded beneath the proxy's allowlisted `input/fpai/` root.
 - 4, 6, or 8 second source clips.
 - 720p or 1080p, 16:9 or 9:16.
 - MP4 output into the existing Takes and Salvage workflow.
