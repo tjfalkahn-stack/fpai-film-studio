@@ -29,6 +29,7 @@ export async function runCharacterFactoryPlan({
         height,
         seed: -1,
         filenamePrefix: `${plan.character.id}-${job.category}-${job.taskId}-a${attemptNumber}`,
+        referenceImages: job.referenceImages || plan.referenceImages || [],
       });
 
       let state;

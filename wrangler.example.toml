@@ -15,11 +15,18 @@ EMERGENCY_GENERATION_CEILING = "250"
 MAX_SINGLE_JOB_USD = "4"
 ALLOWED_ORIGINS = "https://YOUR-FILM-STUDIO-DOMAIN"
 
-# ComfyUI v2 adapter. Keep LIVE_RENDERING_ENABLED=false until the workflow is verified.
+# Native ComfyUI adapter (stock /upload/image, /prompt, /history, /view).
+# Keep LIVE_RENDERING_ENABLED and CHARACTER_FACTORY_LIVE_ENABLED false until verified.
+# Do not put COMFYUI_API_KEY or the Pod URL in Vite/browser variables.
 COMFYUI_BASE_URL = "https://YOUR-COMFYUI-DEPLOYMENT"
+COMFYUI_CLIENT_ID = "fpai-film-studio"
 COMFYUI_WORKFLOW_KEY = "comfy/workflows/video.json"
 COMFYUI_WORKFLOW_NAME = "fpai-character-video-v1"
 COMFYUI_COST_PER_SECOND_USD = "0"
+COMFYUI_CHARACTER_WORKFLOW_KEY = "comfy/workflows/character-still.json"
+COMFYUI_CHARACTER_WORKFLOW_NAME = "fpai-character-still-v1"
+COMFYUI_CHARACTER_COST_PER_IMAGE_USD = "0"
+CHARACTER_FACTORY_LIVE_ENABLED = "false"
 
 [[d1_databases]]
 binding = "GENERATION_DB"
