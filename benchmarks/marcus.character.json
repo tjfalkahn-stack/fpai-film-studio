@@ -1,0 +1,42 @@
+{
+  "character": {
+    "id": "marcus",
+    "name": "Marcus \"Kingpin\" Holloway",
+    "role": "Kingpin / protagonist",
+    "ageRange": "adult",
+    "height": "6'2\"",
+    "build": "tall, lean athletic build with long natural proportions",
+    "skinTone": "deep brown",
+    "behavior": "Calm enough to scare a room. Camera stabilizes when he takes control.",
+    "voice": "Quiet Houston baritone",
+    "wardrobe": [
+      "Tarmac Look 01",
+      "all-black tactical look with black gloves, black boots, and face covered by a black sheisty mask"
+    ],
+    "protectedTraits": [
+      "tall 6'2 apparent height",
+      "lean athletic proportions",
+      "consistent canonical facial identity",
+      "same apparent age across generations"
+    ],
+    "negativeTraits": [
+      "short or squat proportions",
+      "stocky compressed torso",
+      "identity drift",
+      "different person",
+      "duplicate character",
+      "extra limbs",
+      "warped hands",
+      "text or watermark"
+    ]
+  },
+  "expressions": [
+    "neutral",
+    "serious",
+    "controlled anger",
+    "aggressive",
+    "concerned",
+    "hurt",
+    "exhausted"
+  ]
+}
