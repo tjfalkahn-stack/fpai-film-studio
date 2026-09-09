@@ -81,7 +81,7 @@ marcus/
 
 ## Relationship to the existing ComfyUI engine
 
-The repository already contains a server-side ComfyUI v2 provider for video. Character Factory does not replace that provider. It sits above rendering and creates the deterministic work packets, prompts, identity rules, medium choice, QC contract, and benchmark accounting.
+The repository contains a server-side native ComfyUI provider for video (`/prompt`, `/history`, `/view`) and a dedicated still-image Character Factory executor on the same API. Character Factory does not replace the video provider. It sits above rendering and creates the deterministic work packets, prompts, identity rules, medium choice, QC contract, and benchmark accounting. See [native RunPod ComfyUI setup](RUNPOD_COMFYUI.md).
 
 The current benchmark planner is intentionally non-rendering. This lets the factory contract and Marcus matrix be tested without consuming GPU/API spend or weakening the existing live-render gate.
 

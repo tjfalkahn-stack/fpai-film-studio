@@ -29,6 +29,7 @@ function env(extra = {}) {
     MOCK_E2E_VERIFIED: "true",
     COMFYUI_BASE_URL: "https://comfy.example/",
     COMFYUI_API_KEY: "comfyui-test",
+    COMFYUI_CLIENT_ID: "fpai-studio-test",
     COMFYUI_COST_PER_SECOND_USD: "0.03",
     COMFYUI_WORKFLOW_JSON: JSON.stringify({
       "1": {
@@ -46,47 +47,41 @@ function env(extra = {}) {
   };
 }
 
+const VIDEO_ASSET_ID = new URLSearchParams({
+  filename: "film.mp4",
+  subfolder: "",
+  type: "output",
+}).toString();
+
 test("ComfyUI accepts references on 6-second jobs and injects API workflow placeholders", async () => {
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
     calls.push({ url: String(url), init });
     assert.equal(new URL(url).origin, "https://comfy.example");
     assert.equal(init.headers.get("authorization"), "Bearer comfyui-test");
-    if (String(url).endsWith("/api/v2/assets")) {
+    const parsed = new URL(url);
+    if (parsed.pathname === "/upload/image") {
       assert.equal(init.method, "POST");
       assert.ok(init.body instanceof FormData);
-      assert.equal(init.body.get("content_type"), "image/png");
-      assert.match(
-        init.body.get("file_path"),
-        /^input\/fpai\/reference-[0-9a-f-]+-1\.png$/,
-      );
-      return Response.json(
-        {
-          id: "asset-ref-1",
-          hash: "blake3:test",
-          file_path: "fpai/reference.png",
-        },
-        { status: 201 },
-      );
+      assert.equal(init.body.get("type"), "input");
+      assert.equal(init.body.get("subfolder"), "fpai");
+      assert.equal(init.body.get("overwrite"), "true");
+      const file = init.body.get("image");
+      assert.ok(file);
+      assert.match(file.name, /^fpai-reference-[0-9a-f-]+-1\.png$/);
+      return Response.json({ name: file.name, subfolder: "fpai", type: "input" });
     }
-    if (String(url).endsWith("/api/v2/jobs")) {
+    if (parsed.pathname === "/prompt") {
       assert.equal(init.method, "POST");
-      assert.ok(init.headers.get("idempotency-key"));
       const body = JSON.parse(init.body);
-      const node = body.workflow["1"].inputs;
+      assert.equal(body.client_id, "fpai-studio-test");
+      const node = body.prompt["1"].inputs;
       assert.equal(node.prompt, "Marcus hero reveal");
       assert.equal(node.duration, 6);
       assert.equal(node.width, 1280);
       assert.equal(node.height, 720);
-      assert.deepEqual(node.reference, {
-        __type: "core/ASSET",
-        info: {
-          id: "asset-ref-1",
-          hash: "blake3:test",
-          file_path: "fpai/reference.png",
-        },
-      });
-      return Response.json({ id: "job-123", status: "queued" }, { status: 201 });
+      assert.match(node.reference, /^fpai\/fpai-reference-[0-9a-f-]+-1\.png$/);
+      return Response.json({ prompt_id: "job-123", number: 1, node_errors: {} });
     }
     throw new Error(`Unexpected request ${url}`);
   };
@@ -99,26 +94,27 @@ test("ComfyUI accepts references on 6-second jobs and injects API workflow place
 
 test("ComfyUI maps succeeded MP4 output, asset retrieval, quote, and cancel cost", async () => {
   const fetchImpl = async (url, init = {}) => {
-    const path = new URL(url).pathname;
-    if (path === "/api/v2/jobs/job-123" && init.method !== "POST")
+    const parsed = new URL(url);
+    if (parsed.pathname === "/history/job-123" && init.method !== "POST")
       return Response.json({
-        id: "job-123",
-        status: "succeeded",
-        outputs: [
-          {
-            id: "video-asset",
-            type: "video",
-            content_type: "video/mp4",
-            name: "film.mp4",
+        "job-123": {
+          status: { status_str: "success", completed: true },
+          outputs: {
+            "9": {
+              gifs: [{ filename: "film.mp4", subfolder: "", type: "output" }],
+            },
           },
-        ],
+        },
       });
-    if (path === "/api/v2/jobs/job-123/cancel")
-      return Response.json({ id: "job-123", status: "canceling" });
-    if (path === "/api/v2/assets/video-asset/content")
+    if (parsed.pathname === "/queue") return new Response(null, { status: 200 });
+    if (parsed.pathname === "/interrupt") return new Response(null, { status: 200 });
+    if (parsed.pathname === "/view") {
+      assert.equal(parsed.searchParams.get("filename"), "film.mp4");
+      assert.equal(parsed.searchParams.get("type"), "output");
       return new Response(new Uint8Array([0, 0, 0, 24]), {
         headers: { "content-type": "video/mp4" },
       });
+    }
     throw new Error(`Unexpected request ${url}`);
   };
   const provider = createComfyProvider(env(), fetchImpl);
@@ -128,7 +124,7 @@ test("ComfyUI maps succeeded MP4 output, asset retrieval, quote, and cancel cost
   assert.equal(status.status, "completed");
   assert.equal(status.actualCost, 0.18);
   assert.deepEqual(status.asset, {
-    id: "video-asset",
+    id: VIDEO_ASSET_ID,
     contentType: "video/mp4",
   });
   const bytes = await provider.asset({
@@ -139,6 +135,15 @@ test("ComfyUI maps succeeded MP4 output, asset retrieval, quote, and cancel cost
   const canceled = await provider.cancel(job);
   assert.equal(canceled.status, "canceled");
   assert.equal(canceled.actualCost, 0.18);
+});
+
+test("ComfyUI treats missing history as running", async () => {
+  const provider = createComfyProvider(env(), async (url) => {
+    if (new URL(url).pathname === "/history/job-123") return Response.json({});
+    throw new Error(`Unexpected request ${url}`);
+  });
+  const status = await provider.status({ operation_id: "job-123", estimated_cost: 0.18 });
+  assert.equal(status.status, "running");
 });
 
 test("ComfyUI follows signed output redirects without forwarding the API key", async () => {
@@ -156,7 +161,7 @@ test("ComfyUI follows signed output redirects without forwarding the API key", a
   };
   const provider = createComfyProvider(env(), fetchImpl);
   const response = await provider.asset({
-    asset_json: JSON.stringify({ id: "video-asset" }),
+    asset_json: JSON.stringify({ id: VIDEO_ASSET_ID }),
   });
   assert.equal(await response.text(), "mp4");
   assert.equal(calls.length, 2);
@@ -178,15 +183,22 @@ test("ComfyUI rejects UI-format workflow JSON before submitting a job", async ()
   assert.equal(calls, 0);
 });
 
+test("ComfyUI video start remains behind the live-render gate", async () => {
+  const provider = createComfyProvider(
+    env({ LIVE_RENDERING_ENABLED: "false" }),
+    async () => {
+      throw new Error("ComfyUI must not be contacted while live rendering is disabled");
+    },
+  );
+  await assert.rejects(provider.start(input()), /Live rendering is disabled/);
+});
+
 test("ambiguous ComfyUI job submission is marked uncertain and not safe to resubmit", async () => {
   const provider = createComfyProvider(
     env(),
     async (url) => {
-      if (String(url).endsWith("/api/v2/assets"))
-        return Response.json(
-          { id: "asset-ref-1", hash: null, file_path: "ref.png" },
-          { status: 201 },
-        );
+      if (new URL(url).pathname === "/upload/image")
+        return Response.json({ name: "ref.png", subfolder: "fpai", type: "input" });
       throw new Error("connection dropped after submit");
     },
   );
