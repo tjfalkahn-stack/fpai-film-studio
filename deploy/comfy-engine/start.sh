@@ -4,19 +4,20 @@ set -euo pipefail
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-/workspace}"
 COMFY_ROOT="${COMFY_ROOT:-${WORKSPACE_ROOT}/ComfyUI}"
 STATE_ROOT="${FPAI_STATE_ROOT:-${WORKSPACE_ROOT}/fpai-state}"
-SOURCE_COMFY="/opt/ComfyUI"
+SOURCE_COMFY="/opt/comfyui-baked"
 
 mkdir -p "${WORKSPACE_ROOT}" "${STATE_ROOT}" "${WORKSPACE_ROOT}/models/checkpoints"
 
-if [ ! -d "${COMFY_ROOT}/.git" ]; then
-  echo "Initializing persistent ComfyUI workspace..."
+if [ ! -f "${COMFY_ROOT}/main.py" ]; then
+  echo "Initializing persistent ComfyUI workspace from RunPod baked bundle..."
+  rm -rf "${COMFY_ROOT}"
   cp -a "${SOURCE_COMFY}" "${COMFY_ROOT}"
 fi
 
 mkdir -p "${COMFY_ROOT}/input/fpai" "${COMFY_ROOT}/output" "${COMFY_ROOT}/models/checkpoints"
 
 if [ -n "${SDXL_CHECKPOINT_URL:-}" ] && [ ! -f "${COMFY_ROOT}/models/checkpoints/sd_xl_base_1.0.safetensors" ]; then
-  echo "Downloading configured SDXL checkpoint..."
+  echo "Downloading configured SDXL checkpoint to persistent storage..."
   curl -fL --retry 5 --retry-delay 3 "${SDXL_CHECKPOINT_URL}" -o "${COMFY_ROOT}/models/checkpoints/sd_xl_base_1.0.safetensors.part"
   mv "${COMFY_ROOT}/models/checkpoints/sd_xl_base_1.0.safetensors.part" "${COMFY_ROOT}/models/checkpoints/sd_xl_base_1.0.safetensors"
 fi
@@ -27,7 +28,7 @@ if [ -z "${FPAI_COMFY_API_KEY:-}" ]; then
 fi
 
 cd "${COMFY_ROOT}"
-python main.py --listen 127.0.0.1 --port 8188 --disable-auto-launch &
+python3.12 main.py --listen 127.0.0.1 --port 8188 --disable-auto-launch &
 COMFY_PID=$!
 
 cleanup() {
@@ -52,4 +53,4 @@ for i in $(seq 1 120); do
 done
 
 cd /opt/fpai
-exec uvicorn proxy:app --host 0.0.0.0 --port "${PORT:-8000}" --workers 1
+exec python3.12 -m uvicorn proxy:app --host 0.0.0.0 --port "${PORT:-8000}" --workers 1
