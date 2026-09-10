@@ -12,9 +12,10 @@ The remaining product work and external activation requirements are listed expli
 - Feature branch: `astra/autonomous-film-engine`
 - Inspected main baseline: `e7495c6`
 - Integrated Character Bible work: PR #14, `39f4e35`. The feature branch includes that commit; this task did not merge PR #14 into main.
-- Domain/ingestion milestone: `9a22314`
-- Persistence/mock workflow milestone: `2c2d684`
-- Later interface/validation commits appear in the feature branch log and pull request.
+- Domain/ingestion milestone: `f1b8860`
+- Persistence/mock workflow milestone: `da738cd`
+- Creator workspace/validation milestone: `d36d6c0`
+- Pull request: https://github.com/tjfalkahn-stack/fpai-film-studio/pull/15
 
 The original `const seedShots` and `const seed` source block is unchanged byte-for-byte. `tests/fixtures/film-seed.sha256` checks the inspected baseline. The engine links an immutable copy of browser production on an explicit owner action; it never writes back to the old localStorage production. It preserves legacy `sec`, `move`, `prompt`, `approved`, stable IDs, and locked status. The snapshot retains every original field, even fields outside the new engine model.
 
