@@ -1,5 +1,9 @@
 import { providers, providerFor } from "./providers/index.js";
 import { fail, validateInput, ProviderError } from "./providers/contract.js";
+import {
+  resolveProviderReferenceImages,
+  selectStoredCharacterReferences,
+} from "./characterReferences.js";
 
 const json = (body, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -50,6 +54,7 @@ export function config(env) {
 export function publicRender(row) {
   const input = JSON.parse(row.input_json);
   const capabilities = providerFor(row.provider, {}).capabilities;
+  const selection = input.characterReferenceSelection || null;
   return {
     id: row.id,
     renderId: row.id,
@@ -75,6 +80,23 @@ export function publicRender(row) {
       : null,
     error: row.error_json ? JSON.parse(row.error_json) : null,
     createdAt: row.created_at,
+    debug: {
+      characterReferenceSelection: selection,
+      selectedAssetIds: (selection?.selected || []).map((item) => item.assetId),
+      transmittedAssetIds: (selection?.transmitted || []).map((item) => item.assetId),
+      lockVersions: selection?.lockVersions || null,
+      selectionReasons: (selection?.selected || []).map((item) => ({
+        assetId: item.assetId,
+        order: item.order,
+        reasons: item.reasons,
+      })),
+      providerMaxReferences: capabilities.maxReferences,
+      fallbackApplied: Boolean(selection?.fallbackApplied),
+      limitation: selection?.limitation || null,
+      referenceImagesTransmitted: Array.isArray(input.referenceImages)
+        ? input.referenceImages.length
+        : 0,
+    },
   };
 }
 async function readBody(request) {
@@ -104,7 +126,43 @@ async function readBody(request) {
     fail("INVALID_JSON", "JSON object required.");
   return body;
 }
-function inputFrom(body, env) {
+async function attachCharacterReferences(body, input, provider, env) {
+  const characterIds = Array.isArray(body.characterIds)
+    ? body.characterIds.filter(Boolean)
+    : [];
+  const characters = Array.isArray(body.characters) && body.characters.length
+    ? body.characters
+    : characterIds.map((id) => ({ id }));
+  if (!characters.length) return input;
+  const shot = {
+    id: input.shotId,
+    scene: input.sceneId,
+    subject: body.shotSubject || body.subject || "",
+    move: body.shotMove || body.move || "",
+    prompt: input.prompt,
+    wardrobe: body.wardrobe || "",
+    ...(body.shotContext || {}),
+  };
+  const selection = await selectStoredCharacterReferences(env, {
+    projectId: input.projectId,
+    characters,
+    shot,
+    providerMaxReferences: provider.capabilities.maxReferences,
+  });
+  input.characterReferenceSelection = selection;
+  const hasInlineBytes = (input.referenceImages || []).some((ref) => ref?.data);
+  if (!hasInlineBytes && selection.transmitted.length) {
+    input.referenceImages = await resolveProviderReferenceImages(
+      env,
+      input.projectId,
+      selection,
+      provider.capabilities,
+    );
+  }
+  return input;
+}
+
+async function inputFrom(body, env) {
   const input = Object.fromEntries(
     [
       "projectId",
@@ -119,14 +177,16 @@ function inputFrom(body, env) {
       "continuity",
     ].map((k) => [k, body[k]]),
   );
+  if (!Array.isArray(input.referenceImages)) input.referenceImages = [];
   const provider = providerFor(input.provider, env);
-  validateInput(input, provider.capabilities);
   if (input.projectId !== config(env).projectId)
     fail(
       "PROJECT_SCOPE",
       "Project is not enabled for this render service.",
       403,
     );
+  await attachCharacterReferences(body, input, provider, env);
+  validateInput(input, provider.capabilities);
   return { input, provider };
 }
 function liveGate(input, env) {
@@ -148,7 +208,11 @@ function liveGate(input, env) {
       "CONTINUITY_BLOCKED",
       "Character continuity, shot timing, and scene animatic must be approved.",
     );
-  if (c.hasCharacters && !input.referenceImages.length)
+  if (
+    c.hasCharacters &&
+    !input.referenceImages.length &&
+    !input.characterReferenceSelection?.selected?.length
+  )
     fail(
       "CONTINUITY_BLOCKED",
       "Character shots require selected reference images.",
@@ -156,7 +220,7 @@ function liveGate(input, env) {
 }
 async function create(request, env) {
   const body = await readBody(request);
-  const { input, provider } = inputFrom(body, env);
+  const { input, provider } = await inputFrom(body, env);
   const policy = config(env);
   const quote = provider.estimate(input);
   if (body.estimateOnly === true)
@@ -165,6 +229,28 @@ async function create(request, env) {
       liveEnabled: policy.liveEnabled,
       policy,
       capabilities: provider.capabilities,
+      characterReferenceSelection: input.characterReferenceSelection || null,
+      debug: {
+        characterReferenceSelection: input.characterReferenceSelection || null,
+        selectedAssetIds: (input.characterReferenceSelection?.selected || []).map(
+          (item) => item.assetId,
+        ),
+        transmittedAssetIds: (
+          input.characterReferenceSelection?.transmitted || []
+        ).map((item) => item.assetId),
+        lockVersions: input.characterReferenceSelection?.lockVersions || null,
+        selectionReasons: (input.characterReferenceSelection?.selected || []).map(
+          (item) => ({
+            assetId: item.assetId,
+            order: item.order,
+            reasons: item.reasons,
+          }),
+        ),
+        providerMaxReferences: provider.capabilities.maxReferences,
+        fallbackApplied: Boolean(input.characterReferenceSelection?.fallbackApplied),
+        limitation: input.characterReferenceSelection?.limitation || null,
+        referenceImagesTransmitted: input.referenceImages.length,
+      },
     });
   if (
     typeof body.requestKey !== "string" ||
@@ -202,9 +288,12 @@ async function create(request, env) {
     ...input,
     referenceImages: input.referenceImages.map((ref) => ({
       mimeType: ref.mimeType,
+      ...(ref.assetId ? { assetId: ref.assetId, characterId: ref.characterId } : {}),
     })),
+    characterReferenceSelection: input.characterReferenceSelection || null,
   };
-  if (input.referenceImages.length)
+  const hasInlineBytes = input.referenceImages.some((ref) => ref.data);
+  if (hasInlineBytes)
     await env.GENERATION_MEDIA.put(
       `render-inputs/${id}.json`,
       JSON.stringify(input),
@@ -250,7 +339,7 @@ async function create(request, env) {
     .bind(input.projectId, body.requestKey)
     .first();
   if (!row || row.id !== id) {
-    if (input.referenceImages.length)
+    if (hasInlineBytes)
       await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
   }
   if (!row)
@@ -301,7 +390,9 @@ export async function advance(env, row) {
     if (!claim.meta.changes) return get(env, row.id);
     try {
       let input = JSON.parse(row.input_json);
-      if (input.referenceImages.length) {
+      const refs = input.referenceImages || [];
+      const storedInline = refs.some((ref) => ref?.mimeType && !ref.assetId);
+      if (storedInline && refs.length) {
         const stored = await env.GENERATION_MEDIA.get(
           `render-inputs/${row.id}.json`,
         );
@@ -312,6 +403,13 @@ export async function advance(env, row) {
             503,
           );
         input = await stored.json();
+      } else if (input.characterReferenceSelection?.transmitted?.length) {
+        input.referenceImages = await resolveProviderReferenceImages(
+          env,
+          row.project_id,
+          input.characterReferenceSelection,
+          provider.capabilities,
+        );
       }
       const started = await provider.start(input);
       await db

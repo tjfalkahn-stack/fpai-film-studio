@@ -16,7 +16,7 @@ before(async () => {
     r2Buckets: ["GENERATION_MEDIA"],
   });
   db = await mf.getD1Database("GENERATION_DB");
-  for (const file of ["worker/schema.sql", "worker/render-schema.sql"]) {
+  for (const file of ["worker/schema.sql", "worker/render-schema.sql", "worker/character-schema.sql"]) {
     const sql = readFileSync(
       new URL(`../${file}`, import.meta.url),
       "utf8",

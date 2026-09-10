@@ -149,7 +149,7 @@ That produces a planning forecast of approximately **$123.82**, compared with a 
 
 - **Overview:** production readiness and economy summary.
 - **Economy:** forecast controls, budget targets, compiler output, and route performance.
-- **Characters:** canonical identity, profile, full-body, expression, and wardrobe references.
+- **Characters:** canonical identity, profile, full-body, expression, and wardrobe references, plus a per-character **Reference Library** of individual photos stored in R2/D1.
 - **Scenes:** animatic lock and scene status.
 - **Shots:** route, billed duration, cost, attempt limits, reuse, and local-repair controls.
 - **Takes:** generated footage review, salvage timecodes, continuity scoring, and approval.
@@ -186,6 +186,7 @@ The implemented provider-neutral render contract, Cloudflare setup, cost account
 The current suite covers:
 
 - canonical character references and lock migration;
+- multi-photo character reference libraries, coverage, lock versions, and deterministic shot selection;
 - production-budget locking and audit history;
 - economy metadata in ledger entries;
 - Omni flexible duration and Veo fixed-duration planning;

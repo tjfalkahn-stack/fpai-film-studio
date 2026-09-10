@@ -8,6 +8,7 @@ FPAI_CONTROL_TOKEN = "local-mock-only-token"
 RENDER_PROJECT_CEILING_USD = "20"
 RENDER_SESSION_CEILING_USD = "10"
 RENDER_SESSION_ID = "foundation-01"
+CHARACTER_REFERENCE_SUPPORTING_LIMIT = "5"
 [[d1_databases]]
 binding = "GENERATION_DB"
 database_name = "fpai-film-studio-generation"

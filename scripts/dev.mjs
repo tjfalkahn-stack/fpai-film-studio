@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 const local = ["--config", "wrangler.render.local.toml"];
-for (const file of ["worker/schema.sql", "worker/render-schema.sql"]) {
+for (const file of ["worker/schema.sql", "worker/render-schema.sql", "worker/character-schema.sql"]) {
   const result = spawnSync(
     "npx",
     [

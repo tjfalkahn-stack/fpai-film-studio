@@ -59,11 +59,18 @@ export default function RenderPanel({
     // Fail closed when local metadata points to missing blobs before any paid submission.
     if (capabilities?.paid) {
       for (const c of characters)
-        for (const r of Object.values(c.refs || {}))
+        for (const r of Object.values(c.refs || {})) {
+          if (r.assetUrl || String(r.key || "").startsWith("library:")) continue;
           if (!(await getMedia(r.key)))
             throw new Error(
               `${c.name}: a Character Bible image is missing from browser storage.`,
             );
+        }
+    }
+    const inline = [];
+    for (const key of selected) {
+      const file = await getMedia(key);
+      if (file) inline.push(await encodeImage(file));
     }
     return {
       projectId: project.id,
@@ -74,9 +81,20 @@ export default function RenderPanel({
       duration,
       resolution,
       aspectRatio,
-      referenceImages: await Promise.all(
-        selected.map(async (key) => encodeImage(await getMedia(key))),
-      ),
+      referenceImages: inline,
+      characterIds: characters.map((c) => c.id),
+      characters: characters.map((c) => ({
+        id: c.id,
+        name: c.name,
+        wardrobe: c.wardrobe,
+      })),
+      shotSubject: shot.subject,
+      shotMove: shot.move,
+      shotContext: {
+        subject: shot.subject,
+        move: shot.move,
+        prompt: plan.prompt,
+      },
       continuity: {
         ready: continuity.ready,
         animaticLocked: Boolean(scene?.animaticLocked),
@@ -113,6 +131,9 @@ export default function RenderPanel({
     continuity.ready,
     scene?.animaticLocked,
     shot.economy?.animaticApproved,
+    shot.subject,
+    shot.move,
+    characters.map((c) => c.id).join("|"),
   ]);
   const paidAttempts = active.filter(
     (r) => r.provider !== "mock" && r.status !== "canceled",
@@ -128,7 +149,9 @@ export default function RenderPanel({
         ? "Complete and lock the Character Bible first."
         : !scene?.animaticLocked || !shot.economy?.animaticApproved
           ? "Approve shot timing and lock the scene animatic first."
-          : characters.length && !selected.length
+          : characters.length &&
+              !selected.length &&
+              !quote?.debug?.selectedAssetIds?.length
             ? "Select character reference images."
             : paidAttempts >= (shot.economy?.maxAttempts || 2)
               ? "Shot attempt limit reached."
@@ -251,15 +274,21 @@ export default function RenderPanel({
         </label>
       </div>
       <p>
-        Final edit: {shot.sec}s. Source clip: {duration}s. Select up to three
-        references for rendering; all Bible references remain saved.
+        Final edit: {shot.sec}s. Source clip: {duration}s. The worker selects
+        the Primary Identity image plus up to five supporting library photos
+        for this shot. Manual PNG/JPEG boxes remain for older Bible uploads.
+        Veo Fast transmits at most {capabilities?.id === "veo-fast" ? 3 : capabilities?.maxReferences || 3}{" "}
+        images; the full selected set is preserved in the mock/debug manifest.
       </p>
       {refs.map((ref) => (
         <label key={ref.key} className="checkLabel">
           <input
             type="checkbox"
             checked={selected.includes(ref.key)}
-            disabled={!selected.includes(ref.key) && selected.length >= 3}
+            disabled={
+              !selected.includes(ref.key) &&
+              selected.length >= (capabilities?.maxReferences || 3)
+            }
             onChange={(e) =>
               setSelected(
                 e.target.checked
@@ -271,6 +300,28 @@ export default function RenderPanel({
           <span>{ref.label}</span>
         </label>
       ))}
+      {quote?.debug?.characterReferenceSelection && (
+        <div className="mockDebug">
+          <b>Selected generation references</b>
+          <small>
+            Lock versions:{" "}
+            {JSON.stringify(quote.debug.lockVersions || {})}
+            {quote.debug.fallbackApplied ? " · provider fallback applied" : ""}
+          </small>
+          <ol>
+            {(quote.debug.characterReferenceSelection.selected || []).map((item) => (
+              <li key={`${item.characterId}:${item.assetId}`}>
+                {item.order}. {item.assetId.slice(0, 8)} · {(item.reasons || []).join(", ")}
+                {quote.debug.transmittedAssetIds?.includes(item.assetId)
+                  ? " · transmitted"
+                  : " · manifest only"}
+              </li>
+            ))}
+          </ol>
+          {quote.debug.limitation && <p>{quote.debug.limitation}</p>}
+          <pre>{JSON.stringify(quote.debug, null, 2)}</pre>
+        </div>
+      )}
       {capabilities?.previewOnly && (
         <p>
           Mock produces a playable test slate. It does not simulate Marcus or
@@ -316,10 +367,21 @@ export default function RenderPanel({
                 Cancel render
               </button>
             )}
-            {r.status === "uncertain" && (
-              <p>
-                Submission outcome needs reconciliation. Reservation retained.
-              </p>
+            {r.debug?.characterReferenceSelection && (
+              <pre className="mockDebug">
+                {JSON.stringify(
+                  {
+                    selectedAssetIds: r.debug.selectedAssetIds,
+                    transmittedAssetIds: r.debug.transmittedAssetIds,
+                    lockVersions: r.debug.lockVersions,
+                    selectionReasons: r.debug.selectionReasons,
+                    fallbackApplied: r.debug.fallbackApplied,
+                    limitation: r.debug.limitation,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
             )}
           </div>
         ))}

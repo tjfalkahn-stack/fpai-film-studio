@@ -1,4 +1,5 @@
 import { renderRoutes, config as renderConfig } from "./renders.js";
+import { characterReferenceRoutes } from "./characterReferences.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -18,7 +19,7 @@ function corsHeaders(request, env) {
   return {
     ...(allowOrigin ? { "access-control-allow-origin": allowOrigin } : {}),
     "access-control-allow-headers": "authorization, content-type, x-fpai-owner-override",
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "access-control-max-age": "86400",
     vary: "Origin",
   };
@@ -339,6 +340,13 @@ export default {
     const auth = authorize(request, env);
     if (!auth.ok) return json({ error: auth.error }, auth.status, cors);
     try {
+      if (url.pathname.startsWith("/api/projects/") && url.pathname.includes("/characters/")) {
+        const response = await characterReferenceRoutes(request, env);
+        if (response) {
+          for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);
+          return response;
+        }
+      }
       if (url.pathname.startsWith("/api/renders") || url.pathname === "/api/renderers") return renderRoutes(request, env);
       if (url.pathname.startsWith("/api/generation-jobs") && request.method === "POST") return json({ error: "Legacy provider execution is disabled. Use /api/renders with the render cost gate." }, 403, cors);
       if (request.method === "POST" && url.pathname === "/api/generation-jobs") {
