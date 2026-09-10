@@ -407,7 +407,54 @@ export function parseScript(
 }
 export function diffScript(old: Script | undefined, next: Script) {
   const previous = old?.scenes || [];
+  const matched = next.scenes.flatMap((scene) => {
+    const before = previous.find((p) => p.id === scene.id);
+    return before ? [{ before, after: scene }] : [];
+  });
   return {
+    addedScenes: next.scenes
+      .filter((s) => !previous.some((p) => p.id === s.id))
+      .map((s) => ({ id: s.id, slugline: s.slugline, source: s.source })),
+    removedScenes: previous
+      .filter((s) => !next.scenes.some((n) => n.id === s.id))
+      .map((s) => ({ id: s.id, slugline: s.slugline, source: s.source })),
+    changedDialogue: matched
+      .filter(
+        ({ before, after }) =>
+          JSON.stringify(
+            before.dialogue.map((d) => [d.character, d.text, d.parenthetical]),
+          ) !==
+          JSON.stringify(
+            after.dialogue.map((d) => [d.character, d.text, d.parenthetical]),
+          ),
+      )
+      .map(({ before, after }) => ({
+        sceneId: after.id,
+        slugline: after.slugline,
+        before: before.dialogue,
+        after: after.dialogue,
+      })),
+    characterChanges: matched
+      .filter(
+        ({ before, after }) =>
+          JSON.stringify(before.characters) !==
+          JSON.stringify(after.characters),
+      )
+      .map(({ before, after }) => ({
+        sceneId: after.id,
+        before: before.characters,
+        after: after.characters,
+      })),
+    locationChanges: matched
+      .filter(
+        ({ before, after }) =>
+          before.location !== after.location || before.time !== after.time,
+      )
+      .map(({ before, after }) => ({
+        sceneId: after.id,
+        before: { location: before.location, time: before.time },
+        after: { location: after.location, time: after.time },
+      })),
     added: next.scenes
       .filter((s) => !previous.some((p) => p.id === s.id))
       .map((s) => s.id),
@@ -711,9 +758,14 @@ export function reduce(state: State, command: Command): State {
         id: s.id,
         duration: number(s.sec ?? s.duration ?? 8, 0.1, 600),
         prompt: s.prompt || s.subject,
-        movement: s.move || 'locked off',
+        movement: s.move || "locked off",
         characters: s.characters || [],
-        status: s.locked || /lock/i.test(s.status) ? "locked" : s.approved || /^approved$/i.test(s.status) ? "approved" : "draft",
+        status:
+          s.locked || /lock/i.test(s.status)
+            ? "locked"
+            : s.approved || /^approved$/i.test(s.status)
+              ? "approved"
+              : "draft",
         source: null,
         needsReview: true,
       }));
@@ -947,7 +999,10 @@ export function reduce(state: State, command: Command): State {
         shot.status !== "locked",
         "Locked shots stay preserved. Create an alternative.",
       );
-      requireThat(shot.status !== 'approved' || c.status === 'locked', 'Approved shots can only be locked. Create an alternative to revise them.');
+      requireThat(
+        shot.status !== "approved" || c.status === "locked",
+        "Approved shots can only be locked. Create an alternative to revise them.",
+      );
       shot.status = review(c.status);
       break;
     }

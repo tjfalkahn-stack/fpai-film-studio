@@ -79,6 +79,7 @@ import "./styles.css";
 import { approveTakeState, updateTakeState } from "./takeReview.js";
 import RenderPanel from "./RenderPanel.jsx";
 import { renderRequest, mergeRender } from "./renderClient.js";
+import FilmEngine from "./FilmEngine.jsx";
 import ReferenceLibrary from "./ReferenceLibrary.jsx";
 import { syncCanonicalRefsFromLibrary, LEGACY_SLOT_TO_LIBRARY } from "./characterReferences.js";
 import { uploadCharacterReference } from "./characterReferenceClient.js";
@@ -388,7 +389,7 @@ function App() {
     return () => { canceled = true; clearTimeout(timer); };
   }, []);
 
-  const tabs = ["Overview", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
+  const tabs = ["Overview", "Film Engine", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
   const character = data.characters.find((item) => item.id === characterId) || null;
   const shot = data.shots.find((item) => item.id === shotId) || null;
   const packageShot = data.shots.find((item) => item.id === packageShotId) || null;
@@ -735,6 +736,7 @@ function App() {
           <Metric label="PRODUCTION SPEND" value={formatMoney(productionBudget.spent)} detail={`${productionBudget.percentageUsed.toFixed(1)}% of ${formatMoney(productionBudget.currentBudget)}`} tone={productionBudget.warningState} />
         </section>
 
+        {tab === "Film Engine" && <FilmEngine production={data} onCast={() => setTab('Characters')} />}
         {tab === "Overview" && (
           <OverviewPage
             data={data}

@@ -388,9 +388,43 @@ test("original seed and shot block remain byte-for-byte unchanged from the inspe
   );
 });
 
-test('legacy sec, move, prompt and approval fields survive engine linking', () => {
-  const production = {shots:[{id:'027',scene:'001',subject:'Marcus hero reveal',sec:4.5,move:'Stabilized push-in',prompt:'Owner-approved prompt',characters:['marcus'],approved:true,status:'Hero'},{id:'002',scene:'001',subject:'Mikey',sec:2,characters:['mikey'],approved:false,status:'Planned'}]};
-  const state = reduce(emptyState('enemies-closer-ep01'),{type:'import-production',production});
-  assert.equal(state.shots[0].duration,4.5);assert.equal(state.shots[0].movement,'Stabilized push-in');assert.equal(state.shots[0].prompt,'Owner-approved prompt');assert.equal(state.shots[0].status,'approved');assert.equal(state.shots[1].status,'draft');assert.deepEqual(state.importedProduction,production);
-  assert.throws(()=>reduce(state,{type:'review-shot',id:'027',status:'draft'}),/alternative/);
+test("legacy sec, move, prompt and approval fields survive engine linking", () => {
+  const production = {
+    shots: [
+      {
+        id: "027",
+        scene: "001",
+        subject: "Marcus hero reveal",
+        sec: 4.5,
+        move: "Stabilized push-in",
+        prompt: "Owner-approved prompt",
+        characters: ["marcus"],
+        approved: true,
+        status: "Hero",
+      },
+      {
+        id: "002",
+        scene: "001",
+        subject: "Mikey",
+        sec: 2,
+        characters: ["mikey"],
+        approved: false,
+        status: "Planned",
+      },
+    ],
+  };
+  const state = reduce(emptyState("enemies-closer-ep01"), {
+    type: "import-production",
+    production,
+  });
+  assert.equal(state.shots[0].duration, 4.5);
+  assert.equal(state.shots[0].movement, "Stabilized push-in");
+  assert.equal(state.shots[0].prompt, "Owner-approved prompt");
+  assert.equal(state.shots[0].status, "approved");
+  assert.equal(state.shots[1].status, "draft");
+  assert.deepEqual(state.importedProduction, production);
+  assert.throws(
+    () => reduce(state, { type: "review-shot", id: "027", status: "draft" }),
+    /alternative/,
+  );
 });

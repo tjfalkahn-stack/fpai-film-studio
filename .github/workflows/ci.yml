@@ -24,5 +24,7 @@ jobs:
         run: npm ci
       - name: Test
         run: npm test
+      - name: Typecheck film domain
+        run: npm run typecheck
       - name: Build
         run: npm run build

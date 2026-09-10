@@ -1,5 +1,7 @@
 # FPAI Film Studio — Render Engine Foundation
 
+The new **Film Engine** workspace adds a persisted mock script-to-delivery workflow. See [Film Engine foundation, verification and remaining activation work](docs/FILM_ENGINE_FOUNDATION.md). It integrates the multi-photo Character Bible and preserves the original Enemies Closer seed and browser production. No live provider or final encoding is implied.
+
 Start with [local testing and deployment](docs/RENDER_ENGINE_SETUP.md) and the [repository audit](docs/RENDER_FOUNDATION_AUDIT.md). Mock renders execute with zero provider spend; Veo Fast is implemented behind disabled server gates. Existing production UI and seed data are preserved.
 
 The remaining v1.2 sections describe the retained economy planner. Executable providers and server cost controls are documented in the foundation runbook.
@@ -197,4 +199,3 @@ The current suite covers:
 - dry-run queue versus live execution separation;
 - salvage timecode parsing, clamping, merging, and reuse;
 - the 27-minute generation forecast.
-
