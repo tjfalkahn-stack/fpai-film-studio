@@ -472,14 +472,14 @@ svg{display:block}
 .libraryCard.excluded{opacity:.62}
 .libraryCheck{position:absolute;left:10px;top:10px;z-index:2}
 .libraryThumb{width:100%;padding:0;border:0;background:transparent;cursor:zoom-in}
-.libraryThumb img{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:8px;background:#070609}
+.libraryThumb img{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:8px;background:#070609;min-height:160px}
 .libraryCard>b,.libraryCard>small{display:block}
 .libraryCard>b{margin-top:7px;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .libraryCard>small{margin-top:3px;color:#746c7a;font-size:6.5px}
 .libraryTags{display:flex;flex-wrap:wrap;gap:4px;margin:7px 0}
 .libraryActions{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
 .compactForm{margin-top:6px}
-.previewOverlay{align-items:center;justify-content:center}
+.previewOverlay{align-items:center;justify-content:center;position:fixed;inset:0;transform:none;z-index:80}
 .previewFrame,.confirmCard{position:relative;width:min(720px,90vw);padding:18px;border:1px solid #3a3148;border-radius:14px;background:#120f18;box-shadow:var(--shadow)}
 .previewFrame img{width:100%;max-height:72vh;object-fit:contain;border-radius:8px;background:#05040a}
 .previewFrame p{margin:10px 0 0;color:#8d8493;font-size:8px}
