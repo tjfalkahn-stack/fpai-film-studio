@@ -19,7 +19,9 @@ test("first controlled Seedance test is prepared and must not execute", () => {
   assert.equal(plan.liveFlagsRequired.SEEDANCE_LIVE_ENABLED, "true");
   assert.equal(plan.liveFlagsRequired.LIVE_RENDERING_ENABLED, undefined);
   assert.equal(plan.liveFlagsRequired.MOCK_E2E_VERIFIED, undefined);
-  assert.equal(plan.liveFlagsForbidden.LIVE_RENDERING_ENABLED, "true");
+  assert.equal(plan.liveFlagsForbidden, undefined);
+  assert.equal(plan.liveFlagsMustStayFalse.LIVE_RENDERING_ENABLED, "false");
+  assert.equal(plan.liveFlagsMustStayFalse.MOCK_E2E_VERIFIED, "false");
   assert.equal(plan.liveFlagsInThisRepo.LIVE_RENDERING_ENABLED, "false");
   assert.equal(plan.liveFlagsInThisRepo.MOCK_E2E_VERIFIED, "false");
   assert.equal(plan.liveFlagsInThisRepo.SEEDANCE_LIVE_ENABLED, "false");
@@ -34,6 +36,8 @@ test("first controlled Seedance test is prepared and must not execute", () => {
   assert.equal(plan.blockedUntil.some((item) => item.includes("Worker secret")), true);
   assert.equal(plan.blockedUntil.some((item) => item.includes("LIVE_RENDERING_ENABLED remains false")), true);
   assert.equal(JSON.stringify(plan).includes("test-fal-key"), false);
+  assert.equal(/"LIVE_RENDERING_ENABLED"\s*:\s*"true"/.test(JSON.stringify(plan)), false);
+  assert.equal(/"MOCK_E2E_VERIFIED"\s*:\s*"true"/.test(JSON.stringify(plan)), false);
 });
 
 test("Seedance controlled-test allowlist rejects off-plan inputs and costs above $1.46", () => {
@@ -58,4 +62,20 @@ test("Seedance controlled-test allowlist rejects off-plan inputs and costs above
   assert.ok(seedancePlanMismatches({ ...allowed, provider: "seedance-standard" }).includes("provider"));
   assert.ok(seedancePlanMismatches({ ...allowed, duration: 8 }).includes("duration"));
   assert.ok(seedancePlanMismatches({ ...allowed, referenceImages: [] }).includes("mode"));
+});
+
+test("Seedance authorization source does not read Veo live-render flags", () => {
+  const seedance = readFileSync(new URL("../worker/providers/seedance.js", import.meta.url), "utf8");
+  const controlled = readFileSync(new URL("../src/seedanceControlledTest.js", import.meta.url), "utf8");
+  const docs = readFileSync(new URL("../docs/RENDER_ENGINE_SETUP.md", import.meta.url), "utf8");
+  const seedanceDocs = docs.slice(docs.indexOf("## Seedance 2.0"));
+  assert.equal(seedance.includes("LIVE_RENDERING_ENABLED"), false);
+  assert.equal(seedance.includes("MOCK_E2E_VERIFIED"), false);
+  assert.equal(controlled.includes("LIVE_RENDERING_ENABLED"), false);
+  assert.equal(controlled.includes("MOCK_E2E_VERIFIED"), false);
+  assert.match(controlled, /SEEDANCE_LIVE_ENABLED === "true"/);
+  assert.equal(seedanceDocs.includes("all three live flags"), false);
+  assert.match(seedanceDocs, /Do not set `MOCK_E2E_VERIFIED=true` to authorize Seedance/);
+  assert.match(seedanceDocs, /SEEDANCE_LIVE_ENABLED=true/);
+  assert.match(seedanceDocs, /LIVE_RENDERING_ENABLED` must remain `false`/);
 });

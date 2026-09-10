@@ -71,8 +71,9 @@ const packet = {
   liveFlagsRequired: {
     SEEDANCE_LIVE_ENABLED: "true",
   },
-  liveFlagsForbidden: {
-    LIVE_RENDERING_ENABLED: "true",
+  liveFlagsMustStayFalse: {
+    LIVE_RENDERING_ENABLED: "false",
+    MOCK_E2E_VERIFIED: "false",
   },
   liveFlagsInThisRepo: {
     LIVE_RENDERING_ENABLED: "false",
