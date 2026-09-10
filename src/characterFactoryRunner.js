@@ -12,6 +12,8 @@ export async function runCharacterFactoryPlan({
   pollIntervalMs = 1500,
   width = 1024,
   height = 1024,
+  steps,
+  cfg,
 }) {
   if (!plan?.jobs?.length) throw new Error("Character Factory plan is required.");
   if (!executor?.start || !executor?.status || !executor?.asset) throw new Error("Character executor is required.");
@@ -25,9 +27,12 @@ export async function runCharacterFactoryPlan({
       const quote = executor.estimate?.({ job, plan }) || { estimatedCost: 0 };
       const start = await executor.start({
         prompt: job.prompt,
+        negativePrompt: job.negativePrompt || plan.negativePrompt,
         width,
         height,
-        seed: -1,
+        seed: job.seed ?? plan.seed ?? -1,
+        steps,
+        cfg,
         filenamePrefix: `${plan.character.id}-${job.category}-${job.taskId}-a${attemptNumber}`,
         referenceImages: job.referenceImages || plan.referenceImages || [],
       });

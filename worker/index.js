@@ -1,6 +1,7 @@
 import { renderRoutes, config as renderConfig } from "./renders.js";
 import { characterReferenceRoutes } from "./characterReferences.js";
 import { filmRoutes } from "./filmEngine.js";
+import { createCharacterFactoryRuntime } from "./characterFactoryRuntime.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -351,6 +352,11 @@ export default {
           for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);
           return response;
         }
+      }
+      if (url.pathname === "/api/character-factory/preflight" && request.method === "GET") {
+        const runtime = createCharacterFactoryRuntime(env);
+        const preflight = await runtime.preflight();
+        return json(preflight, preflight.ready ? 200 : 503, cors);
       }
       if (url.pathname.startsWith("/api/renders") || url.pathname === "/api/renderers") return renderRoutes(request, env);
       if (url.pathname.startsWith("/api/generation-jobs") && request.method === "POST") return json({ error: "Legacy provider execution is disabled. Use /api/renders with the render cost gate." }, 403, cors);

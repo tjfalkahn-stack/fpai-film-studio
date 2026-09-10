@@ -577,6 +577,8 @@ export async function resolveProviderReferenceImages(env, projectId, selection, 
       data: bufferToBase64(bytes),
       assetId: item.assetId,
       characterId: item.characterId,
+      category: item.category || null,
+      expression: item.expression || null,
     });
   }
   return images;

@@ -18,10 +18,11 @@ Film Studio no longer depends on that surface.
 ## Preferred activation (native RunPod)
 
 1. Deploy RunPod’s ComfyUI template with HTTP 8188.
-2. Set Film Studio `COMFYUI_BASE_URL` to `https://<POD_ID>-8188.proxy.runpod.net`.
-3. Keep `CHARACTER_FACTORY_LIVE_ENABLED=false` and `LIVE_RENDERING_ENABLED=false` until a private smoke still succeeds.
-4. Run one Marcus still, review real GPU time and cost, then set `COMFYUI_CHARACTER_COST_PER_IMAGE_USD` from the observed rate before the benchmark run.
+2. Run `bash deploy/runpod-comfyui/bootstrap.sh` on the Pod (see [RUNPOD_COMFYUI.md](../../docs/RUNPOD_COMFYUI.md)).
+3. Set Film Studio `COMFYUI_BASE_URL` to `https://<POD_ID>-8188.proxy.runpod.net`.
+4. Keep `CHARACTER_FACTORY_LIVE_ENABLED=false` and `LIVE_RENDERING_ENABLED=false` until a private one-still Jasmine test succeeds.
+5. After that still, set `COMFYUI_CHARACTER_COST_PER_IMAGE_USD` from the observed rate before any Marcus matrix.
 
 ## Workflow strategy
 
-The first packaged workflow is a baseline SDXL character-still graph that works with stock ComfyUI nodes. It gives us a real, runnable benchmark path first. Reference-image identity control is layered on next with a dedicated identity workflow once the target custom nodes/models are installed and verified on the live GPU.
+Character Factory uses a Film Studio–owned photoreal identity graph (RealVisXL V5.0 + IPAdapter Plus, multiple Character Bible references). The stock DreamShaper starter demo is not used. The SDXL text-only file in `workflows/character-still-sdxl-api.json` is a historical baseline only.

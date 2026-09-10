@@ -1,0 +1,106 @@
+{
+  "schema": "fpai.character-factory.first-test.v1",
+  "execute": false,
+  "maxImages": 1,
+  "stackId": "fpai-character-still-photoreal-sdxl-v1",
+  "stackLabel": "FPAI Photoreal Character Still · RealVisXL V5.0 + IPAdapter Plus",
+  "liveFlagsRequired": {
+    "CHARACTER_FACTORY_LIVE_ENABLED": "true",
+    "LIVE_RENDERING_ENABLED": "false"
+  },
+  "liveFlagsInThisRepo": {
+    "CHARACTER_FACTORY_LIVE_ENABLED": "false",
+    "LIVE_RENDERING_ENABLED": "false"
+  },
+  "objective": [
+    "Comfy connectivity",
+    "Character Bible reference upload via POST /upload/image",
+    "FPAI identity workflow submission via POST /prompt",
+    "Identity conditioning from multiple references",
+    "Output retrieval via GET /view",
+    "QC evaluation",
+    "manifest.json + character.json",
+    "budget accounting in the factory ledger"
+  ],
+  "blockedUntil": [
+    "RunPod ComfyUI Pod is started",
+    "deploy/runpod-comfyui/bootstrap.sh has completed",
+    "GET /api/character-factory/preflight returns ready=true",
+    "Jasmine Character Bible images exist (identity/front, and supporting angles if available)",
+    "Owner explicitly sets CHARACTER_FACTORY_LIVE_ENABLED=true for this one image only"
+  ],
+  "plan": {
+    "schema": "fpai.character-factory.plan.v1",
+    "version": "1.0.0",
+    "createdAt": "2026-09-10T16:27:29.143Z",
+    "character": {
+      "id": "jasmine",
+      "name": "Jasmine",
+      "role": "Lead",
+      "age": "adult",
+      "height": "",
+      "build": "",
+      "skinTone": "",
+      "hair": "",
+      "facialHair": "",
+      "face": "",
+      "eyes": "",
+      "distinguishingFeatures": [],
+      "voice": "",
+      "behavior": "",
+      "wardrobe": [
+        "Tarmac Look 01"
+      ],
+      "protectedTraits": [
+        "consistent canonical facial identity from Character Bible photographs",
+        "same apparent age across generations"
+      ],
+      "negativeTraits": [
+        "identity drift",
+        "different person",
+        "duplicate character",
+        "extra limbs",
+        "warped hands",
+        "text or watermark"
+      ]
+    },
+    "medium": "cinematic",
+    "mediumLabel": "Photoreal / Cinematic",
+    "jobs": [
+      {
+        "id": "jasmine/angles/identity-front",
+        "category": "angle",
+        "taskId": "identity-front",
+        "label": "Identity Front",
+        "required": true,
+        "wardrobe": "Tarmac Look 01",
+        "prompt": "photoreal cinematic live-action, natural skin texture, physically plausible lighting, restrained film grain. CHARACTER IDENTITY: Jasmine; role: Lead; age: adult. FRAME: head-and-shoulders straight-on portrait. WARDROBE: Tarmac Look 01. EXPRESSION: neutral. LIGHTING: neutral studio lighting. LENS: 50mm lens. Keep facial identity, apparent age, body proportions, height impression, skin tone, hairline, and distinguishing features consistent with the canonical identity. Single character only unless explicitly requested. Clean production reference image. No text, watermark, collage, duplicate person, or contact sheet.  Preserve exactly: consistent canonical facial identity from Character Bible photographs, same apparent age across generations.  Avoid: identity drift, different person, duplicate character, extra limbs, warped hands, text or watermark.",
+        "referenceImages": []
+      }
+    ],
+    "totals": {
+      "jobs": 1,
+      "angles": 1,
+      "expressions": 0,
+      "wardrobe": 0,
+      "continuity": 0
+    },
+    "outputLayout": {
+      "root": "jasmine",
+      "accepted": [
+        "identity",
+        "angles",
+        "expressions",
+        "full_body",
+        "wardrobe",
+        "continuity_tests"
+      ],
+      "rejected": "rejected",
+      "characterManifest": "character.json",
+      "benchmarkManifest": "manifest.json"
+    },
+    "smokeTest": true,
+    "maxImages": 1,
+    "referenceImages": []
+  }
+}

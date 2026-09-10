@@ -85,7 +85,7 @@ The repository contains a server-side native ComfyUI provider for video (`/promp
 
 The current benchmark planner is intentionally non-rendering. This lets the factory contract and Marcus matrix be tested without consuming GPU/API spend or weakening the existing live-render gate.
 
-The next implementation slice is a dedicated still-image Character Factory executor using a private Comfy API-format image workflow. It should submit each planned job, persist accepted/rejected images, run the QC contract, regenerate failures up to an owner-configured attempt cap, and emit `character.json` plus `manifest.json` when complete.
+The still-image executor, photoreal identity workflow, RunPod bootstrap, and Comfy preflight now exist. Live generation remains disabled. The first authorized GPU action after merge is a **single Jasmine still**, not the full Marcus matrix. See [RUNPOD_COMFYUI.md](RUNPOD_COMFYUI.md).
 
 ## Why this is the foundation for script-to-studio
 

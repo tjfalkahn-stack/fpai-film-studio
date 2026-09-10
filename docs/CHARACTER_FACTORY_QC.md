@@ -63,13 +63,12 @@ This gives the benchmark a durable record of retries, failed images, accepted im
 ## Marcus Benchmark 001 activation order
 
 1. Deploy native ComfyUI (RunPod’s built-in ComfyUI Pod template is the supported path; see [RUNPOD_COMFYUI.md](RUNPOD_COMFYUI.md)).
-2. Export a working Comfy API-format still workflow.
-3. Store it at `comfy/workflows/character-still.json` or set `COMFYUI_CHARACTER_WORKFLOW_JSON` server-side.
-4. Set the real `COMFYUI_CHARACTER_COST_PER_IMAGE_USD` for the environment being tested.
-5. Leave `CHARACTER_FACTORY_LIVE_ENABLED=false` while validating configuration.
-6. Confirm the workflow produces a PNG or JPEG for a single dry smoke job.
-7. Set `CHARACTER_FACTORY_LIVE_ENABLED=true` only for the controlled Marcus benchmark.
-8. Run the Marcus plan and inspect `manifest.json` for first-pass rate, rejects, compute seconds, and actual configured spend.
-9. If the benchmark passes, lock the workflow/model combination as Character Factory v1.
+2. On the Pod, run `bash deploy/runpod-comfyui/bootstrap.sh`, then restart ComfyUI.
+3. Call `GET /api/character-factory/preflight` and confirm `ready: true`. Do not enable live flags while preflight is red.
+4. Set the real `COMFYUI_CHARACTER_COST_PER_IMAGE_USD` after the first controlled still (one Jasmine image), not before.
+5. Leave `CHARACTER_FACTORY_LIVE_ENABLED=false` in the repo and in production until that one-still test is scheduled.
+6. Film Studio owns the photoreal identity workflow; do not export a canvas graph unless you are deliberately overriding it.
+7. Set `CHARACTER_FACTORY_LIVE_ENABLED=true` only for the scheduled GPU session, run the single Jasmine still, then turn the flag off. Only then consider Marcus Benchmark 001.
+8. Inspect `manifest.json` for first-pass rate, rejects, compute seconds, and configured spend.
 
-The remaining external dependency is the actual Comfy still workflow graph that matches the models installed on the target Comfy deployment. That graph should not be guessed in code because node classes and model filenames are deployment-specific.
+The remaining external dependency is a running RunPod Pod with the bootstrapped RealVisXL + IPAdapter stack. Node names are not guessed at runtime; Film Studio builds the graph.
