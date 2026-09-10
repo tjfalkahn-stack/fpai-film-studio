@@ -4,6 +4,7 @@ compatibility_date = "2026-08-06"
 [vars]
 LIVE_RENDERING_ENABLED = "false"
 MOCK_E2E_VERIFIED = "false"
+SEEDANCE_LIVE_ENABLED = "false"
 FPAI_CONTROL_TOKEN = "local-mock-only-token"
 RENDER_PROJECT_CEILING_USD = "20"
 RENDER_SESSION_CEILING_USD = "10"

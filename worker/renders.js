@@ -1,5 +1,7 @@
 import { providers, providerFor } from "./providers/index.js";
 import { fail, validateInput, ProviderError } from "./providers/contract.js";
+import { seedanceLiveEnabled } from "./providers/seedance.js";
+import { isSeedanceProvider } from "../src/seedanceRequest.js";
 import {
   resolveProviderReferenceImages,
   selectStoredCharacterReferences,
@@ -39,17 +41,23 @@ export function config(env) {
   const comfyConfigured = Boolean(
     env.COMFYUI_BASE_URL && (env.COMFYUI_WORKFLOW_KEY || env.COMFYUI_WORKFLOW_JSON),
   );
+  const liveMaster =
+    env.LIVE_RENDERING_ENABLED === "true" && env.MOCK_E2E_VERIFIED === "true";
   return {
     projectCeiling: amount("RENDER_PROJECT_CEILING_USD", 20),
     sessionCeiling: amount("RENDER_SESSION_CEILING_USD", 10),
     singleCeiling: amount("MAX_SINGLE_JOB_USD", 4),
     sessionId: env.RENDER_SESSION_ID || "foundation-01",
     projectId: env.RENDER_PROJECT_ID || "enemies-closer-ep01",
-    liveEnabled:
-      env.LIVE_RENDERING_ENABLED === "true" &&
-      env.MOCK_E2E_VERIFIED === "true" &&
-      (Boolean(env.GEMINI_API_KEY) || comfyConfigured),
+    liveEnabled: liveMaster && (Boolean(env.GEMINI_API_KEY) || comfyConfigured),
+    seedanceLiveEnabled: seedanceLiveEnabled(env),
+    falConfigured: Boolean(String(env.FAL_KEY || "").trim()),
   };
+}
+export function providerLiveEnabled(provider, env) {
+  if (provider === "mock") return true;
+  if (isSeedanceProvider(provider)) return seedanceLiveEnabled(env);
+  return config(env).liveEnabled;
 }
 export function publicRender(row) {
   const input = JSON.parse(row.input_json);
@@ -96,6 +104,10 @@ export function publicRender(row) {
       referenceImagesTransmitted: Array.isArray(input.referenceImages)
         ? input.referenceImages.length
         : 0,
+      generateAudio: input.generateAudio !== false,
+      seed: input.seed ?? null,
+      endpointId: input.seedanceEndpoint || null,
+      rationale: input.routingRationale || null,
     },
   };
 }
@@ -178,6 +190,27 @@ async function inputFrom(body, env) {
     ].map((k) => [k, body[k]]),
   );
   if (!Array.isArray(input.referenceImages)) input.referenceImages = [];
+  if (body.generateAudio != null || body.generate_audio != null) {
+    input.generateAudio = body.generateAudio ?? body.generate_audio;
+  }
+  if (body.seed != null) input.seed = body.seed;
+  if (body.bitrateMode || body.bitrate_mode) {
+    input.bitrateMode = body.bitrateMode || body.bitrate_mode;
+  }
+  if (body.endFrameImage || body.end_image) {
+    input.endFrameImage = body.endFrameImage || body.end_image;
+  }
+  if (Array.isArray(body.environmentReferences) || Array.isArray(body.sceneReferenceImages)) {
+    input.environmentReferences = body.environmentReferences || body.sceneReferenceImages;
+  }
+  if (body.referenceVideos || body.referenceVideo) {
+    input.referenceVideos = Array.isArray(body.referenceVideos)
+      ? body.referenceVideos
+      : body.referenceVideo
+        ? [body.referenceVideo]
+        : [];
+  }
+  if (body.selectionReason) input.selectionReason = body.selectionReason;
   const provider = providerFor(input.provider, env);
   if (input.projectId !== config(env).projectId)
     fail(
@@ -191,10 +224,12 @@ async function inputFrom(body, env) {
 }
 function liveGate(input, env) {
   if (input.provider === "mock") return;
-  if (!config(env).liveEnabled)
+  if (!providerLiveEnabled(input.provider, env))
     fail(
       "LIVE_DISABLED",
-      "Live rendering is disabled. Mock mode is available.",
+      isSeedanceProvider(input.provider)
+        ? "Seedance live rendering is disabled. Mock mode is available."
+        : "Live rendering is disabled. Mock mode is available.",
       403,
     );
   const c = input.continuity;
@@ -223,10 +258,13 @@ async function create(request, env) {
   const { input, provider } = await inputFrom(body, env);
   const policy = config(env);
   const quote = provider.estimate(input);
+  if (quote.rationale) input.routingRationale = quote.rationale;
+  if (quote.rationale?.endpointId) input.seedanceEndpoint = quote.rationale.endpointId;
   if (body.estimateOnly === true)
     return json({
       ...quote,
       liveEnabled: policy.liveEnabled,
+      seedanceLiveEnabled: policy.seedanceLiveEnabled,
       policy,
       capabilities: provider.capabilities,
       characterReferenceSelection: input.characterReferenceSelection || null,
@@ -250,6 +288,8 @@ async function create(request, env) {
         fallbackApplied: Boolean(input.characterReferenceSelection?.fallbackApplied),
         limitation: input.characterReferenceSelection?.limitation || null,
         referenceImagesTransmitted: input.referenceImages.length,
+        generateAudio: input.generateAudio !== false,
+        rationale: quote.rationale || null,
       },
     });
   if (
@@ -257,6 +297,15 @@ async function create(request, env) {
     !/^[\w-]{8,100}$/.test(body.requestKey)
   )
     fail("INVALID_INPUT", "A stable requestKey is required.");
+  liveGate(input, env);
+  if (body.acceptedCost !== quote.estimatedCost)
+    fail(
+      "QUOTE_CHANGED",
+      "Review and accept the current cost before rendering.",
+      409,
+    );
+  if (quote.estimatedCost > policy.singleCeiling)
+    fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   const hash = await sha(JSON.stringify(input));
   const db = dbOf(env);
   const existing = await db
@@ -272,27 +321,44 @@ async function create(request, env) {
       );
     return json({ render: publicRender(existing), duplicate: true });
   }
-  liveGate(input, env);
   if (!env.GENERATION_MEDIA)
     fail("STORAGE_CONFIG", "Render media storage is not configured.", 503);
-  if (body.acceptedCost !== quote.estimatedCost)
-    fail(
-      "QUOTE_CHANGED",
-      "Review and accept the current cost before rendering.",
-      409,
-    );
-  if (quote.estimatedCost > policy.singleCeiling)
-    fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   const id = crypto.randomUUID();
   const storedInput = {
     ...input,
     referenceImages: input.referenceImages.map((ref) => ({
       mimeType: ref.mimeType,
       ...(ref.assetId ? { assetId: ref.assetId, characterId: ref.characterId } : {}),
+      ...(ref.role ? { role: ref.role } : {}),
     })),
+    environmentReferences: Array.isArray(input.environmentReferences)
+      ? input.environmentReferences.map((ref) => ({
+          mimeType: ref.mimeType,
+          ...(ref.assetId ? { assetId: ref.assetId } : {}),
+          role: ref.role || "environment",
+        }))
+      : undefined,
+    endFrameImage: input.endFrameImage
+      ? {
+          mimeType: input.endFrameImage.mimeType,
+          ...(input.endFrameImage.assetId ? { assetId: input.endFrameImage.assetId } : {}),
+          role: "end-frame",
+        }
+      : undefined,
+    referenceVideos: Array.isArray(input.referenceVideos)
+      ? input.referenceVideos.map((ref) => ({
+          ...(ref.url ? { url: ref.url } : {}),
+          ...(ref.mimeType ? { mimeType: ref.mimeType } : {}),
+          role: "reference-video",
+        }))
+      : undefined,
     characterReferenceSelection: input.characterReferenceSelection || null,
   };
-  const hasInlineBytes = input.referenceImages.some((ref) => ref.data);
+  const hasInlineBytes =
+    input.referenceImages.some((ref) => ref.data) ||
+    (input.environmentReferences || []).some((ref) => ref.data) ||
+    Boolean(input.endFrameImage?.data) ||
+    (input.referenceVideos || []).some((ref) => ref.data);
   if (hasInlineBytes)
     await env.GENERATION_MEDIA.put(
       `render-inputs/${id}.json`,
@@ -359,7 +425,7 @@ async function create(request, env) {
 export async function advance(env, row) {
   const db = dbOf(env);
   const provider = providerFor(row.provider, env);
-  if (row.provider !== "mock" && !config(env).liveEnabled) return row;
+  if (row.provider !== "mock" && !providerLiveEnabled(row.provider, env)) return row;
   if (
     row.status === "starting" &&
     Date.now() - Date.parse(row.updated_at) > 120000
@@ -390,26 +456,34 @@ export async function advance(env, row) {
     if (!claim.meta.changes) return get(env, row.id);
     try {
       let input = JSON.parse(row.input_json);
-      const refs = input.referenceImages || [];
-      const storedInline = refs.some((ref) => ref?.mimeType && !ref.assetId);
-      if (storedInline && refs.length) {
-        const stored = await env.GENERATION_MEDIA.get(
-          `render-inputs/${row.id}.json`,
-        );
-        if (!stored)
+      const stored = await env.GENERATION_MEDIA.get(
+        `render-inputs/${row.id}.json`,
+      );
+      if (stored) {
+        input = await stored.json();
+      } else {
+        const refs = input.referenceImages || [];
+        const storedInline =
+          refs.some((ref) => ref?.mimeType && !ref.assetId) ||
+          (input.environmentReferences || []).some(
+            (ref) => ref?.mimeType && !ref.assetId,
+          ) ||
+          Boolean(input.endFrameImage?.mimeType && !input.endFrameImage?.assetId) ||
+          (input.referenceVideos || []).some((ref) => ref?.data);
+        if (storedInline)
           fail(
             "MISSING_REFERENCES",
             "Stored render references are missing.",
             503,
           );
-        input = await stored.json();
-      } else if (input.characterReferenceSelection?.transmitted?.length) {
-        input.referenceImages = await resolveProviderReferenceImages(
-          env,
-          row.project_id,
-          input.characterReferenceSelection,
-          provider.capabilities,
-        );
+        else if (input.characterReferenceSelection?.transmitted?.length) {
+          input.referenceImages = await resolveProviderReferenceImages(
+            env,
+            row.project_id,
+            input.characterReferenceSelection,
+            provider.capabilities,
+          );
+        }
       }
       const started = await provider.start(input);
       await db

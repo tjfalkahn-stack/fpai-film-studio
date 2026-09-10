@@ -5,6 +5,7 @@ import {
   attemptsUsedForShot,
   buildGenerationPlan,
   calculateProductionEconomy,
+  candidateRouteIdsForShot,
   classifyShot,
   createQueuedLedgerEntry,
   createSalvageRecord,
@@ -16,6 +17,7 @@ import {
   parseUsableRangeText,
   planClipDurations,
   providerPerformance,
+  rendererForRoute,
   selectEconomicalRoute,
   stableHash,
   usableSecondsFromRanges,
@@ -220,4 +222,44 @@ test("27-minute forecast lands near the economy target and beats naive generatio
   const summary = calculateProductionEconomy({ project, shots: [genericShot], ledger: [] });
   assert.equal(summary.paidShotCount, 1);
   assert.equal(summary.mappedExpectedCost, 0.375);
+});
+
+test("router can resolve to comfy, seedance, and veo without auto-picking Seedance", () => {
+  assert.equal(ROUTE_BY_ID.comfy.renderer, "comfy");
+  assert.equal(rendererForRoute("seedance-fast-720"), "seedance-fast");
+  assert.equal(rendererForRoute("seedance-standard-720"), "seedance-standard");
+  assert.equal(rendererForRoute("veo-fast-720"), "veo-fast");
+  assert.equal(rendererForRoute("veo-standard-720"), "veo-standard");
+
+  assert.deepEqual(candidateRouteIdsForShot(genericShot, project), [
+    "omni-flash-720",
+    "veo-lite-720",
+    "seedance-fast-720",
+    "veo-fast-720",
+  ]);
+  assert.equal(defaultRouteIdForShot(genericShot, project), "omni-flash-720");
+
+  const identity = { ...genericShot, characters: ["jasmine", "mikey"] };
+  assert.ok(candidateRouteIdsForShot(identity, project).includes("seedance-standard-720"));
+  assert.equal(defaultRouteIdForShot(identity, project), "omni-flash-720");
+
+  const hero = { ...genericShot, status: "Hero", characters: ["marcus"] };
+  assert.ok(candidateRouteIdsForShot(hero, project).includes("veo-fast-720"));
+  assert.ok(candidateRouteIdsForShot(hero, project).includes("veo-standard-720"));
+  assert.notEqual(defaultRouteIdForShot(hero, project), "seedance-fast-720");
+  assert.notEqual(defaultRouteIdForShot(hero, project), "seedance-standard-720");
+
+  const manual = {
+    ...genericShot,
+    characters: ["jasmine", "mikey"],
+    economy: { ...genericShot.economy, manualRouteId: "seedance-fast-720", shotCap: 5 },
+  };
+  const plan = buildGenerationPlan({ shot: manual, project });
+  assert.equal(plan.route.id, "seedance-fast-720");
+  assert.equal(plan.routing.providerSelected, "seedance-fast");
+  assert.match(plan.routing.selectionReason, /Manual route override/);
+  assert.equal(plan.routing.audio, true);
+  assert.equal(plan.routing.resolution, "720p");
+  assert.equal(plan.jobs[0].renderer, "seedance-fast");
+  assert.equal(plan.jobs[0].generateAudio, true);
 });

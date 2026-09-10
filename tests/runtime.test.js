@@ -45,6 +45,8 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
     assert.deepEqual(catalog.providers.map(p => p.id), [
       "mock",
       "comfy-video",
+      "seedance-fast",
+      "seedance-standard",
       "veo-fast",
     ]);
     assert.equal(catalog.policy.liveEnabled, false);
