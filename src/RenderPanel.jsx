@@ -277,8 +277,9 @@ export default function RenderPanel({
         Final edit: {shot.sec}s. Source clip: {duration}s. The worker selects
         the Primary Identity image plus up to five supporting library photos
         for this shot. Manual PNG/JPEG boxes remain for older Bible uploads.
-        Veo Fast transmits at most {capabilities?.id === "veo-fast" ? 3 : capabilities?.maxReferences || 3}{" "}
-        images; the full selected set is preserved in the mock/debug manifest.
+        {provider === "veo-fast"
+          ? "Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
+          : "Mock records the full selected set in debug output. Veo Fast still accepts at most 3 PNG/JPEG images if live rendering is later enabled."}
       </p>
       {refs.map((ref) => (
         <label key={ref.key} className="checkLabel">

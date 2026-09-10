@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -263,13 +264,11 @@ export default function ReferenceLibrary({
     if (!asset) return;
     setBusy(true);
     try {
-      const payload = await deleteCharacterReference(projectId, character.id, asset.id);
-      setAssets((current) => current.filter((item) => item.id !== asset.id));
-      setCoverage(payload.coverage);
+      await deleteCharacterReference(projectId, character.id, asset.id);
       setPendingDelete(null);
       setSelected((current) => current.filter((id) => id !== asset.id));
+      await refresh();
       notify?.("Reference removed. Character assignments and existing shots were not changed.");
-      onLibrarySync?.({ deletedId: asset.id, coverage: payload.coverage });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -449,16 +448,17 @@ export default function ReferenceLibrary({
       </button>
       <p className="sub">Rebuild writes a versioned reference manifest only. It does not start paid model training or a live render.</p>
       {error && <div className="validation"><AlertTriangle /> {error}</div>}
-      {preview && (
+      {preview && createPortal(
         <div className="overlay previewOverlay" onClick={() => setPreview(null)}>
           <div className="previewFrame" onClick={(event) => event.stopPropagation()}>
             <button type="button" className="close" onClick={() => setPreview(null)}><X /></button>
             <img src={preview.assetUrl} alt={preview.filename} />
             <p>{preview.filename} · {preview.width}×{preview.height} · {preview.mimeType}</p>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-      {pendingDelete && (
+      {pendingDelete && createPortal(
         <div className="overlay previewOverlay">
           <div className="confirmCard">
             <CheckCircle2 />
@@ -469,7 +469,8 @@ export default function ReferenceLibrary({
               <button type="button" className="primary" disabled={busy} onClick={confirmDelete}><Trash2 /> Delete image</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
       <p className="sub">{assets.length} individual images stored. Capacity 80 per character.</p>
     </section>
