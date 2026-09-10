@@ -317,3 +317,12 @@ test("repeatable character-schema application does not drop existing library row
   assert.equal(Number(after.count), Number(before.count));
   assert.ok(Number(after.count) > 0);
 });
+
+test("character factory preflight route stays live-off and fails closed without Comfy", async () => {
+  assert.equal((await call("/api/character-factory/preflight", { auth: false })).response.status, 401);
+  const { response, data } = await call("/api/character-factory/preflight");
+  assert.equal(response.status, 503);
+  assert.equal(data.ready, false);
+  assert.equal(data.liveGenerationEnabled, false);
+  assert.ok(Array.isArray(data.checks));
+});

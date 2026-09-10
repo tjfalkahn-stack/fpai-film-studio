@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createComfyCharacterExecutor } from "../worker/providers/comfyCharacter.js";
+import { CHARACTER_STILL_CHECKPOINT } from "../src/characterStillStack.js";
+import { createComfyFetchMock, PREFLIGHT_PNG } from "./comfyFixtures.js";
 
 const png = { mimeType: "image/png", data: "iVBORw0KGgo=" };
 const IMAGE_ASSET_ID = new URLSearchParams({
@@ -107,4 +109,77 @@ test("character executor does not require the video live-render gate", async () 
   );
   const started = await executor.start({ prompt: "Marcus front portrait" });
   assert.equal(started.operationId, "char-job-gated");
+});
+
+test("native FPAI workflow injects multiple Character Bible references into LoadImage nodes", async () => {
+  let submitted;
+  const { fetchImpl } = createComfyFetchMock({
+    promptId: "native-job",
+    inspectPrompt: (body) => {
+      submitted = body;
+    },
+  });
+  const executor = createComfyCharacterExecutor(
+    {
+      COMFYUI_BASE_URL: "https://comfy.example/",
+      COMFYUI_CLIENT_ID: "fpai-character-test",
+      COMFYUI_CHARACTER_COST_PER_IMAGE_USD: "0",
+    },
+    fetchImpl,
+  );
+  const started = await executor.start({
+    prompt: "Jasmine identity front",
+    negativePrompt: "watermark",
+    seed: 7,
+    steps: 28,
+    cfg: 5.5,
+    filenamePrefix: "jasmine-angle-identity-front-a1",
+    referenceImages: [
+      { ...PREFLIGHT_PNG, category: "identity_anchor" },
+      { ...PREFLIGHT_PNG, category: "profile" },
+      { ...PREFLIGHT_PNG, category: "full_body" },
+    ],
+  });
+  assert.equal(started.operationId, "native-job");
+  const nodes = Object.values(submitted.prompt);
+  assert.ok(nodes.every((node) => node.class_type !== undefined));
+  assert.equal(nodes.find((node) => node.class_type === "CheckpointLoaderSimple").inputs.ckpt_name, CHARACTER_STILL_CHECKPOINT);
+  const loaders = nodes.filter((node) => node.class_type === "LoadImage");
+  assert.equal(loaders.length, 3);
+  assert.ok(loaders.every((node) => String(node.inputs.image).startsWith("fpai/")));
+  const sampler = nodes.find((node) => node.class_type === "KSampler");
+  assert.equal(sampler.inputs.seed, 7);
+  assert.equal(sampler.inputs.steps, 28);
+  assert.equal(sampler.inputs.cfg, 5.5);
+  assert.equal(nodes.find((node) => node.class_type === "SaveImage").inputs.filename_prefix, "jasmine-angle-identity-front-a1");
+});
+
+test("character executor surfaces Comfy execution failure without inventing an image", async () => {
+  const { fetchImpl } = createComfyFetchMock({ promptId: "boom", failHistory: true });
+  const executor = createComfyCharacterExecutor(
+    {
+      COMFYUI_BASE_URL: "https://comfy.example/",
+      COMFYUI_CHARACTER_WORKFLOW_JSON: JSON.stringify({ "1": { class_type: "SaveImage", inputs: { prompt: "__FPAI_PROMPT__" } } }),
+    },
+    fetchImpl,
+  );
+  const started = await executor.start({ prompt: "Jasmine" });
+  const status = await executor.status(started.operationId);
+  assert.equal(status.status, "failed");
+  assert.match(status.error.message, /CUDA OOM/);
+});
+
+test("character executor does not treat a missing download as a completed still", async () => {
+  const { fetchImpl } = createComfyFetchMock({ promptId: "view-fail", failView: true, outputFile: "jasmine.png" });
+  const executor = createComfyCharacterExecutor(
+    {
+      COMFYUI_BASE_URL: "https://comfy.example/",
+      COMFYUI_CHARACTER_WORKFLOW_JSON: JSON.stringify({ "1": { class_type: "SaveImage", inputs: { prompt: "__FPAI_PROMPT__" } } }),
+    },
+    fetchImpl,
+  );
+  await executor.start({ prompt: "Jasmine" });
+  const status = await executor.status("view-fail");
+  assert.equal(status.status, "completed");
+  await assert.rejects(() => executor.asset(status.asset.id), /download failed|ASSET_RETRY|HTTP 404|could not be reached/i);
 });

@@ -1,28 +1,65 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createCharacterFactoryRuntime } from "../worker/characterFactoryRuntime.js";
-import { createCharacterFactoryPlan } from "../src/characterFactory.js";
+import { createCharacterFactoryPlan, createCharacterFactorySmokePlan } from "../src/characterFactory.js";
 import { runCharacterFactoryPlan } from "../src/characterFactoryRunner.js";
+import { createComfyFetchMock, PREFLIGHT_PNG } from "./comfyFixtures.js";
 
 test("Character Factory runtime refuses to run when live execution is disabled", async () => {
   const runtime = createCharacterFactoryRuntime({ CHARACTER_FACTORY_LIVE_ENABLED: "false" });
   await assert.rejects(runtime.run({ jobs: [{}] }), /Character Factory live execution is disabled/);
 });
 
-test("runner forwards plan reference images to the executor", async () => {
+test("Character Factory runtime refuses a live run when Comfy preflight is incomplete", async () => {
+  const { fetchImpl } = createComfyFetchMock({ missingCheckpoint: true });
+  const runtime = createCharacterFactoryRuntime(
+    {
+      CHARACTER_FACTORY_LIVE_ENABLED: "true",
+      GENERATION_MEDIA: { put() {}, get() { return null; } },
+      COMFYUI_BASE_URL: "https://comfy.example/",
+    },
+    fetchImpl,
+  );
+  const plan = createCharacterFactorySmokePlan({
+    character: { name: "Jasmine", wardrobe: ["Tarmac Look 01"] },
+    referenceImages: [PREFLIGHT_PNG],
+  });
+  await assert.rejects(runtime.run(plan), /incomplete|RealVisXL/i);
+});
+
+test("Character Factory runtime refuses a live run without Character Bible references", async () => {
+  const { fetchImpl } = createComfyFetchMock();
+  const runtime = createCharacterFactoryRuntime(
+    {
+      CHARACTER_FACTORY_LIVE_ENABLED: "true",
+      GENERATION_MEDIA: { put() {}, get() { return null; } },
+      COMFYUI_BASE_URL: "https://comfy.example/",
+    },
+    fetchImpl,
+  );
+  const plan = createCharacterFactorySmokePlan({
+    character: { name: "Jasmine", wardrobe: ["Tarmac Look 01"] },
+  });
+  await assert.rejects(runtime.run(plan), /Character Bible reference images/);
+});
+
+test("runner forwards plan reference images, sampler settings, and negative prompt", async () => {
   const plan = createCharacterFactoryPlan({
     character: { name: "Marcus", height: "6'2\"", build: "tall lean", wardrobe: ["black suit"] },
     expressions: ["neutral"],
   });
   plan.jobs = plan.jobs.slice(0, 1);
   plan.totals.jobs = 1;
-  plan.referenceImages = [{ mimeType: "image/png", data: "iVBORw0KGgo=" }];
+  plan.negativePrompt = "watermark";
+  plan.referenceImages = [{ mimeType: "image/png", data: "iVBORw0KGgo=", category: "identity_anchor" }];
 
   let received;
   const result = await runCharacterFactoryPlan({
     plan,
     pollIntervalMs: 0,
     maxAttempts: 1,
+    steps: 28,
+    cfg: 5.5,
     executor: {
       estimate: () => ({ estimatedCost: 0.01 }),
       start: async (input) => {
@@ -37,6 +74,9 @@ test("runner forwards plan reference images to the executor", async () => {
   });
 
   assert.equal(received.prompt.includes("Marcus"), true);
+  assert.equal(received.negativePrompt, "watermark");
+  assert.equal(received.steps, 28);
+  assert.equal(received.cfg, 5.5);
   assert.equal(received.referenceImages.length, 1);
   assert.equal(result.manifest.acceptedJobs, 1);
 });

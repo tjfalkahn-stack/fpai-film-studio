@@ -1,0 +1,68 @@
+{
+  "stackId": "fpai-character-still-photoreal-sdxl-v1",
+  "label": "FPAI Photoreal Character Still · RealVisXL V5.0 + IPAdapter Plus",
+  "template": "runpod/comfyui:1.4.7-cuda13.0",
+  "gpu": "PRO 6000 MIG 24GB",
+  "vramGiB": 24,
+  "persistentRoot": "/workspace/fpai-comfy",
+  "whyThisStack": "Photoreal cinematic humans with realistic skin and multi-reference identity on 24GB. Flux/SD3.5 leave too little headroom for identity adapters on a 24GB MIG partition.",
+  "vae": {
+    "required": false,
+    "note": "VAE is baked into RealVisXL V5.0. CheckpointLoaderSimple output 2 is used. No separate VAE file is installed."
+  },
+  "ipadapterPreset": "PLUS (high strength)",
+  "customNodes": [
+    {
+      "id": "ComfyUI_IPAdapter_plus",
+      "repo": "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git",
+      "requiredClasses": [
+        "IPAdapterUnifiedLoader",
+        "IPAdapterEncoder",
+        "IPAdapterCombineEmbeds",
+        "IPAdapterEmbeds",
+        "PrepImageForClipVision"
+      ]
+    }
+  ],
+  "models": [
+    {
+      "id": "checkpoint",
+      "role": "checkpoint",
+      "filename": "RealVisXL_V5.0_fp16.safetensors",
+      "directory": "checkpoints",
+      "source": "Hugging Face SG161222/RealVisXL_V5.0",
+      "url": "https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0_fp16.safetensors",
+      "approxBytes": 6938076410,
+      "minBytes": 6000000000,
+      "approxGiB": 6.46
+    },
+    {
+      "id": "clip_vision",
+      "role": "clip_vision",
+      "filename": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+      "directory": "clip_vision",
+      "source": "Hugging Face h94/IP-Adapter (SDXL image encoder, renamed)",
+      "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/image_encoder/model.safetensors",
+      "approxBytes": 2528373898,
+      "minBytes": 2000000000,
+      "approxGiB": 2.35
+    },
+    {
+      "id": "ipadapter",
+      "role": "ipadapter",
+      "filename": "ip-adapter-plus_sdxl_vit-h.safetensors",
+      "directory": "ipadapter",
+      "source": "Hugging Face h94/IP-Adapter",
+      "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors",
+      "approxBytes": 847517560,
+      "minBytes": 700000000,
+      "approxGiB": 0.79
+    }
+  ],
+  "disk": {
+    "modelsApproxBytes": 10313967868,
+    "modelsApproxGiB": 9.61,
+    "customNodesApproxMiB": 20,
+    "recommendedFreeGiB": 12
+  }
+}

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createBenchmarkReport,
   createCharacterFactoryPlan,
+  createCharacterFactorySmokePlan,
   normalizeCharacterProfile,
   scoreCharacterResult,
 } from "./characterFactory.js";
@@ -54,6 +55,18 @@ test("character result score requires both overall quality and identity fidelity
 
   const identityFail = scoreCharacterResult({ identity: 0.7, anatomy: 1, framing: 1, wardrobe: 1, artifactFree: 1 });
   assert.equal(identityFail.pass, false);
+});
+
+test("smoke plan is a single identity-front job for the first controlled test", () => {
+  const plan = createCharacterFactorySmokePlan({
+    character: { id: "jasmine", name: "Jasmine", wardrobe: ["Tarmac Look 01"] },
+    referenceImages: [{ mimeType: "image/png", data: "aaa", category: "identity_anchor" }],
+  });
+  assert.equal(plan.smokeTest, true);
+  assert.equal(plan.totals.jobs, 1);
+  assert.equal(plan.jobs[0].taskId, "identity-front");
+  assert.equal(plan.referenceImages.length, 1);
+  assert.equal(plan.jobs[0].referenceImages.length, 1);
 });
 
 test("benchmark report measures retries, cost, compute, and readiness", () => {

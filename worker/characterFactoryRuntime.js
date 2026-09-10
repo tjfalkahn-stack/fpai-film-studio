@@ -1,6 +1,9 @@
 import { runCharacterFactoryPlan } from "../src/characterFactoryRunner.js";
+import { CHARACTER_STILL_MAX_REFERENCES } from "../src/characterStillStack.js";
 import { createComfyCharacterExecutor } from "./providers/comfyCharacter.js";
+import { assertComfyCharacterReady, runComfyCharacterPreflight } from "./providers/comfyPreflight.js";
 import { createGeminiCharacterEvaluator } from "./characterQc.js";
+import { resolveProviderReferenceImages, selectStoredCharacterReferences } from "./characterReferences.js";
 
 function ext(mimeType) {
   if (mimeType === "image/jpeg") return "jpg";
@@ -17,6 +20,39 @@ function requireEnabled(env) {
 
 function safeSegment(value) {
   return String(value || "unknown").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
+}
+
+function planHasReferences(plan) {
+  if (plan?.referenceImages?.length) return true;
+  return (plan?.jobs || []).some((job) => job.referenceImages?.length);
+}
+
+async function resolvePlanReferences(env, plan) {
+  if (planHasReferences(plan)) return plan;
+  const projectId = plan.projectId || env.RENDER_PROJECT_ID;
+  const characterId = plan.character?.id;
+  if (!projectId || !characterId || !env.GENERATION_DB) return plan;
+  const selection = await selectStoredCharacterReferences(env, {
+    projectId,
+    characters: [{ id: characterId, name: plan.character?.name }],
+    shot: {
+      id: "character-factory",
+      subject: `${plan.character?.name || characterId} identity reference`,
+    },
+    providerMaxReferences: CHARACTER_STILL_MAX_REFERENCES,
+  });
+  const referenceImages = await resolveProviderReferenceImages(
+    env,
+    projectId,
+    selection,
+    { id: "comfy-character-still", maxReferences: CHARACTER_STILL_MAX_REFERENCES },
+  );
+  return {
+    ...plan,
+    referenceImages,
+    characterLock: selection,
+    jobs: (plan.jobs || []).map((job) => ({ ...job, referenceImages: job.referenceImages || referenceImages })),
+  };
 }
 
 export function createCharacterFactoryRuntime(env = {}, fetchImpl = fetch) {
@@ -45,10 +81,22 @@ export function createCharacterFactoryRuntime(env = {}, fetchImpl = fetch) {
   }
 
   return {
+    async preflight(options = {}) {
+      return runComfyCharacterPreflight(env, fetchImpl, options);
+    },
     async run(plan, options = {}) {
       requireEnabled(env);
+      const preflight = await runComfyCharacterPreflight(env, fetchImpl);
+      assertComfyCharacterReady(preflight);
+      const prepared = await resolvePlanReferences(env, plan);
+      if (!planHasReferences(prepared)) {
+        throw new Error(
+          "Character Factory requires Character Bible reference images before live generation. Upload identity/front, profile, full-body, expression, and wardrobe stills, then retry.",
+        );
+      }
+
       const result = await runCharacterFactoryPlan({
-        plan,
+        plan: prepared,
         executor,
         evaluateImage,
         persistAccepted: (ctx) => persist("accepted", ctx),
@@ -57,14 +105,16 @@ export function createCharacterFactoryRuntime(env = {}, fetchImpl = fetch) {
         pollIntervalMs: Number(options.pollIntervalMs ?? env.CHARACTER_FACTORY_POLL_MS ?? 1500),
         width: Number(options.width ?? env.CHARACTER_FACTORY_WIDTH ?? 1024),
         height: Number(options.height ?? env.CHARACTER_FACTORY_HEIGHT ?? 1024),
+        steps: Number(options.steps ?? env.CHARACTER_FACTORY_STEPS ?? 30),
+        cfg: Number(options.cfg ?? env.CHARACTER_FACTORY_CFG ?? 6),
       });
 
-      const prefix = `character-factory/${safeSegment(plan.character.id)}`;
+      const prefix = `character-factory/${safeSegment(prepared.character.id)}`;
       await Promise.all([
         env.GENERATION_MEDIA.put(`${prefix}/character.json`, JSON.stringify(result.character, null, 2), { httpMetadata: { contentType: "application/json" } }),
         env.GENERATION_MEDIA.put(`${prefix}/manifest.json`, JSON.stringify(result.manifest, null, 2), { httpMetadata: { contentType: "application/json" } }),
       ]);
-      return result;
+      return { ...result, preflight };
     },
   };
 }

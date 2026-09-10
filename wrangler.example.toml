@@ -24,10 +24,11 @@ COMFYUI_CLIENT_ID = "fpai-film-studio"
 COMFYUI_WORKFLOW_KEY = "comfy/workflows/video.json"
 COMFYUI_WORKFLOW_NAME = "fpai-character-video-v1"
 COMFYUI_COST_PER_SECOND_USD = "0"
-COMFYUI_CHARACTER_WORKFLOW_KEY = "comfy/workflows/character-still.json"
-COMFYUI_CHARACTER_WORKFLOW_NAME = "fpai-character-still-v1"
+COMFYUI_CHARACTER_WORKFLOW_NAME = "fpai-character-still-photoreal-sdxl-v1"
 COMFYUI_CHARACTER_COST_PER_IMAGE_USD = "0"
 CHARACTER_FACTORY_LIVE_ENABLED = "false"
+# Optional operator override only. Leave unset to use the owned Film Studio identity graph.
+# COMFYUI_CHARACTER_WORKFLOW_KEY = "comfy/workflows/character-still.json"
 
 [[d1_databases]]
 binding = "GENERATION_DB"

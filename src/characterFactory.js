@@ -237,6 +237,43 @@ export function createCharacterFactoryPlan(input = {}) {
   };
 }
 
+export function attachReferenceImagesToPlan(plan, referenceImages = []) {
+  if (!plan) throw new Error("A Character Factory plan is required.");
+  const images = Array.isArray(referenceImages) ? referenceImages.filter(Boolean) : [];
+  return {
+    ...plan,
+    referenceImages: images,
+    jobs: (plan.jobs || []).map((job) => ({
+      ...job,
+      referenceImages: job.referenceImages?.length ? job.referenceImages : images,
+    })),
+  };
+}
+
+export function createCharacterFactorySmokePlan(input = {}) {
+  const full = createCharacterFactoryPlan(input);
+  const taskId = input.taskId || "identity-front";
+  const job =
+    full.jobs.find((item) => item.taskId === taskId) ||
+    full.jobs.find((item) => item.category === "angle") ||
+    full.jobs[0];
+  if (!job) throw new Error("Character Factory smoke plan could not select a job.");
+  const plan = {
+    ...full,
+    smokeTest: true,
+    maxImages: 1,
+    jobs: [{ ...job, required: true }],
+    totals: {
+      jobs: 1,
+      angles: job.category === "angle" ? 1 : 0,
+      expressions: job.category === "expression" ? 1 : 0,
+      wardrobe: job.category === "wardrobe" ? 1 : 0,
+      continuity: job.category === "continuity" ? 1 : 0,
+    },
+  };
+  return attachReferenceImagesToPlan(plan, input.referenceImages || []);
+}
+
 export function scoreCharacterResult(metrics = {}) {
   const weights = {
     identity: 0.4,

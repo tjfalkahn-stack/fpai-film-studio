@@ -1,0 +1,288 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "RealVisXL_V5.0_fp16.safetensors"
+    },
+    "_meta": {
+      "title": "Load RealVisXL V5.0"
+    }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__FPAI_PROMPT__",
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "Positive prompt"
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__FPAI_NEGATIVE_PROMPT__",
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "Negative prompt"
+    }
+  },
+  "4": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": "__FPAI_WIDTH__",
+      "height": "__FPAI_HEIGHT__",
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "Empty latent"
+    }
+  },
+  "5": {
+    "class_type": "IPAdapterUnifiedLoader",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "preset": "PLUS (high strength)"
+    },
+    "_meta": {
+      "title": "Load IPAdapter Plus SDXL"
+    }
+  },
+  "6": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "__FPAI_REFERENCE_1__"
+    },
+    "_meta": {
+      "title": "Reference 1 (identity_anchor)"
+    }
+  },
+  "7": {
+    "class_type": "PrepImageForClipVision",
+    "inputs": {
+      "image": [
+        "6",
+        0
+      ],
+      "interpolation": "LANCZOS",
+      "crop_position": "center",
+      "sharpening": 0
+    },
+    "_meta": {
+      "title": "Prep reference 1"
+    }
+  },
+  "8": {
+    "class_type": "IPAdapterEncoder",
+    "inputs": {
+      "ipadapter": [
+        "5",
+        1
+      ],
+      "image": [
+        "7",
+        0
+      ],
+      "weight": 1
+    },
+    "_meta": {
+      "title": "Encode reference 1"
+    }
+  },
+  "9": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "__FPAI_REFERENCE_2__"
+    },
+    "_meta": {
+      "title": "Reference 2 (profile)"
+    }
+  },
+  "10": {
+    "class_type": "PrepImageForClipVision",
+    "inputs": {
+      "image": [
+        "9",
+        0
+      ],
+      "interpolation": "LANCZOS",
+      "crop_position": "center",
+      "sharpening": 0
+    },
+    "_meta": {
+      "title": "Prep reference 2"
+    }
+  },
+  "11": {
+    "class_type": "IPAdapterEncoder",
+    "inputs": {
+      "ipadapter": [
+        "5",
+        1
+      ],
+      "image": [
+        "10",
+        0
+      ],
+      "weight": 0.68
+    },
+    "_meta": {
+      "title": "Encode reference 2"
+    }
+  },
+  "12": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "__FPAI_REFERENCE_3__"
+    },
+    "_meta": {
+      "title": "Reference 3 (full_body)"
+    }
+  },
+  "13": {
+    "class_type": "PrepImageForClipVision",
+    "inputs": {
+      "image": [
+        "12",
+        0
+      ],
+      "interpolation": "LANCZOS",
+      "crop_position": "center",
+      "sharpening": 0
+    },
+    "_meta": {
+      "title": "Prep reference 3"
+    }
+  },
+  "14": {
+    "class_type": "IPAdapterEncoder",
+    "inputs": {
+      "ipadapter": [
+        "5",
+        1
+      ],
+      "image": [
+        "13",
+        0
+      ],
+      "weight": 0.58
+    },
+    "_meta": {
+      "title": "Encode reference 3"
+    }
+  },
+  "15": {
+    "class_type": "IPAdapterCombineEmbeds",
+    "inputs": {
+      "method": "norm average",
+      "embed1": [
+        "8",
+        0
+      ],
+      "embed2": [
+        "11",
+        0
+      ],
+      "embed3": [
+        "14",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Combine identity embeds"
+    }
+  },
+  "16": {
+    "class_type": "IPAdapterEmbeds",
+    "inputs": {
+      "model": [
+        "5",
+        0
+      ],
+      "ipadapter": [
+        "5",
+        1
+      ],
+      "pos_embed": [
+        "15",
+        0
+      ],
+      "weight": 0.85,
+      "weight_type": "linear",
+      "start_at": 0,
+      "end_at": 1
+    },
+    "_meta": {
+      "title": "Apply combined identity"
+    }
+  },
+  "17": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": "__FPAI_SEED__",
+      "steps": "__FPAI_STEPS__",
+      "cfg": "__FPAI_CFG__",
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1,
+      "model": [
+        "16",
+        0
+      ],
+      "positive": [
+        "2",
+        0
+      ],
+      "negative": [
+        "3",
+        0
+      ],
+      "latent_image": [
+        "4",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "18": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "17",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    },
+    "_meta": {
+      "title": "VAE decode"
+    }
+  },
+  "19": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "__FPAI_FILENAME_PREFIX__",
+      "images": [
+        "18",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save character still"
+    }
+  }
+}

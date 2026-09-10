@@ -1,0 +1,24 @@
+{
+  "character": {
+    "id": "jasmine",
+    "name": "Jasmine",
+    "role": "Lead",
+    "ageRange": "adult",
+    "wardrobe": ["Tarmac Look 01"],
+    "protectedTraits": [
+      "consistent canonical facial identity from Character Bible photographs",
+      "same apparent age across generations"
+    ],
+    "negativeTraits": [
+      "identity drift",
+      "different person",
+      "duplicate character",
+      "extra limbs",
+      "warped hands",
+      "text or watermark"
+    ]
+  },
+  "medium": "cinematic",
+  "taskId": "identity-front",
+  "notes": "First controlled Character Factory still. Identity comes from Jasmine Character Bible photographs, not from this text profile. Do not execute this plan until preflight is ready and live flags are explicitly enabled for a single-image test."
+}
