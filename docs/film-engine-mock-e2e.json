@@ -1,0 +1,80 @@
+{
+  "result": "passed",
+  "projectId": "enemies-closer-ep01",
+  "source": "test fixture adapted from seeded subjects",
+  "originalProductionPreserved": true,
+  "selectedReferences": [
+    {
+      "assetId": "11f84ff7-2497-4c00-a233-1906ae06b676",
+      "characterId": "jasmine",
+      "order": 1,
+      "reasons": [
+        "primary-identity",
+        "approved-identity-anchor",
+        "face-closeup-for-close-up",
+        "matching-angle:front"
+      ],
+      "category": "identity_anchor",
+      "expression": null,
+      "lockVersion": 1,
+      "mimeType": "image/png"
+    },
+    {
+      "assetId": "c15828cd-096b-4a63-abfc-efb27aa94f38",
+      "characterId": "jasmine",
+      "order": 2,
+      "reasons": [
+        "matching-angle:front",
+        "matching-expression:crying"
+      ],
+      "category": "expression",
+      "expression": "crying",
+      "lockVersion": 1,
+      "mimeType": "image/png"
+    },
+    {
+      "assetId": "8da86ded-f8d0-4970-90aa-a5c0caced575",
+      "characterId": "jasmine",
+      "order": 3,
+      "reasons": [
+        "deterministic-fallback"
+      ],
+      "category": "profile",
+      "expression": null,
+      "lockVersion": 1,
+      "mimeType": "image/png"
+    }
+  ],
+  "deliveryKeys": [
+    "schema",
+    "projectId",
+    "revision",
+    "title",
+    "status",
+    "masterEncoded",
+    "mock",
+    "shotList",
+    "productionBible",
+    "characterBible",
+    "storyGraph",
+    "continuity",
+    "cueSheet",
+    "lyrics",
+    "dialogue",
+    "assetProvenance",
+    "rightsReport",
+    "costReport",
+    "generationHistory",
+    "editDecisionList",
+    "renderManifest",
+    "audioStemManifest",
+    "captions"
+  ],
+  "cost": {
+    "estimated": 0,
+    "actual": 0,
+    "currency": "USD"
+  },
+  "outboundRequests": 0,
+  "liveRenderingEnabled": false
+}

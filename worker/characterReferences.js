@@ -386,6 +386,10 @@ async function handleReorder(env, projectId, characterId, orderedIds) {
 async function handleDelete(env, projectId, characterId, id) {
   const row = await getAssetRow(env, projectId, characterId, id);
   if (!row) fail("NOT_FOUND", "Reference image not found.", 404);
+  const preserved = await dbOf(env).prepare(
+    "SELECT id FROM character_locks WHERE project_id=? AND character_id=? AND manifest_json LIKE ? LIMIT 1",
+  ).bind(projectId, characterId, `%\"${id}\"%`).first();
+  if (preserved) fail("REFERENCE_PRESERVED", "This image belongs to a saved Character Lock. Exclude it from future generation to preserve earlier takes and versions.", 409);
   await dbOf(env)
     .prepare("DELETE FROM character_references WHERE id=? AND project_id=? AND character_id=?")
     .bind(id, projectId, characterId)

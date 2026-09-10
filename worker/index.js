@@ -1,5 +1,6 @@
 import { renderRoutes, config as renderConfig } from "./renders.js";
 import { characterReferenceRoutes } from "./characterReferences.js";
+import { filmRoutes } from "./filmEngine.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -340,6 +341,10 @@ export default {
     const auth = authorize(request, env);
     if (!auth.ok) return json({ error: auth.error }, auth.status, cors);
     try {
+      if (url.pathname.startsWith('/api/projects/') && url.pathname.includes('/film')) {
+        const response = await filmRoutes(request, env);
+        if (response) return response;
+      }
       if (url.pathname.startsWith("/api/projects/") && url.pathname.includes("/characters/")) {
         const response = await characterReferenceRoutes(request, env);
         if (response) {
