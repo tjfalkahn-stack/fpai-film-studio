@@ -134,6 +134,48 @@ Leave this section unexecuted for the foundation pass. Neither merging nor setti
 
 To disable again, set `LIVE_RENDERING_ENABLED = "false"` and redeploy the adapter. Existing reservations remain; already submitted operations may continue at Google. The switch stops new submissions, Google polling and downloads from this Worker—it cannot revoke a provider-side charge.
 
+## Seedance 2.0 (fal.ai) — prepared, not enabled
+
+Seedance is a first-class video renderer beside ComfyUI and Veo. It is **not** live in this repository. `SEEDANCE_LIVE_ENABLED` stays `false`. `LIVE_RENDERING_ENABLED` stays `false`. `MOCK_E2E_VERIFIED` is not part of Seedance authorization and stays `false`. Do not set `FAL_KEY` during review. Quotes work without a key; submission does not.
+
+The isolated Seedance controlled-test path is provider-scoped. Enabling it does **not** open Veo or Comfy live rendering.
+
+Authorization for that single job (all required):
+
+1. `SEEDANCE_LIVE_ENABLED=true`
+2. Authenticated owner control token (`FPAI_CONTROL_TOKEN`)
+3. Worker secret `FAL_KEY`
+4. Hard allowlist: Enemies Closer / Scene 001 / `seedance-fast` / reference-to-video / 6 seconds / 720p / audio on / shot `seedance-001-jasmine-mikey`
+5. Estimated spend ≤ **$1.46**
+6. Maximum **one** Seedance generation. After that job is reserved, a second Seedance job fails closed.
+
+`LIVE_RENDERING_ENABLED` must remain `false` for this test. Do not set `MOCK_E2E_VERIFIED=true` to authorize Seedance.
+
+After merge, adding the secret (still does not spend money until `SEEDANCE_LIVE_ENABLED` is explicitly enabled for the allowlisted job):
+
+```bash
+npx wrangler secret put FAL_KEY --config wrangler.toml
+```
+
+Copy these `[vars]` from `wrangler.example.toml` if they are missing. Leave the live flags false:
+
+```toml
+LIVE_RENDERING_ENABLED = "false"
+MOCK_E2E_VERIFIED = "false"
+SEEDANCE_LIVE_ENABLED = "false"
+SEEDANCE_FAST_720P_PER_SECOND_USD = "0.2419"
+SEEDANCE_STANDARD_720P_PER_SECOND_USD = "0.3024"
+SEEDANCE_STANDARD_1080P_PER_SECOND_USD = "0.682"
+```
+
+Optional later: `SEEDANCE_STANDARD_REFERENCE_VIDEO_720P_PER_SECOND_USD`, `SEEDANCE_WEBHOOK_URL` + `SEEDANCE_WEBHOOK_SECRET`. Webhook completion is supported; polling `GET /api/renders/:id` remains the default. Never put `FAL_KEY` in Vite, browser code, or `wrangler` `[vars]`.
+
+The first controlled Enemies Closer Scene 001 plan is `benchmarks/enemies-closer.scene-001.seedance.plan.json` (`execute: false`). Regenerating the file does not call fal.ai:
+
+```bash
+npm run seedance:first-test
+```
+
 ## API contract
 
 | Route | Purpose |
@@ -143,7 +185,7 @@ To disable again, set `LIVE_RENDERING_ENABLED = "false"` and redeploy the adapte
 | `POST /api/renders` | Quote (`estimateOnly:true`) or reserve a render. |
 | `GET /api/renders` | Recover recent jobs, active first. |
 | `GET /api/renders/:id` | Advance/poll a job and return normalized status. |
-| `POST /api/renders/:id/cancel` | Cancel queued jobs or supported running mocks. |
+| `POST /api/webhooks/fal` | Optional fal.ai completion callback. Requires `SEEDANCE_WEBHOOK_SECRET`. Does not start jobs. |
 | `GET /api/renders/:id/asset` | Authenticated MP4 with byte-range playback. |
 | `GET/POST /api/projects/:projectId/characters/:characterId/references` | List or upload individual character reference photos (JPG/PNG/WebP) into private R2. Metadata stays in D1. |
 | `PATCH/DELETE /api/projects/:projectId/characters/:characterId/references/:id` | Update tags/approval/primary/order or delete one photo. |
@@ -151,9 +193,9 @@ To disable again, set `LIVE_RENDERING_ENABLED = "false"` and redeploy the adapte
 | `GET/POST /api/projects/:projectId/characters/:characterId/lock` | Read or rebuild a versioned Character Lock manifest. Rebuild does not train a model or start a paid render. |
 | `POST .../reference-selection` | Deterministic shot reference selection preview. |
 
-Request inputs: `projectId`, `sceneId`, `shotId`, `provider` (`mock`/`veo-fast`), `prompt`, `referenceImages:[{mimeType,data}]` (legacy inline), optional `characterIds` / `shotSubject` / `shotContext` for library selection, `aspectRatio`, `duration`, `resolution`; submissions also require `requestKey` and `acceptedCost`. Live requests require an owner-attested `continuity` snapshot.
+Request inputs: `projectId`, `sceneId`, `shotId`, `provider` (`mock` / `comfy-video` / `seedance-fast` / `seedance-standard` / `veo-fast`), `prompt`, `referenceImages:[{mimeType,data}]` (legacy inline), optional `characterIds` / `shotSubject` / `shotContext` for library selection, optional Seedance `generateAudio`, `seed`, `endFrameImage`, `environmentReferences`, `referenceVideos`, `aspectRatio`, `duration`, `resolution`; submissions also require `requestKey` and `acceptedCost`. Live requests require an owner-attested `continuity` snapshot.
 
-The generation contract always preserves the full ordered selection (asset IDs, reasons, lock version) on the render. **Veo Fast still accepts at most three PNG/JPEG images.** Mock records the full set (primary + up to five supporting by default; `CHARACTER_REFERENCE_SUPPORTING_LIMIT`) and does not pretend extra images were sent to a live model. If a provider `maxReferences` is 1, only the Primary Identity image is transmitted.
+The generation contract always preserves the full ordered selection (asset IDs, reasons, lock version) on the render. **Veo Fast still accepts at most three PNG/JPEG images.** Seedance accepts up to nine Character Bible / scene references and can consume a reference video or end frame. Mock records the full set (primary + up to five supporting by default; `CHARACTER_REFERENCE_SUPPORTING_LIMIT`) and does not pretend extra images were sent to a live model. If a provider `maxReferences` is 1, only the Primary Identity image is transmitted.
 
 Output `render`: `id`/`renderId`, `operationId`, `status`, `estimatedCost`, nullable `actualCost`, `reservedCost`, `costBasis`, `outputAsset`, structured `error`, `debug.characterReferenceSelection`, scope and output settings. Google costs are completed usage at the quote tariff, pending invoice reconciliation. Unknown outcomes retain reservations; do not manually cancel them as free.
 

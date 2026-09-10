@@ -5,6 +5,7 @@ compatibility_date = "2026-09-04"
 [vars]
 LIVE_RENDERING_ENABLED = "false"
 MOCK_E2E_VERIFIED = "false"
+SEEDANCE_LIVE_ENABLED = "false"
 RENDER_PROJECT_ID = "enemies-closer-ep01"
 RENDER_PROJECT_CEILING_USD = "20"
 RENDER_SESSION_CEILING_USD = "10"
@@ -29,6 +30,20 @@ COMFYUI_CHARACTER_COST_PER_IMAGE_USD = "0"
 CHARACTER_FACTORY_LIVE_ENABLED = "false"
 # Optional operator override only. Leave unset to use the owned Film Studio identity graph.
 # COMFYUI_CHARACTER_WORKFLOW_KEY = "comfy/workflows/character-still.json"
+
+# Seedance 2.0 via fal.ai. FAL_KEY is a Worker secret, never a Vite/browser variable.
+# Isolated Seedance authorization is SEEDANCE_LIVE_ENABLED only. It does not flip
+# LIVE_RENDERING_ENABLED or MOCK_E2E_VERIFIED. Keep all live flags false in this repo.
+# Hard limit when enabled: Enemies Closer Scene 001 / seedance-fast / reference-to-video
+# / 6s / 720p / audio on / max one generation / max $1.46.
+SEEDANCE_FAST_720P_PER_SECOND_USD = "0.2419"
+SEEDANCE_STANDARD_720P_PER_SECOND_USD = "0.3024"
+SEEDANCE_STANDARD_1080P_PER_SECOND_USD = "0.682"
+# Optional lower rates when reference-to-video includes a video input:
+# SEEDANCE_STANDARD_REFERENCE_VIDEO_720P_PER_SECOND_USD = "0.3024"
+# SEEDANCE_STANDARD_REFERENCE_VIDEO_1080P_PER_SECOND_USD = "0.682"
+# Optional async completion callback. Leave unset; polling remains the default.
+# SEEDANCE_WEBHOOK_URL = "https://YOUR-ADAPTER/api/webhooks/fal?token=YOUR_WEBHOOK_SECRET"
 
 [[d1_databases]]
 binding = "GENERATION_DB"

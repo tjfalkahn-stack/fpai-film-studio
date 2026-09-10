@@ -1,4 +1,4 @@
-import { renderRoutes, config as renderConfig } from "./renders.js";
+import { renderRoutes, config as renderConfig, advance as advanceRender } from "./renders.js";
 import { characterReferenceRoutes } from "./characterReferences.js";
 import { filmRoutes } from "./filmEngine.js";
 import { createCharacterFactoryRuntime } from "./characterFactoryRuntime.js";
@@ -331,12 +331,32 @@ export default {
         ok: true,
         adapter: "fpai-google-video-v1",
         geminiKeyConfigured: Boolean(env.GEMINI_API_KEY),
+        falKeyConfigured: Boolean(env.FAL_KEY),
         controlTokenConfigured: Boolean(env.FPAI_CONTROL_TOKEN),
         d1Configured: Boolean(env.GENERATION_DB),
         r2Configured: Boolean(env.GENERATION_MEDIA),
         liveExecutionReady: renderConfig(env).liveEnabled && Boolean(env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA),
         liveRenderingEnabled: renderConfig(env).liveEnabled,
+        seedanceLiveEnabled: renderConfig(env).seedanceLiveEnabled,
       }, 200, cors);
+    }
+
+    if (url.pathname === "/api/webhooks/fal" && request.method === "POST") {
+      const secret = String(env.SEEDANCE_WEBHOOK_SECRET || "");
+      if (!secret) return json({ error: "Seedance webhook is not configured." }, 503, cors);
+      const provided = url.searchParams.get("token") || request.headers.get("x-fpai-webhook-token") || "";
+      if (!secureCompare(provided, secret)) return json({ error: "Unauthorized." }, 401, cors);
+      const payload = await request.json().catch(() => ({}));
+      const requestId = payload.request_id || payload.requestId;
+      if (!requestId || !/^[A-Za-z0-9_-]{8,128}$/.test(requestId)) {
+        return json({ error: "request_id required." }, 400, cors);
+      }
+      const row = await env.GENERATION_DB.prepare(
+        "SELECT * FROM renders WHERE operation_id GLOB ? LIMIT 1",
+      ).bind(`fal:*:${requestId}`).first();
+      if (!row) return json({ error: "Render not found." }, 404, cors);
+      const updated = await advanceRender(env, row);
+      return json({ render: { id: updated.id, status: updated.status, operationId: updated.operation_id } }, 200, cors);
     }
 
     const auth = authorize(request, env);

@@ -7,7 +7,7 @@
     "test": "node --test",
     "build": "vite build",
     "character:benchmark": "node scripts/character-factory-benchmark.mjs",
-    "character:first-test": "node scripts/prepare-character-factory-first-still.mjs",
+    "seedance:first-test": "node scripts/prepare-seedance-first-plan.mjs",
     "adapter:dev": "npx wrangler dev --config wrangler.toml",
     "adapter:deploy": "npx wrangler deploy --config wrangler.toml",
     "adapter:schema:local": "npx wrangler d1 execute fpai-film-studio-generation --local --file=worker/schema.sql",

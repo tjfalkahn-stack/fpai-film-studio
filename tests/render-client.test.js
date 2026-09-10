@@ -29,6 +29,6 @@ test("secure browser identities retain the original SHA-256 format for pending r
 });
 
 test("HTTP preview fallback cannot submit a paid or unknown renderer", async () => {
-  for (const provider of ["veo-fast", "unknown", undefined])
+  for (const provider of ["veo-fast", "seedance-fast", "seedance-standard", "unknown", undefined])
     await assert.rejects(renderIdentity({ ...input, provider }, httpCrypto), /HTTPS/);
 });

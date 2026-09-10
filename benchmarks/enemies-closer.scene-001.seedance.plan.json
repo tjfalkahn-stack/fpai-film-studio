@@ -1,0 +1,110 @@
+{
+  "schema": "fpai.seedance.first-test.v1",
+  "execute": false,
+  "project": "Enemies Closer",
+  "projectId": "enemies-closer-ep01",
+  "scene": {
+    "id": "001",
+    "title": "Tarmac / Night / Rain",
+    "location": "Private airfield · East Houston",
+    "weather": "Heavy rain"
+  },
+  "concept": "Jasmine moving with young Mikey through a tense nighttime tarmac environment, using Character Bible references plus a tarmac/environment reference.",
+  "characters": [
+    {
+      "id": "jasmine",
+      "name": "Jasmine",
+      "role": "Marcus's woman / secret architect"
+    },
+    {
+      "id": "mikey",
+      "name": "Mikey",
+      "role": "Marcus & Jasmine's young son"
+    }
+  ],
+  "environmentReference": {
+    "id": "a1",
+    "name": "Tarmac Master 01",
+    "type": "Location"
+  },
+  "liveFlagsRequired": {
+    "SEEDANCE_LIVE_ENABLED": "true"
+  },
+  "liveFlagsMustStayFalse": {
+    "LIVE_RENDERING_ENABLED": "false",
+    "MOCK_E2E_VERIFIED": "false"
+  },
+  "liveFlagsInThisRepo": {
+    "LIVE_RENDERING_ENABLED": "false",
+    "MOCK_E2E_VERIFIED": "false",
+    "SEEDANCE_LIVE_ENABLED": "false"
+  },
+  "authorization": {
+    "seedanceLiveEnabled": true,
+    "liveRenderingEnabled": false,
+    "mockE2eVerified": "not-used-for-seedance",
+    "controlToken": "FPAI_CONTROL_TOKEN",
+    "falKey": "FAL_KEY",
+    "allowlist": {
+      "projectId": "enemies-closer-ep01",
+      "sceneId": "001",
+      "shotId": "seedance-001-jasmine-mikey",
+      "provider": "seedance-fast",
+      "mode": "reference-to-video",
+      "duration": 6,
+      "resolution": "720p",
+      "generateAudio": true
+    },
+    "maxJobs": 1,
+    "maxEstimatedCostUsd": 1.46,
+    "failClosedAfterFirstJob": true
+  },
+  "blockedUntil": [
+    "FAL_KEY is stored as a Worker secret (not a browser/Vite variable)",
+    "Jasmine and Mikey Character Bible identity images exist and are approved",
+    "A Scene 001 tarmac/environment reference is available",
+    "Shot timing and scene animatic are approved",
+    "Owner reviews the quote and the $1.46 Seedance controlled-test ceiling",
+    "Owner explicitly sets SEEDANCE_LIVE_ENABLED=true for this one test only",
+    "LIVE_RENDERING_ENABLED remains false. MOCK_E2E_VERIFIED is not used to authorize Seedance."
+  ],
+  "request": {
+    "projectId": "enemies-closer-ep01",
+    "sceneId": "001",
+    "shotId": "seedance-001-jasmine-mikey",
+    "provider": "seedance-fast",
+    "endpointId": "bytedance/seedance-2.0/fast/reference-to-video",
+    "mode": "reference-to-video",
+    "duration": 6,
+    "resolution": "720p",
+    "aspectRatio": "16:9",
+    "generateAudio": true,
+    "referenceCount": 3,
+    "prompt": "@Image1 is Jasmine · (Marcus's woman / secret architect) · identity front. Keep identity locked to this reference. @Image2 is Mikey · (Marcus & Jasmine's young son) · identity front. Keep identity locked to this reference. @Image3 is Tarmac Master 01 (scene / environment reference). Keep identity locked to this reference. CONTROL mode · Jasmine moving with young Mikey through a tense nighttime tarmac · Handheld coverage · final edit 6 seconds · identity drift STRICT · Use generated production sound only as reference audio. Night, heavy rain, private East Houston airfield. Jasmine keeps Mikey close as they move across wet tarmac under sparse sodium lights, rain hammering metal and pavement. Cinematic, grounded, no identity drift.",
+    "imageRoles": [
+      "jasmine-identity",
+      "mikey-identity",
+      "tarmac-environment"
+    ]
+  },
+  "quote": {
+    "estimatedCost": 1.4514,
+    "currency": "USD",
+    "ratePerSecond": 0.2419,
+    "priceBasis": "fal-seedance-2.0-assumption-2026-09-10",
+    "pricingUpdatedAt": "2026-09-10",
+    "rates": {
+      "fast-720p": 0.2419,
+      "standard-720p": 0.3024,
+      "standard-1080p": 0.682
+    }
+  },
+  "rationale": {
+    "providerSelected": "seedance-fast",
+    "selectionReason": "reference-to-video · Fast tier for the first inexpensive reference-driven test. Standard remains the cinematic follow-up. Veo is not used for this first test.",
+    "estimatedCost": 1.4514,
+    "resolution": "720p",
+    "audio": true,
+    "referenceCount": 3
+  }
+}

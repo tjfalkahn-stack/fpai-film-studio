@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { renderIdentity, renderRequestKey, renderRequest } from "./renderClient.js";
+import { isSeedanceProvider } from "./seedanceRequest.js";
 
 async function encodeImage(file) {
   if (
@@ -82,6 +83,7 @@ export default function RenderPanel({
       resolution,
       aspectRatio,
       referenceImages: inline,
+      generateAudio: String(provider).startsWith("seedance-") ? true : undefined,
       characterIds: characters.map((c) => c.id),
       characters: characters.map((c) => ({
         id: c.id,
@@ -141,10 +143,15 @@ export default function RenderPanel({
   const shotSpend = active
     .filter((r) => r.provider !== "mock")
     .reduce((s, r) => s + (r.actualCost || 0) + (r.reservedCost || 0), 0);
+  const providerLiveReady = isSeedanceProvider(provider)
+    ? Boolean(catalog?.policy?.seedanceLiveEnabled)
+    : Boolean(catalog?.policy?.liveEnabled);
   const liveBlock = !capabilities?.paid
     ? ""
-    : !catalog?.policy.liveEnabled
-      ? "Live rendering is disabled on the server."
+    : !providerLiveReady
+      ? isSeedanceProvider(provider)
+        ? "Seedance live rendering is disabled on the server."
+        : "Live rendering is disabled on the server."
       : !continuity.ready
         ? "Complete and lock the Character Bible first."
         : !scene?.animaticLocked || !shot.economy?.animaticApproved
@@ -278,8 +285,10 @@ export default function RenderPanel({
         the Primary Identity image plus up to five supporting library photos
         for this shot. Manual PNG/JPEG boxes remain for older Bible uploads.
         {provider === "veo-fast"
-          ? "Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
-          : "Mock records the full selected set in debug output. Veo Fast still accepts at most 3 PNG/JPEG images if live rendering is later enabled."}
+          ? " Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
+          : provider?.startsWith("seedance-")
+            ? " Seedance consumes the Character Bible selection automatically (Marcus, Jasmine, Turner, Mikey) plus optional scene references. Audio is available at the same quoted video rate. Up to 9 images."
+            : " Mock records the full selected set in debug output. Live providers still honor their own reference limits."}
       </p>
       {refs.map((ref) => (
         <label key={ref.key} className="checkLabel">
@@ -323,6 +332,7 @@ export default function RenderPanel({
           <pre>{JSON.stringify(quote.debug, null, 2)}</pre>
         </div>
       )}
+      {capabilities?.uiHint && <p>{capabilities.uiHint}</p>}
       {capabilities?.previewOnly && (
         <p>
           Mock produces a playable test slate. It does not simulate Marcus or

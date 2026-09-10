@@ -1,5 +1,11 @@
+import {
+  DEFAULT_SEEDANCE_RATES,
+  SEEDANCE_PRICING_UPDATED_AT,
+} from "./seedancePricing.js";
+
 export const ECONOMY_SCHEMA_VERSION = 1;
 export const PRICING_UPDATED_AT = "2026-09-03";
+export { SEEDANCE_PRICING_UPDATED_AT };
 
 const round = (value, places = 4) => {
   const factor = 10 ** places;
@@ -64,6 +70,77 @@ export const ROUTES = Object.freeze([
     ratePerSecond: 0,
     paid: false,
     description: "Reuse approved footage or salvaged ranges already paid for.",
+  },
+  {
+    id: "comfy",
+    label: "ComfyUI · Identity Still",
+    provider: "comfy",
+    renderer: "comfy",
+    model: "comfyui-character-still",
+    tier: "comfy",
+    resolution: "source",
+    ratePerSecond: 0,
+    paid: false,
+    audio: false,
+    maxReferences: 6,
+    description: "Character stills, identity assets, and reference preparation. Not a video generation route.",
+  },
+  {
+    id: "seedance-fast-720",
+    label: "Seedance 2.0 Fast · 720p",
+    provider: "seedance",
+    renderer: "seedance-fast",
+    model: "bytedance/seedance-2.0/fast",
+    apiSurface: "fal-queue",
+    tier: "seedance-fast",
+    durationPolicy: "flexible",
+    minDuration: 4,
+    maxDuration: 15,
+    resolution: "720p",
+    ratePerSecond: DEFAULT_SEEDANCE_RATES["fast-720p"],
+    paid: true,
+    audio: true,
+    maxReferences: 9,
+    referenceVideo: true,
+    description: "Draft motion, coverage, transitions, and inexpensive reference-driven tests. Audio-capable.",
+  },
+  {
+    id: "seedance-standard-720",
+    label: "Seedance 2.0 Standard · 720p",
+    provider: "seedance",
+    renderer: "seedance-standard",
+    model: "bytedance/seedance-2.0",
+    apiSurface: "fal-queue",
+    tier: "seedance-standard",
+    durationPolicy: "flexible",
+    minDuration: 4,
+    maxDuration: 15,
+    resolution: "720p",
+    ratePerSecond: DEFAULT_SEEDANCE_RATES["standard-720p"],
+    paid: true,
+    audio: true,
+    maxReferences: 9,
+    referenceVideo: true,
+    description: "Higher-quality cinematic character shots, reference-driven scenes, and audio-enabled takes.",
+  },
+  {
+    id: "seedance-standard-1080",
+    label: "Seedance 2.0 Standard · 1080p",
+    provider: "seedance",
+    renderer: "seedance-standard",
+    model: "bytedance/seedance-2.0",
+    apiSurface: "fal-queue",
+    tier: "seedance-standard",
+    durationPolicy: "flexible",
+    minDuration: 4,
+    maxDuration: 15,
+    resolution: "1080p",
+    ratePerSecond: DEFAULT_SEEDANCE_RATES["standard-1080p"],
+    paid: true,
+    audio: true,
+    maxReferences: 9,
+    referenceVideo: true,
+    description: "Native 1080p Seedance Standard for detail-critical character and reference-driven scenes.",
   },
   {
     id: "omni-flash-720",
@@ -198,6 +275,18 @@ export const ROUTE_BY_ID = Object.freeze(Object.fromEntries(ROUTES.map((route) =
 export const OMNI_DURATION_RANGE = Object.freeze({ min: 3, max: 10 });
 export const VEO_CLIP_DURATION = 8;
 
+export function rendererForRoute(routeOrId) {
+  const route = typeof routeOrId === "string" ? ROUTE_BY_ID[routeOrId] : routeOrId;
+  if (!route) return null;
+  if (route.renderer) return route.renderer;
+  if (String(route.id || "").startsWith("seedance-fast")) return "seedance-fast";
+  if (String(route.id || "").startsWith("seedance-standard")) return "seedance-standard";
+  if (String(route.id || "").startsWith("veo-fast")) return "veo-fast";
+  if (String(route.id || "").startsWith("veo-standard")) return "veo-standard";
+  if (String(route.id || "").startsWith("comfy")) return "comfy";
+  return route.provider;
+}
+
 export function normalizeEconomySettings(project = {}) {
   const source = project.economy || {};
   const settings = {
@@ -315,12 +404,17 @@ export function candidateRouteIdsForShot(shot = {}, project = {}) {
   if (shotClass === "still-motion") return ["still-motion"];
 
   if (economy.nativeDetail) {
+    if (shotClass === "hero") return ["veo-fast-1080", "veo-standard-1080", "seedance-standard-1080"];
     return shotClass === "generic-motion"
-      ? ["veo-lite-1080", "veo-fast-1080"]
-      : ["veo-fast-1080"];
+      ? ["veo-lite-1080", "veo-fast-1080", "seedance-standard-1080"]
+      : ["veo-fast-1080", "seedance-standard-1080"];
   }
-  if (shotClass === "generic-motion") return ["omni-flash-720", "veo-lite-720", "veo-fast-720"];
-  return ["omni-flash-720", "veo-fast-720"];
+  if (shotClass === "hero") return ["omni-flash-720", "veo-fast-720", "seedance-standard-720", "veo-standard-720"];
+  if (shotClass === "generic-motion") return ["omni-flash-720", "veo-lite-720", "seedance-fast-720", "veo-fast-720"];
+  if (shotClass === "visible-dialogue" || shotClass === "identity-motion" || shotClass === "multi-character") {
+    return ["omni-flash-720", "seedance-standard-720", "veo-fast-720"];
+  }
+  return ["omni-flash-720", "veo-fast-720", "seedance-fast-720"];
 }
 
 export function defaultRouteIdForShot(shot = {}, project = {}) {
@@ -430,6 +524,24 @@ export function expectedAttemptsForRoute(route, shotClass, ledger = [], maxAttem
       "complex-action": 1.3,
       hero: 1.35,
     },
+    "seedance-fast": {
+      "generic-motion": 1.3,
+      "identity-motion": 1.45,
+      "multi-character": 1.55,
+      "visible-dialogue": 1.5,
+      "vehicle-motion": 1.4,
+      "complex-action": 1.5,
+      hero: 1.6,
+    },
+    "seedance-standard": {
+      "generic-motion": 1.15,
+      "identity-motion": 1.25,
+      "multi-character": 1.35,
+      "visible-dialogue": 1.3,
+      "vehicle-motion": 1.25,
+      "complex-action": 1.3,
+      hero: 1.4,
+    },
   };
   return round(Math.min(maxAttempts, byTier[route.tier]?.[shotClass] || 1.5), 2);
 }
@@ -468,6 +580,34 @@ export function routeShot(shot = {}, ledger = [], project = {}) {
     routingScore: selected.score,
     routingScoreSource: selected.scoreSource,
     fallbackRouteIds: fallbackRoutes(route.id, shot, project),
+    renderer: rendererForRoute(route),
+    rationale: routingRationale(selected, shot, project),
+  };
+}
+
+export function routingRationale(selected, shot = {}, project = {}, extras = {}) {
+  const route = selected.route;
+  const economy = normalizeShotEconomy(shot, project);
+  const shotClass = classifyShot(shot, project);
+  let selectionReason;
+  if (economy.manualRouteId !== "auto" && ROUTE_BY_ID[economy.manualRouteId]) {
+    selectionReason = `Manual route override (${economy.manualRouteId}).`;
+  } else if (selected.scoreSource === "learned") {
+    selectionReason = `Learned cost per usable second favored ${route.id}.`;
+  } else if (String(route.renderer || route.id || "").includes("veo")) {
+    selectionReason = `Veo is the economical justified route for ${shotClass}.`;
+  } else if (String(route.renderer || route.id || "").includes("seedance")) {
+    selectionReason = `Seedance is the economical candidate for ${shotClass}; Veo remains available for premium hero shots.`;
+  } else {
+    selectionReason = `Lowest expected-cost candidate for ${shotClass}. Seedance is not selected when cheaper accepted routes exist.`;
+  }
+  return {
+    providerSelected: rendererForRoute(route),
+    selectionReason,
+    estimatedCost: selected.estimate?.expectedCost ?? extras.estimatedCost ?? 0,
+    resolution: route.resolution,
+    audio: Boolean(route.audio),
+    referenceCount: Number(extras.referenceCount || 0),
   };
 }
 
@@ -476,12 +616,19 @@ export function fallbackRoutes(routeId, shot = {}, project = {}) {
   if (routeId === "local-composite") return ["still-motion", "omni-flash-720", "veo-lite-720"];
   if (routeId === "still-motion") return ["local-composite", "omni-flash-720", "veo-lite-720"];
   if (routeId === "vault-reuse") return ["local-composite", "still-motion"];
+  if (routeId === "comfy") return ["still-motion", "local-composite"];
+  if (routeId.startsWith("seedance-fast")) return ["omni-flash-720", "veo-lite-720", "still-motion", "local-composite"];
+  if (routeId.startsWith("seedance-standard")) {
+    return economy.hero
+      ? ["veo-fast-720", "veo-standard-720", "omni-flash-720", "still-motion"]
+      : ["seedance-fast-720", "omni-flash-720", "veo-fast-720", "still-motion"];
+  }
   if (routeId === "omni-flash-720") return economy.hero
     ? ["veo-fast-720", "veo-standard-720", "still-motion", "local-composite"]
-    : ["veo-lite-720", "veo-fast-720", "still-motion", "local-composite"];
-  if (routeId.startsWith("veo-lite")) return ["omni-flash-720", "veo-fast-720", "still-motion", "local-composite"];
+    : ["veo-lite-720", "seedance-fast-720", "veo-fast-720", "still-motion", "local-composite"];
+  if (routeId.startsWith("veo-lite")) return ["omni-flash-720", "seedance-fast-720", "veo-fast-720", "still-motion", "local-composite"];
   if (routeId.startsWith("veo-fast")) {
-    return economy.hero ? ["omni-flash-720", "veo-standard-720", "still-motion", "local-composite"] : ["omni-flash-720", "veo-lite-720", "still-motion", "local-composite"];
+    return economy.hero ? ["omni-flash-720", "veo-standard-720", "seedance-standard-720", "still-motion", "local-composite"] : ["omni-flash-720", "veo-lite-720", "seedance-fast-720", "still-motion", "local-composite"];
   }
   return ["omni-flash-720", "veo-fast-720", "still-motion", "local-composite"];
 }
@@ -559,15 +706,25 @@ export function buildGenerationPlan({ shot, project = {}, characters = [], asset
       ? route.estimate.clipDurations.map((durationSeconds, index) => ({
           jobIndex: index,
           provider: route.provider,
+          renderer: rendererForRoute(route),
           model: route.model,
           apiSurface: route.apiSurface,
           durationPolicy: route.durationPolicy,
           resolution: route.resolution,
           aspectRatio: economy.aspectRatio,
           durationSeconds,
+          generateAudio: Boolean(route.audio),
           prompt: `${prompt} · provider segment ${index + 1}/${route.estimate.clipDurations.length} · output exactly ${durationSeconds} seconds`,
         }))
       : [],
+    routing: {
+      ...(route.rationale || {}),
+      providerSelected: rendererForRoute(route),
+      estimatedCost: route.estimate.expectedCost,
+      resolution: route.resolution,
+      audio: Boolean(route.audio),
+      referenceCount: characterRefs.length,
+    },
   };
 }
 

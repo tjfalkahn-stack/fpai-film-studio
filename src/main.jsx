@@ -63,6 +63,7 @@ import {
 import {
   DEFAULT_ECONOMY_SETTINGS,
   PRICING_UPDATED_AT,
+  SEEDANCE_PRICING_UPDATED_AT,
   ROUTES,
   buildGenerationPlan,
   calculateProductionEconomy,
@@ -75,6 +76,7 @@ import {
   providerPerformance,
   updateEconomySettings,
 } from "./economy.js";
+import { DEFAULT_SEEDANCE_RATES } from "./seedancePricing.js";
 import "./styles.css";
 import { approveTakeState, updateTakeState } from "./takeReview.js";
 import RenderPanel from "./RenderPanel.jsx";
@@ -1065,7 +1067,7 @@ function EconomyPage({
       <section className="panel">
         <div className="panelHead">
           <div><span className="eyebrow">SHOT COST COMPILER</span><h2>Mapped Shot Routing</h2></div>
-          <span className="pricingStamp">Google video pricing snapshot {PRICING_UPDATED_AT}</span>
+          <span className="pricingStamp">Google snapshot {PRICING_UPDATED_AT} · Seedance fal assumption {SEEDANCE_PRICING_UPDATED_AT}</span>
         </div>
         <div className="economyTable">
           <div className="tableHeader"><span>Shot</span><span>Class</span><span>Method</span><span>Paid sec</span><span>1 attempt</span><span>Expected</span><span>Cap</span><span>Gate</span></div>
@@ -1102,6 +1104,7 @@ function EconomyPage({
           </div>
         ) : <p className="sub">The router starts learning after generated takes are reviewed. Until then it uses conservative default acceptance assumptions.</p>}
       </section>
+      <SeedanceVisibility compact />
     </>
   );
 }
@@ -1210,6 +1213,56 @@ function ContinuityPage({ data, continuityForShot, setPackageShotId }) {
   );
 }
 
+function SeedanceVisibility({ compact = false }) {
+  const cards = [
+    {
+      id: "seedance-fast",
+      label: "Seedance 2.0 Fast",
+      rate: DEFAULT_SEEDANCE_RATES["fast-720p"],
+      resolution: "720p",
+      audio: true,
+      references: "Up to 9 images + reference video",
+      use: "Draft motion, coverage, transitions, inexpensive reference-driven tests",
+    },
+    {
+      id: "seedance-standard",
+      label: "Seedance 2.0 Standard",
+      rate: DEFAULT_SEEDANCE_RATES["standard-720p"],
+      rate1080: DEFAULT_SEEDANCE_RATES["standard-1080p"],
+      resolution: "720p / 1080p",
+      audio: true,
+      references: "Up to 9 Character Bible + scene references",
+      use: "Cinematic character shots, reference-driven scenes, audio-enabled takes",
+    },
+  ];
+  return (
+    <section className={`panel seedancePanel${compact ? " compact" : ""}`}>
+      <div className="panelHead">
+        <div>
+          <span className="eyebrow">SEEDANCE 2.0</span>
+          <h2>{compact ? "Fal video routes" : "Provider Control · Seedance 2.0"}</h2>
+        </div>
+        <Pill tone="good">LIVE OFF</Pill>
+      </div>
+      <p className="sub">ComfyUI remains identity stills. Seedance is a video candidate, not an automatic replacement for Veo. The isolated Seedance controlled test uses SEEDANCE_LIVE_ENABLED only and never opens LIVE_RENDERING_ENABLED or Veo. Hero shots can still justify Veo. Creator Generate Take stays on the existing shot workflow.</p>
+      <div className="seedanceGrid">
+        {cards.map((card) => (
+          <div className="seedanceCard" key={card.id}>
+            <b>{card.label}</b>
+            <strong>${card.rate.toFixed(4)}/sec · {card.resolution}</strong>
+            {card.rate1080 ? <small>1080p ${card.rate1080.toFixed(4)}/sec</small> : <small>Fast 720p default</small>}
+            <div className="seedanceCaps">
+              <span>Audio {card.audio ? "yes" : "no"}</span>
+              <span>{card.references}</span>
+            </div>
+            <p>{card.use}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function RouterPage({ data, performance }) {
   const settings = normalizeEconomySettings(data.project);
   return (
@@ -1219,7 +1272,8 @@ function RouterPage({ data, performance }) {
         <div className="adapterStatus"><Server /><b>SERVER ADAPTER</b><Pill tone={settings.serverAdapterConnected ? "good" : "bad"}>{settings.serverAdapterConnected ? "CONNECTED" : "NOT CONNECTED"}</Pill></div>
       </section>
       <section className="panel">
-        <div className="panelHead"><div><span className="eyebrow">ROUTES</span><h2>Local, Gemini Omni, and Veo Methods</h2></div><span className="pricingStamp">Paid rates as of {settings.pricingUpdatedAt}</span></div>
+        <div className="panelHead"><div><span className="eyebrow">ROUTES</span><h2>Local, ComfyUI, Seedance, Gemini Omni, and Veo Methods</h2></div><span className="pricingStamp">Paid rates as of {settings.pricingUpdatedAt} · Seedance {SEEDANCE_PRICING_UPDATED_AT}</span></div>
+        <SeedanceVisibility />
         <div className="routeGrid">
           {ROUTES.map((route) => {
             const learned = performance[route.id];
@@ -1227,7 +1281,7 @@ function RouterPage({ data, performance }) {
               <div className={`routeCard ${route.paid ? "paid" : "local"}`} key={route.id}>
                 <div className="routeIcon">{route.paid ? <Zap /> : <HardDrive />}</div>
                 <div><b>{route.label}</b><small>{route.model}</small></div>
-                <strong>{route.paid ? `$${route.ratePerSecond.toFixed(2)}/sec` : "$0 API"}</strong>
+                <strong>{route.paid ? `$${route.ratePerSecond.toFixed(route.provider === "seedance" ? 4 : 2)}/sec` : "$0 API"}</strong>
                 <p>{route.description}</p>
                 <div className="routeStats"><span>{learned?.requests || 0} learned requests</span><span>{learned?.usableSeconds || 0}s usable</span></div>
               </div>
