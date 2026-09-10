@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { renderIdentity, renderRequestKey, renderRequest } from "./renderClient.js";
+import { isSeedanceProvider } from "./seedanceRequest.js";
 
 async function encodeImage(file) {
   if (
@@ -142,10 +143,15 @@ export default function RenderPanel({
   const shotSpend = active
     .filter((r) => r.provider !== "mock")
     .reduce((s, r) => s + (r.actualCost || 0) + (r.reservedCost || 0), 0);
+  const providerLiveReady = isSeedanceProvider(provider)
+    ? Boolean(catalog?.policy?.seedanceLiveEnabled)
+    : Boolean(catalog?.policy?.liveEnabled);
   const liveBlock = !capabilities?.paid
     ? ""
-    : !catalog?.policy.liveEnabled
-      ? "Live rendering is disabled on the server."
+    : !providerLiveReady
+      ? isSeedanceProvider(provider)
+        ? "Seedance live rendering is disabled on the server."
+        : "Live rendering is disabled on the server."
       : !continuity.ready
         ? "Complete and lock the Character Bible first."
         : !scene?.animaticLocked || !shot.economy?.animaticApproved

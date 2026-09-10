@@ -32,7 +32,10 @@ CHARACTER_FACTORY_LIVE_ENABLED = "false"
 # COMFYUI_CHARACTER_WORKFLOW_KEY = "comfy/workflows/character-still.json"
 
 # Seedance 2.0 via fal.ai. FAL_KEY is a Worker secret, never a Vite/browser variable.
-# Keep SEEDANCE_LIVE_ENABLED and LIVE_RENDERING_ENABLED false until a controlled test is approved.
+# Isolated Seedance authorization is SEEDANCE_LIVE_ENABLED only. It does not flip
+# LIVE_RENDERING_ENABLED or MOCK_E2E_VERIFIED. Keep all live flags false in this repo.
+# Hard limit when enabled: Enemies Closer Scene 001 / seedance-fast / reference-to-video
+# / 6s / 720p / audio on / max one generation / max $1.46.
 SEEDANCE_FAST_720P_PER_SECOND_USD = "0.2419"
 SEEDANCE_STANDARD_720P_PER_SECOND_USD = "0.3024"
 SEEDANCE_STANDARD_1080P_PER_SECOND_USD = "0.682"

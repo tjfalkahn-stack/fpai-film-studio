@@ -28,24 +28,49 @@
     "type": "Location"
   },
   "liveFlagsRequired": {
-    "LIVE_RENDERING_ENABLED": "true",
-    "MOCK_E2E_VERIFIED": "true",
     "SEEDANCE_LIVE_ENABLED": "true"
+  },
+  "liveFlagsForbidden": {
+    "LIVE_RENDERING_ENABLED": "true"
   },
   "liveFlagsInThisRepo": {
     "LIVE_RENDERING_ENABLED": "false",
     "MOCK_E2E_VERIFIED": "false",
     "SEEDANCE_LIVE_ENABLED": "false"
   },
+  "authorization": {
+    "seedanceLiveEnabled": true,
+    "liveRenderingEnabled": false,
+    "mockE2eVerified": "not-used-for-seedance",
+    "controlToken": "FPAI_CONTROL_TOKEN",
+    "falKey": "FAL_KEY",
+    "allowlist": {
+      "projectId": "enemies-closer-ep01",
+      "sceneId": "001",
+      "shotId": "seedance-001-jasmine-mikey",
+      "provider": "seedance-fast",
+      "mode": "reference-to-video",
+      "duration": 6,
+      "resolution": "720p",
+      "generateAudio": true
+    },
+    "maxJobs": 1,
+    "maxEstimatedCostUsd": 1.46,
+    "failClosedAfterFirstJob": true
+  },
   "blockedUntil": [
     "FAL_KEY is stored as a Worker secret (not a browser/Vite variable)",
     "Jasmine and Mikey Character Bible identity images exist and are approved",
     "A Scene 001 tarmac/environment reference is available",
     "Shot timing and scene animatic are approved",
-    "Owner reviews the quote and session/project ceilings",
-    "Owner explicitly sets LIVE_RENDERING_ENABLED=true, MOCK_E2E_VERIFIED=true, and SEEDANCE_LIVE_ENABLED=true for this one test only"
+    "Owner reviews the quote and the $1.46 Seedance controlled-test ceiling",
+    "Owner explicitly sets SEEDANCE_LIVE_ENABLED=true for this one test only",
+    "LIVE_RENDERING_ENABLED remains false. MOCK_E2E_VERIFIED is not used to authorize Seedance."
   ],
   "request": {
+    "projectId": "enemies-closer-ep01",
+    "sceneId": "001",
+    "shotId": "seedance-001-jasmine-mikey",
     "provider": "seedance-fast",
     "endpointId": "bytedance/seedance-2.0/fast/reference-to-video",
     "mode": "reference-to-video",

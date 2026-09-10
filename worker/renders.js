@@ -3,6 +3,11 @@ import { fail, validateInput, ProviderError } from "./providers/contract.js";
 import { seedanceLiveEnabled } from "./providers/seedance.js";
 import { isSeedanceProvider } from "../src/seedanceRequest.js";
 import {
+  SEEDANCE_CONTROLLED_TEST,
+  seedanceEstimatedCostAllowed,
+  seedancePlanMismatches,
+} from "../src/seedanceControlledTest.js";
+import {
   resolveProviderReferenceImages,
   selectStoredCharacterReferences,
 } from "./characterReferences.js";
@@ -52,6 +57,18 @@ export function config(env) {
     liveEnabled: liveMaster && (Boolean(env.GEMINI_API_KEY) || comfyConfigured),
     seedanceLiveEnabled: seedanceLiveEnabled(env),
     falConfigured: Boolean(String(env.FAL_KEY || "").trim()),
+    seedanceControlledTest: {
+      projectId: SEEDANCE_CONTROLLED_TEST.projectId,
+      sceneId: SEEDANCE_CONTROLLED_TEST.sceneId,
+      shotId: SEEDANCE_CONTROLLED_TEST.shotId,
+      provider: SEEDANCE_CONTROLLED_TEST.provider,
+      mode: SEEDANCE_CONTROLLED_TEST.mode,
+      duration: SEEDANCE_CONTROLLED_TEST.duration,
+      resolution: SEEDANCE_CONTROLLED_TEST.resolution,
+      generateAudio: SEEDANCE_CONTROLLED_TEST.generateAudio,
+      maxEstimatedCostUsd: SEEDANCE_CONTROLLED_TEST.maxEstimatedCostUsd,
+      maxJobs: SEEDANCE_CONTROLLED_TEST.maxJobs,
+    },
   };
 }
 export function providerLiveEnabled(provider, env) {
@@ -253,6 +270,26 @@ function liveGate(input, env) {
       "Character shots require selected reference images.",
     );
 }
+function authorizeSeedanceJob(input, quote, env) {
+  if (!String(env.FAL_KEY || "").trim()) {
+    fail("PROVIDER_CONFIG", "FAL_KEY is not configured.", 503);
+  }
+  if (!seedanceEstimatedCostAllowed(quote.estimatedCost)) {
+    fail(
+      "COST_CEILING",
+      `Seedance controlled-test ceiling of $${SEEDANCE_CONTROLLED_TEST.maxEstimatedCostUsd} would be exceeded.`,
+      409,
+    );
+  }
+  const mismatches = seedancePlanMismatches(input, env);
+  if (mismatches.length) {
+    fail(
+      "SEEDANCE_PLAN_DENIED",
+      `Request is outside the authorized Seedance one-job test plan (${mismatches.join(", ")}).`,
+      403,
+    );
+  }
+}
 async function create(request, env) {
   const body = await readBody(request);
   const { input, provider } = await inputFrom(body, env);
@@ -306,6 +343,7 @@ async function create(request, env) {
     );
   if (quote.estimatedCost > policy.singleCeiling)
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
+  if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   const hash = await sha(JSON.stringify(input));
   const db = dbOf(env);
   const existing = await db
@@ -369,10 +407,11 @@ async function create(request, env) {
     .prepare(
       `INSERT INTO renders (id,project_id,session_id,scene_id,shot_id,request_key,request_hash,provider,model,status,estimated_cost,reserved_cost,input_json,created_at,updated_at)
     SELECT ?,?,?,?,?,?,?,?,?,'queued',?,?,?,?,?
-    WHERE ?=0 OR (
+    WHERE (?=0 OR (
       (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=?) +
       (SELECT COALESCE(SUM(actual_cost+reserved_cost),0) FROM generation_jobs WHERE project_id=?) + ? <= ?
-      AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE session_id=?) + ? <= ?)
+      AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE session_id=?) + ? <= ?))
+      AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE provider LIKE 'seedance-%') < ?)
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
     .bind(
@@ -398,6 +437,8 @@ async function create(request, env) {
       policy.sessionId,
       quote.estimatedCost,
       policy.sessionCeiling,
+      isSeedanceProvider(input.provider) ? 1 : 0,
+      SEEDANCE_CONTROLLED_TEST.maxJobs,
     )
     .run();
   const row = await db
@@ -408,12 +449,27 @@ async function create(request, env) {
     if (hasInlineBytes)
       await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
   }
-  if (!row)
+  if (!row) {
+    if (isSeedanceProvider(input.provider)) {
+      const used = await db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM renders WHERE provider LIKE 'seedance-%'",
+        )
+        .first();
+      if (Number(used?.n || 0) >= SEEDANCE_CONTROLLED_TEST.maxJobs) {
+        fail(
+          "SEEDANCE_JOB_LIMIT",
+          "The authorized Seedance test allows only one generation. Authorization has failed closed.",
+          403,
+        );
+      }
+    }
     fail(
       "COST_CEILING",
       "Session or project ceiling would be exceeded, including reserved renders.",
       409,
     );
+  }
   if (row.request_hash !== hash)
     fail(
       "IDEMPOTENCY_CONFLICT",

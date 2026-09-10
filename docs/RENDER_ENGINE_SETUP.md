@@ -136,9 +136,22 @@ To disable again, set `LIVE_RENDERING_ENABLED = "false"` and redeploy the adapte
 
 ## Seedance 2.0 (fal.ai) — prepared, not enabled
 
-Seedance is a first-class video renderer beside ComfyUI and Veo. It is **not** live in this repository. `LIVE_RENDERING_ENABLED` and `SEEDANCE_LIVE_ENABLED` stay `false`. Do not set `FAL_KEY` during review. Quotes work without a key; submission does not.
+Seedance is a first-class video renderer beside ComfyUI and Veo. It is **not** live in this repository. `SEEDANCE_LIVE_ENABLED` stays `false`. `LIVE_RENDERING_ENABLED` stays `false`. `MOCK_E2E_VERIFIED` is not part of Seedance authorization and stays `false`. Do not set `FAL_KEY` during review. Quotes work without a key; submission does not.
 
-After merge, adding the secret (still does not spend money until both live flags are explicitly enabled):
+The isolated Seedance controlled-test path is provider-scoped. Enabling it does **not** open Veo or Comfy live rendering.
+
+Authorization for that single job (all required):
+
+1. `SEEDANCE_LIVE_ENABLED=true`
+2. Authenticated owner control token (`FPAI_CONTROL_TOKEN`)
+3. Worker secret `FAL_KEY`
+4. Hard allowlist: Enemies Closer / Scene 001 / `seedance-fast` / reference-to-video / 6 seconds / 720p / audio on / shot `seedance-001-jasmine-mikey`
+5. Estimated spend ≤ **$1.46**
+6. Maximum **one** Seedance generation. After that job is reserved, a second Seedance job fails closed.
+
+`LIVE_RENDERING_ENABLED` must remain `false` for this test. Do not set `MOCK_E2E_VERIFIED=true` to authorize Seedance.
+
+After merge, adding the secret (still does not spend money until `SEEDANCE_LIVE_ENABLED` is explicitly enabled for the allowlisted job):
 
 ```bash
 npx wrangler secret put FAL_KEY --config wrangler.toml
@@ -147,6 +160,8 @@ npx wrangler secret put FAL_KEY --config wrangler.toml
 Copy these `[vars]` from `wrangler.example.toml` if they are missing. Leave the live flags false:
 
 ```toml
+LIVE_RENDERING_ENABLED = "false"
+MOCK_E2E_VERIFIED = "false"
 SEEDANCE_LIVE_ENABLED = "false"
 SEEDANCE_FAST_720P_PER_SECOND_USD = "0.2419"
 SEEDANCE_STANDARD_720P_PER_SECOND_USD = "0.3024"

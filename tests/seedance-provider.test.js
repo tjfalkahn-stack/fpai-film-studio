@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../worker/index.js";
-import { createSeedanceProvider } from "../worker/providers/seedance.js";
+import { createSeedanceProvider, seedanceLiveEnabled } from "../worker/providers/seedance.js";
 import { validateInput } from "../worker/providers/contract.js";
 import { falSubmitUrl, parseFalOperationId } from "../worker/providers/falQueue.js";
 
 const png = { mimeType: "image/png", data: "iVBORw0KGgo=" };
 const liveEnv = {
-  LIVE_RENDERING_ENABLED: "true",
-  MOCK_E2E_VERIFIED: "true",
+  LIVE_RENDERING_ENABLED: "false",
+  MOCK_E2E_VERIFIED: "false",
   SEEDANCE_LIVE_ENABLED: "true",
   FAL_KEY: "test-fal-key",
 };
@@ -28,6 +28,26 @@ function input(extra = {}) {
     ...extra,
   };
 }
+
+test("Seedance live authorization is independent of Veo/live-render flags", () => {
+  assert.equal(
+    seedanceLiveEnabled({
+      SEEDANCE_LIVE_ENABLED: "true",
+      LIVE_RENDERING_ENABLED: "false",
+      MOCK_E2E_VERIFIED: "false",
+    }),
+    true,
+  );
+  assert.equal(
+    seedanceLiveEnabled({
+      SEEDANCE_LIVE_ENABLED: "false",
+      LIVE_RENDERING_ENABLED: "true",
+      MOCK_E2E_VERIFIED: "true",
+      FAL_KEY: "test-fal-key",
+    }),
+    false,
+  );
+});
 
 test("Seedance start uses the fal queue, never blocks on the result, and keeps FAL_KEY off the URL", async () => {
   const calls = [];
@@ -120,7 +140,7 @@ test("provider failure and in-queue cancel handling", async () => {
 
 test("secret absence allows quoting but blocks start", async () => {
   const provider = createSeedanceProvider(
-    { LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", SEEDANCE_LIVE_ENABLED: "true" },
+    { LIVE_RENDERING_ENABLED: "false", MOCK_E2E_VERIFIED: "false", SEEDANCE_LIVE_ENABLED: "true" },
     async () => {
       throw new Error("fal.ai must not be contacted without FAL_KEY");
     },
@@ -189,6 +209,7 @@ test("render API quotes Seedance, rejects live submit, and rejects over-ceiling 
   const quote = await quoteResponse.json();
   assert.equal(quoteResponse.status, 200);
   assert.equal(quote.estimatedCost, 1.4514);
+  assert.equal(quote.liveEnabled, false);
   assert.equal(quote.seedanceLiveEnabled, false);
   assert.equal(JSON.stringify(quote).includes("must-not-leak"), false);
   assert.equal(quote.rationale.providerSelected, "seedance-fast");
@@ -218,8 +239,8 @@ test("render API quotes Seedance, rejects live submit, and rejects over-ceiling 
   assert.equal(JSON.stringify(catalogBody).includes("must-not-leak"), false);
 
   Object.assign(env, {
-    LIVE_RENDERING_ENABLED: "true",
-    MOCK_E2E_VERIFIED: "true",
+    LIVE_RENDERING_ENABLED: "false",
+    MOCK_E2E_VERIFIED: "false",
     SEEDANCE_LIVE_ENABLED: "true",
     GENERATION_DB: {
       prepare() {

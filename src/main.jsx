@@ -1244,7 +1244,7 @@ function SeedanceVisibility({ compact = false }) {
         </div>
         <Pill tone="good">LIVE OFF</Pill>
       </div>
-      <p className="sub">ComfyUI remains identity stills. Seedance is a video candidate, not an automatic replacement for Veo. Hero shots can still justify Veo. Creator Generate Take stays on the existing shot workflow.</p>
+      <p className="sub">ComfyUI remains identity stills. Seedance is a video candidate, not an automatic replacement for Veo. The isolated Seedance controlled test uses SEEDANCE_LIVE_ENABLED only and never opens LIVE_RENDERING_ENABLED or Veo. Hero shots can still justify Veo. Creator Generate Take stays on the existing shot workflow.</p>
       <div className="seedanceGrid">
         {cards.map((card) => (
           <div className="seedanceCard" key={card.id}>

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { buildSeedanceRequest, CHARACTER_BIBLE } from "../src/seedanceRequest.js";
 import { DEFAULT_SEEDANCE_RATES, SEEDANCE_PRICING_UPDATED_AT } from "../src/seedancePricing.js";
+import { SEEDANCE_CONTROLLED_TEST } from "../src/seedanceControlledTest.js";
 
 const outDir = "benchmarks";
 const outFile = path.join(outDir, "enemies-closer.scene-001.seedance.plan.json");
@@ -35,7 +36,7 @@ const tarmac = {
 const input = {
   projectId: "enemies-closer-ep01",
   sceneId: "001",
-  shotId: "seedance-001-jasmine-mikey",
+  shotId: SEEDANCE_CONTROLLED_TEST.shotId,
   provider: "seedance-fast",
   tier: "fast",
   prompt,
@@ -68,24 +69,49 @@ const packet = {
   ],
   environmentReference: { id: "a1", name: "Tarmac Master 01", type: "Location" },
   liveFlagsRequired: {
-    LIVE_RENDERING_ENABLED: "true",
-    MOCK_E2E_VERIFIED: "true",
     SEEDANCE_LIVE_ENABLED: "true",
+  },
+  liveFlagsForbidden: {
+    LIVE_RENDERING_ENABLED: "true",
   },
   liveFlagsInThisRepo: {
     LIVE_RENDERING_ENABLED: "false",
     MOCK_E2E_VERIFIED: "false",
     SEEDANCE_LIVE_ENABLED: "false",
   },
+  authorization: {
+    seedanceLiveEnabled: true,
+    liveRenderingEnabled: false,
+    mockE2eVerified: "not-used-for-seedance",
+    controlToken: "FPAI_CONTROL_TOKEN",
+    falKey: "FAL_KEY",
+    allowlist: {
+      projectId: SEEDANCE_CONTROLLED_TEST.projectId,
+      sceneId: SEEDANCE_CONTROLLED_TEST.sceneId,
+      shotId: SEEDANCE_CONTROLLED_TEST.shotId,
+      provider: SEEDANCE_CONTROLLED_TEST.provider,
+      mode: SEEDANCE_CONTROLLED_TEST.mode,
+      duration: SEEDANCE_CONTROLLED_TEST.duration,
+      resolution: SEEDANCE_CONTROLLED_TEST.resolution,
+      generateAudio: SEEDANCE_CONTROLLED_TEST.generateAudio,
+    },
+    maxJobs: SEEDANCE_CONTROLLED_TEST.maxJobs,
+    maxEstimatedCostUsd: SEEDANCE_CONTROLLED_TEST.maxEstimatedCostUsd,
+    failClosedAfterFirstJob: true,
+  },
   blockedUntil: [
     "FAL_KEY is stored as a Worker secret (not a browser/Vite variable)",
     "Jasmine and Mikey Character Bible identity images exist and are approved",
     "A Scene 001 tarmac/environment reference is available",
     "Shot timing and scene animatic are approved",
-    "Owner reviews the quote and session/project ceilings",
-    "Owner explicitly sets LIVE_RENDERING_ENABLED=true, MOCK_E2E_VERIFIED=true, and SEEDANCE_LIVE_ENABLED=true for this one test only",
+    "Owner reviews the quote and the $1.46 Seedance controlled-test ceiling",
+    "Owner explicitly sets SEEDANCE_LIVE_ENABLED=true for this one test only",
+    "LIVE_RENDERING_ENABLED remains false. MOCK_E2E_VERIFIED is not used to authorize Seedance.",
   ],
   request: {
+    projectId: SEEDANCE_CONTROLLED_TEST.projectId,
+    sceneId: SEEDANCE_CONTROLLED_TEST.sceneId,
+    shotId: SEEDANCE_CONTROLLED_TEST.shotId,
     provider: "seedance-fast",
     endpointId: built.endpointId,
     mode: built.mode,
@@ -122,4 +148,5 @@ console.log(`First controlled Seedance test plan: ${outFile}`);
 console.log(`Endpoint: ${built.endpointId}`);
 console.log(`Quote: $${built.quote.estimatedCost} (no API call made)`);
 console.log("THIS SCRIPT DOES NOT SUBMIT A GENERATION.");
-console.log("LIVE_RENDERING_ENABLED and SEEDANCE_LIVE_ENABLED stay false in the repo.");
+console.log("LIVE_RENDERING_ENABLED stays false. MOCK_E2E_VERIFIED is not used for Seedance.");
+console.log("SEEDANCE_LIVE_ENABLED stays false in the repo.");

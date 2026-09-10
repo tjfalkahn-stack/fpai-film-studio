@@ -16,6 +16,7 @@ import {
   seedanceTier,
 } from "../../src/seedanceRequest.js";
 import { SEEDANCE_PRICE_BASIS } from "../../src/seedancePricing.js";
+import { seedanceLiveFlagEnabled } from "../../src/seedanceControlledTest.js";
 
 const TIER_META = {
   fast: {
@@ -39,18 +40,11 @@ const TIER_META = {
 };
 
 export function seedanceLiveEnabled(env = {}) {
-  return (
-    env.LIVE_RENDERING_ENABLED === "true" &&
-    env.MOCK_E2E_VERIFIED === "true" &&
-    env.SEEDANCE_LIVE_ENABLED === "true"
-  );
+  return seedanceLiveFlagEnabled(env);
 }
 
 function requireSeedanceLive(env) {
-  if (env.LIVE_RENDERING_ENABLED !== "true" || env.MOCK_E2E_VERIFIED !== "true") {
-    fail("LIVE_DISABLED", "Live rendering is disabled.", 403);
-  }
-  if (env.SEEDANCE_LIVE_ENABLED !== "true") {
+  if (!seedanceLiveEnabled(env)) {
     fail("LIVE_DISABLED", "Seedance live rendering is disabled.", 403);
   }
   if (!String(env.FAL_KEY || "").trim()) {
