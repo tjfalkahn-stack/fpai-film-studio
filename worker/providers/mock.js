@@ -12,7 +12,7 @@ export function createMockProvider() {
       durations: [8],
       resolutions: ["720p"],
       aspectRatios: ["16:9"],
-      maxReferences: 3,
+      maxReferences: 6,
       cancelRunning: true,
     },
     estimate: () => ({
@@ -20,7 +20,16 @@ export function createMockProvider() {
       currency: "USD",
       priceBasis: "mock-no-charge",
     }),
-    start: async () => ({ operationId: `mock/${crypto.randomUUID()}` }),
+    start: async (input) => ({
+      operationId: `mock/${crypto.randomUUID()}`,
+      debug: {
+        characterReferenceSelection: input.characterReferenceSelection || null,
+        transmittedAssetIds: (input.characterReferenceSelection?.transmitted || []).map(
+          (item) => item.assetId,
+        ),
+        referenceImagesTransmitted: (input.referenceImages || []).length,
+      },
+    }),
     status: async (job) =>
       Date.now() - Date.parse(job.created_at) < 4000
         ? { status: "running" }

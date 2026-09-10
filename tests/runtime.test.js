@@ -51,7 +51,7 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
     assert.equal(catalog.policy.sessionCeiling, 10);
     assert.equal(catalog.policy.projectCeiling, 20);
     let db = await mf.getD1Database("GENERATION_DB");
-    for (const file of ["worker/schema.sql", "worker/render-schema.sql"])
+    for (const file of ["worker/schema.sql", "worker/render-schema.sql", "worker/character-schema.sql"])
       for (const sql of readFileSync(file, "utf8")
         .replace(/^--.*$/gm, "")
         .split(";")

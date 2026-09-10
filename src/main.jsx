@@ -79,6 +79,10 @@ import "./styles.css";
 import { approveTakeState, updateTakeState } from "./takeReview.js";
 import RenderPanel from "./RenderPanel.jsx";
 import { renderRequest, mergeRender } from "./renderClient.js";
+import FilmEngine from "./FilmEngine.jsx";
+import ReferenceLibrary from "./ReferenceLibrary.jsx";
+import { syncCanonicalRefsFromLibrary, LEGACY_SLOT_TO_LIBRARY } from "./characterReferences.js";
+import { uploadCharacterReference } from "./characterReferenceClient.js";
 
 const STORAGE_KEY = "fpai-film-studio-v1.2";
 const MEDIA_DB = "fpai-film-studio-media";
@@ -323,22 +327,25 @@ function Metric({ label, value, detail, tone = "" }) {
   );
 }
 
-function Media({ mediaKey, type = "image", remoteUrl }) {
+function Media({ mediaKey, type = "image", remoteUrl, assetUrl }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
     let objectUrl = "";
-    if (mediaKey) {
-      getMedia(mediaKey).then((file) => {
-        if (file) {
-          objectUrl = URL.createObjectURL(file);
-          setUrl(objectUrl);
-        }
-      });
+    if (assetUrl || !mediaKey || String(mediaKey).startsWith("library:")) {
+      setUrl(assetUrl || "");
+      return undefined;
     }
+    getMedia(mediaKey).then((file) => {
+      if (file) {
+        objectUrl = URL.createObjectURL(file);
+        setUrl(objectUrl);
+      }
+    });
     return () => objectUrl && URL.revokeObjectURL(objectUrl);
-  }, [mediaKey]);
+  }, [mediaKey, assetUrl]);
 
   if (remoteUrl) return <video src={remoteUrl} controls preload="metadata" />;
+  if (assetUrl) return type === "video" ? <video src={assetUrl} controls /> : <img src={assetUrl} alt="Uploaded production asset" />;
   if (!mediaKey) return <div className="emptyMedia"><ImageIcon /></div>;
   if (!url) return <div className="emptyMedia">Loading…</div>;
   return type === "video" ? <video src={url} controls /> : <img src={url} alt="Uploaded production asset" />;
@@ -382,7 +389,7 @@ function App() {
     return () => { canceled = true; clearTimeout(timer); };
   }, []);
 
-  const tabs = ["Overview", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
+  const tabs = ["Overview", "Film Engine", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
   const character = data.characters.find((item) => item.id === characterId) || null;
   const shot = data.shots.find((item) => item.id === shotId) || null;
   const packageShot = data.shots.find((item) => item.id === packageShotId) || null;
@@ -503,12 +510,25 @@ function App() {
     const key = `char:${targetCharacter.id}:${slot}:${Date.now()}`;
     const previous = targetCharacter.refs?.[slot]?.key;
     await putMedia(key, file);
-    if (previous) await deleteMedia(previous);
+    if (previous && !String(previous).startsWith("library:")) await deleteMedia(previous);
+    const mapping = LEGACY_SLOT_TO_LIBRARY[slot] || { category: "other" };
     const refs = {
       ...targetCharacter.refs,
       [slot]: { key, name: file.name, category: slot, uploadedAt: new Date().toISOString() },
     };
     updateCharacter(targetCharacter.id, { refs, locked: false });
+    try {
+      await uploadCharacterReference(data.project.id, targetCharacter.id, file, {
+        category: mapping.category,
+        angle: mapping.angle || "",
+        expression: mapping.expression || "",
+        isPrimary: Boolean(mapping.primary),
+        isIdentityAnchor: Boolean(mapping.identityAnchor || mapping.primary),
+        approvalState: "approved",
+      });
+    } catch (error) {
+      if (error.status !== 409) notify(error.message, "bad");
+    }
   }
 
   async function removeReference(targetCharacter, slot) {
@@ -716,6 +736,7 @@ function App() {
           <Metric label="PRODUCTION SPEND" value={formatMoney(productionBudget.spent)} detail={`${productionBudget.percentageUsed.toFixed(1)}% of ${formatMoney(productionBudget.currentBudget)}`} tone={productionBudget.warningState} />
         </section>
 
+        {tab === "Film Engine" && <FilmEngine production={data} onCast={() => setTab('Characters')} />}
         {tab === "Overview" && (
           <OverviewPage
             data={data}
@@ -753,10 +774,10 @@ function App() {
             <div className="characterGrid">
               {data.characters.map((item) => (
                 <div className="characterCard" key={item.id}>
-                  <div className="portrait">{item.refs?.identityFront?.key ? <Media mediaKey={item.refs.identityFront.key} /> : item.name[0]}</div>
+                  <div className="portrait">{item.refs?.identityFront?.key ? <Media mediaKey={item.refs.identityFront.key} assetUrl={item.refs.identityFront.assetUrl} /> : item.name[0]}</div>
                   <h3>{item.name}</h3>
                   <small>{item.role}</small>
-                  <p>{characterReferenceCount(item)}/5 required reference assets</p>
+                  <p>{characterReferenceCount(item)}/5 required reference assets · {(item.referenceLibrary || []).length} library photos</p>
                   <Pill tone={item.locked ? "good" : "bad"}>{item.locked ? "LOCKED" : "NOT LOCKED"}</Pill>
                   <button className="ghost full" onClick={() => setCharacterId(item.id)}>Open character bible</button>
                 </div>
@@ -850,12 +871,15 @@ function App() {
       {character && (
         <CharacterDrawer
           character={character}
+          projectId={data.project.id}
           dragTarget={dragTarget}
           setDragTarget={setDragTarget}
           addReference={addReference}
           removeReference={removeReference}
           addExpression={addExpression}
           updateCharacter={updateCharacter}
+          getMedia={getMedia}
+          notify={notify}
           close={() => setCharacterId(null)}
         />
       )}
@@ -1163,7 +1187,7 @@ function ContinuityPage({ data, continuityForShot, setPackageShotId }) {
             <div className="characterCard compactCard" key={item.id}>
               <div className="portrait small">{item.name[0]}</div>
               <h3>{item.name}</h3>
-              <p>{characterReferenceCount(item)}/5 reference assets</p>
+              <p>{characterReferenceCount(item)}/5 reference assets · {(item.referenceLibrary || []).length} library photos</p>
               <Pill tone={item.locked ? "good" : "bad"}>{item.locked ? "LOCKED" : "NOT LOCKED"}</Pill>
             </div>
           ))}
@@ -1280,11 +1304,26 @@ function BudgetPage({
   );
 }
 
-function CharacterDrawer({ character, dragTarget, setDragTarget, addReference, removeReference, addExpression, updateCharacter, close }) {
+function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addReference, removeReference, addExpression, updateCharacter, getMedia, notify, close }) {
   const lockReady = isCharacterReferenceComplete(character);
+  function onLibrarySync(payload) {
+    const references = payload.references
+      || (payload.reference
+        ? [...(character.referenceLibrary || []).filter((item) => item.id !== payload.reference.id), payload.reference]
+        : (character.referenceLibrary || []).filter((item) => item.id !== payload.deletedId));
+    const patch = {};
+    if (payload.migratedMediaKeys) patch.migratedMediaKeys = payload.migratedMediaKeys;
+    if (payload.lock) patch.identityLock = payload.lock;
+    if (payload.coverage) patch.referenceCoverage = payload.coverage;
+    if (payload.references || payload.reference || payload.deletedId) {
+      patch.referenceLibrary = references;
+      patch.refs = syncCanonicalRefsFromLibrary(character, references);
+    }
+    if (Object.keys(patch).length) updateCharacter(character.id, patch);
+  }
   return (
     <div className="overlay">
-      <div className="drawer wide">
+      <div className="drawer wide libraryDrawer">
         <button className="close" onClick={close}><X /></button>
         <span className="eyebrow">CHARACTER BIBLE</span>
         <h2>{character.name}</h2>
@@ -1309,7 +1348,7 @@ function CharacterDrawer({ character, dragTarget, setDragTarget, addReference, r
                 }}
               >
                 <label>
-                  <div className="referencePreview">{reference ? <Media mediaKey={reference.key} /> : <><Upload /><span>DROP IMAGE</span></>}</div>
+                  <div className="referencePreview">{reference ? <Media mediaKey={reference.key} assetUrl={reference.assetUrl} /> : <><Upload /><span>DROP IMAGE</span></>}</div>
                   <b>{label}</b>
                   <small>{reference ? reference.name : "Required before lock"}</small>
                   <div className="slotAction">{reference ? "DROP TO REPLACE · CLICK TO BROWSE" : "DROP HERE · CLICK TO BROWSE"}</div>
@@ -1320,6 +1359,15 @@ function CharacterDrawer({ character, dragTarget, setDragTarget, addReference, r
             );
           })}
         </div>
+        <ReferenceLibrary
+          projectId={projectId}
+          character={character}
+          getMedia={getMedia}
+          dragTarget={dragTarget}
+          setDragTarget={setDragTarget}
+          onLibrarySync={onLibrarySync}
+          notify={notify}
+        />
         <h3>Expression Bank</h3>
         <div className="expressionGrid">
           {EXPRESSIONS.map((name) => {

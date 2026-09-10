@@ -93,6 +93,7 @@ Put these under the existing `[vars]` section. These server ceilings govern real
 ```bash
 npx wrangler d1 execute fpai-film-studio-generation --config wrangler.toml --remote --file=worker/schema.sql
 npx wrangler d1 execute fpai-film-studio-generation --config wrangler.toml --remote --file=worker/render-schema.sql
+npx wrangler d1 execute fpai-film-studio-generation --config wrangler.toml --remote --file=worker/character-schema.sql
 ```
 
 4. Configure a Cloudflare Access **self-hosted application** covering the entire frontend hostname, with an Allow policy restricted to the owner. Put its team domain and application AUD in `wrangler.frontend.toml` as `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`. Keep the `VIDEO_ADAPTER` service binding. The frontend verifies the JWT itself and returns 401 if these are absent or incorrect. Protect every alternate hostname, including workers.dev; an unprotected hostname still fails closed at the Worker.
@@ -144,10 +145,17 @@ To disable again, set `LIVE_RENDERING_ENABLED = "false"` and redeploy the adapte
 | `GET /api/renders/:id` | Advance/poll a job and return normalized status. |
 | `POST /api/renders/:id/cancel` | Cancel queued jobs or supported running mocks. |
 | `GET /api/renders/:id/asset` | Authenticated MP4 with byte-range playback. |
+| `GET/POST /api/projects/:projectId/characters/:characterId/references` | List or upload individual character reference photos (JPG/PNG/WebP) into private R2. Metadata stays in D1. |
+| `PATCH/DELETE /api/projects/:projectId/characters/:characterId/references/:id` | Update tags/approval/primary/order or delete one photo. |
+| `GET .../references/:id/asset` | Authenticated original image bytes. |
+| `GET/POST /api/projects/:projectId/characters/:characterId/lock` | Read or rebuild a versioned Character Lock manifest. Rebuild does not train a model or start a paid render. |
+| `POST .../reference-selection` | Deterministic shot reference selection preview. |
 
-Request inputs: `projectId`, `sceneId`, `shotId`, `provider` (`mock`/`veo-fast`), `prompt`, `referenceImages:[{mimeType,data}]`, `aspectRatio`, `duration`, `resolution`; submissions also require `requestKey` and `acceptedCost`. Live requests require an owner-attested `continuity` snapshot.
+Request inputs: `projectId`, `sceneId`, `shotId`, `provider` (`mock`/`veo-fast`), `prompt`, `referenceImages:[{mimeType,data}]` (legacy inline), optional `characterIds` / `shotSubject` / `shotContext` for library selection, `aspectRatio`, `duration`, `resolution`; submissions also require `requestKey` and `acceptedCost`. Live requests require an owner-attested `continuity` snapshot.
 
-Output `render`: `id`/`renderId`, `operationId`, `status`, `estimatedCost`, nullable `actualCost`, `reservedCost`, `costBasis`, `outputAsset`, structured `error`, scope and output settings. Google costs are completed usage at the quote tariff, pending invoice reconciliation. Unknown outcomes retain reservations; do not manually cancel them as free.
+The generation contract always preserves the full ordered selection (asset IDs, reasons, lock version) on the render. **Veo Fast still accepts at most three PNG/JPEG images.** Mock records the full set (primary + up to five supporting by default; `CHARACTER_REFERENCE_SUPPORTING_LIMIT`) and does not pretend extra images were sent to a live model. If a provider `maxReferences` is 1, only the Primary Identity image is transmitted.
+
+Output `render`: `id`/`renderId`, `operationId`, `status`, `estimatedCost`, nullable `actualCost`, `reservedCost`, `costBasis`, `outputAsset`, structured `error`, `debug.characterReferenceSelection`, scope and output settings. Google costs are completed usage at the quote tariff, pending invoice reconciliation. Unknown outcomes retain reservations; do not manually cancel them as free.
 
 ## Operator reconciliation
 

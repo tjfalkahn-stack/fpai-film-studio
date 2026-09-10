@@ -49,13 +49,27 @@ export function validateInput(input, capabilities) {
         `Unsupported ${key}. Allowed: ${allowed.join(", ")}.`,
       );
   }
-  const refs = input.referenceImages;
-  if (!Array.isArray(refs) || refs.length > capabilities.maxReferences)
+  const refs = Array.isArray(input.referenceImages) ? input.referenceImages : [];
+  input.referenceImages = refs;
+  if (refs.length > capabilities.maxReferences)
     fail(
       "INVALID_REFERENCES",
       `Choose at most ${capabilities.maxReferences} reference images.`,
     );
   for (const ref of refs) {
+    const libraryRef =
+      typeof ref.assetId === "string" &&
+      /^[a-f0-9-]{36}$/i.test(ref.assetId) &&
+      typeof ref.characterId === "string";
+    if (libraryRef && ref.data == null) {
+      if (capabilities.id !== "mock" && !["image/png", "image/jpeg"].includes(ref.mimeType)) {
+        fail(
+          "INVALID_REFERENCES",
+          "Live providers currently accept PNG or JPEG character references only.",
+        );
+      }
+      continue;
+    }
     if (
       !["image/png", "image/jpeg"].includes(ref.mimeType) ||
       typeof ref.data !== "string" ||

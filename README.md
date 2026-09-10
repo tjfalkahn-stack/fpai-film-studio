@@ -1,5 +1,7 @@
 # FPAI Film Studio — Render Engine Foundation
 
+The new **Film Engine** workspace adds a persisted mock script-to-delivery workflow. See [Film Engine foundation, verification and remaining activation work](docs/FILM_ENGINE_FOUNDATION.md). It integrates the multi-photo Character Bible and preserves the original Enemies Closer seed and browser production. No live provider or final encoding is implied.
+
 Start with [local testing and deployment](docs/RENDER_ENGINE_SETUP.md) and the [repository audit](docs/RENDER_FOUNDATION_AUDIT.md). Mock renders execute with zero provider spend; Veo Fast is implemented behind disabled server gates. Existing production UI and seed data are preserved.
 
 The remaining v1.2 sections describe the retained economy planner. Executable providers and server cost controls are documented in the foundation runbook.
@@ -149,7 +151,7 @@ That produces a planning forecast of approximately **$123.82**, compared with a 
 
 - **Overview:** production readiness and economy summary.
 - **Economy:** forecast controls, budget targets, compiler output, and route performance.
-- **Characters:** canonical identity, profile, full-body, expression, and wardrobe references.
+- **Characters:** canonical identity, profile, full-body, expression, and wardrobe references, plus a per-character **Reference Library** of individual photos stored in R2/D1.
 - **Scenes:** animatic lock and scene status.
 - **Shots:** route, billed duration, cost, attempt limits, reuse, and local-repair controls.
 - **Takes:** generated footage review, salvage timecodes, continuity scoring, and approval.
@@ -186,6 +188,7 @@ The implemented provider-neutral render contract, Cloudflare setup, cost account
 The current suite covers:
 
 - canonical character references and lock migration;
+- multi-photo character reference libraries, coverage, lock versions, and deterministic shot selection;
 - production-budget locking and audit history;
 - economy metadata in ledger entries;
 - Omni flexible duration and Veo fixed-duration planning;
@@ -196,4 +199,3 @@ The current suite covers:
 - dry-run queue versus live execution separation;
 - salvage timecode parsing, clamping, merging, and reuse;
 - the 27-minute generation forecast.
-
