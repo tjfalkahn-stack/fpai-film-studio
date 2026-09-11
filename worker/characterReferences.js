@@ -6,6 +6,7 @@ import {
   evaluateReferenceCoverage,
   normalizeApprovalState,
   normalizeAngle,
+  normalizeCanonicalSlot,
   normalizeCategory,
   normalizeExpression,
   normalizeLibraryAsset,
@@ -92,6 +93,112 @@ async function listAssets(env, projectId, characterId) {
   return (result.results || []).map((row) => publicAsset(row, projectId));
 }
 
+function isMissingCanonicalTable(error) {
+  return /no such table|character_canonical_slots/i.test(String(error?.message || error || ""));
+}
+
+async function listCanonicalSlotIds(env, projectId, characterId) {
+  try {
+    const result = await dbOf(env)
+      .prepare(
+        "SELECT slot, asset_id FROM character_canonical_slots WHERE project_id=? AND character_id=?",
+      )
+      .bind(projectId, characterId)
+      .all();
+    const slots = {};
+    for (const row of result.results || []) {
+      const slot = normalizeCanonicalSlot(row.slot);
+      if (slot && row.asset_id) slots[slot] = row.asset_id;
+    }
+    return slots;
+  } catch (error) {
+    if (isMissingCanonicalTable(error)) return {};
+    throw error;
+  }
+}
+
+function decorateLibrary(assets, slotIds) {
+  const idToSlot = {};
+  for (const [slot, assetId] of Object.entries(slotIds || {})) {
+    if (assetId) idToSlot[assetId] = slot;
+  }
+  const references = (assets || []).map((asset) => {
+    const slot = idToSlot[asset.id];
+    return slot ? { ...asset, canonicalSlot: slot } : { ...asset };
+  });
+  const canonicalSlots = {};
+  for (const [slot, assetId] of Object.entries(slotIds || {})) {
+    const asset = references.find((item) => item.id === assetId);
+    if (asset) canonicalSlots[slot] = asset;
+  }
+  return { references, canonicalSlots };
+}
+
+async function libraryPayload(env, projectId, characterId, extra = {}) {
+  const assets = await listAssets(env, projectId, characterId);
+  const slotIds = await listCanonicalSlotIds(env, projectId, characterId);
+  const decorated = decorateLibrary(assets, slotIds);
+  const state = await lockState(env, projectId, characterId, assets);
+  return {
+    references: decorated.references,
+    canonicalSlots: decorated.canonicalSlots,
+    coverage: state.coverage,
+    lock: state.lock,
+    ...extra,
+  };
+}
+
+async function assignCanonicalSlot(env, projectId, characterId, slot, assetId) {
+  const normalizedSlot = normalizeCanonicalSlot(slot);
+  if (!normalizedSlot) fail("INVALID_INPUT", "slot must be identityFront, profile, fullBody, expression, or wardrobe.");
+  try {
+    if (assetId) {
+      const row = await getAssetRow(env, projectId, characterId, assetId);
+      if (!row) fail("NOT_FOUND", "Reference image not found.", 404);
+      await dbOf(env)
+        .prepare(
+          `INSERT INTO character_canonical_slots (project_id, character_id, slot, asset_id, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(project_id, character_id, slot) DO UPDATE SET
+             asset_id = excluded.asset_id,
+             updated_at = excluded.updated_at`,
+        )
+        .bind(projectId, characterId, normalizedSlot, assetId, stamp())
+        .run();
+    } else {
+      await dbOf(env)
+        .prepare(
+          "DELETE FROM character_canonical_slots WHERE project_id=? AND character_id=? AND slot=?",
+        )
+        .bind(projectId, characterId, normalizedSlot)
+        .run();
+    }
+  } catch (error) {
+    if (isMissingCanonicalTable(error)) {
+      fail(
+        "CANONICAL_SLOTS_SCHEMA",
+        "Re-apply worker/character-schema.sql to persist Character Bible slots. Existing library photos are not deleted.",
+        503,
+      );
+    }
+    throw error;
+  }
+  return normalizedSlot;
+}
+
+async function clearCanonicalSlotsForAsset(env, projectId, characterId, assetId) {
+  try {
+    await dbOf(env)
+      .prepare(
+        "DELETE FROM character_canonical_slots WHERE project_id=? AND character_id=? AND asset_id=?",
+      )
+      .bind(projectId, characterId, assetId)
+      .run();
+  } catch (error) {
+    if (!isMissingCanonicalTable(error)) throw error;
+  }
+}
+
 async function getAssetRow(env, projectId, characterId, id) {
   return dbOf(env)
     .prepare("SELECT * FROM character_references WHERE id=? AND project_id=? AND character_id=?")
@@ -166,15 +273,8 @@ async function handleUpload(request, env, projectId, characterId) {
   });
   if (!validated.ok) fail("INVALID_FILE", validated.errors[0], 400);
 
-  const existingCount = await dbOf(env)
-    .prepare("SELECT COUNT(*) AS count FROM character_references WHERE project_id=? AND character_id=?")
-    .bind(projectId, characterId)
-    .first();
-  if (Number(existingCount?.count || 0) >= MAX_REFERENCES_PER_CHARACTER) {
-    fail("LIBRARY_FULL", `Each character can store at most ${MAX_REFERENCES_PER_CHARACTER} individual reference photos.`);
-  }
-
   const contentHash = await sha256Hex(bytes);
+  const canonicalSlot = normalizeCanonicalSlot(form.get("canonicalSlot") || form.get("canonical_slot"));
   const duplicate = await dbOf(env)
     .prepare(
       "SELECT * FROM character_references WHERE project_id=? AND character_id=? AND content_hash=?",
@@ -182,6 +282,15 @@ async function handleUpload(request, env, projectId, characterId) {
     .bind(projectId, characterId, contentHash)
     .first();
   if (duplicate) {
+    if (canonicalSlot) {
+      await assignCanonicalSlot(env, projectId, characterId, canonicalSlot, duplicate.id);
+      const payload = await libraryPayload(env, projectId, characterId);
+      return json({
+        ...payload,
+        reference: payload.references.find((item) => item.id === duplicate.id) || publicAsset(duplicate, projectId),
+        reused: true,
+      });
+    }
     return json(
       {
         error: {
@@ -193,6 +302,14 @@ async function handleUpload(request, env, projectId, characterId) {
       },
       409,
     );
+  }
+
+  const existingCount = await dbOf(env)
+    .prepare("SELECT COUNT(*) AS count FROM character_references WHERE project_id=? AND character_id=?")
+    .bind(projectId, characterId)
+    .first();
+  if (Number(existingCount?.count || 0) >= MAX_REFERENCES_PER_CHARACTER) {
+    fail("LIBRARY_FULL", `Each character can store at most ${MAX_REFERENCES_PER_CHARACTER} individual reference photos.`);
   }
 
   const id = crypto.randomUUID();
@@ -286,9 +403,11 @@ async function handleUpload(request, env, projectId, characterId) {
   }
 
   if (wantPrimary) await enforceSinglePrimary(env, projectId, characterId, id);
+  if (canonicalSlot) await assignCanonicalSlot(env, projectId, characterId, canonicalSlot, id);
   await markLockStale(env, projectId, characterId);
-  const stored = await getAssetRow(env, projectId, characterId, id);
-  return json({ reference: publicAsset(stored, projectId), coverage: evaluateReferenceCoverage(await listAssets(env, projectId, characterId)) }, 201);
+  const payload = await libraryPayload(env, projectId, characterId);
+  const stored = payload.references.find((item) => item.id === id) || publicAsset(await getAssetRow(env, projectId, characterId, id), projectId);
+  return json({ ...payload, reference: stored }, 201);
 }
 
 function patchFromBody(body = {}) {
@@ -394,13 +513,15 @@ async function handleDelete(env, projectId, characterId, id) {
     .prepare("DELETE FROM character_references WHERE id=? AND project_id=? AND character_id=?")
     .bind(id, projectId, characterId)
     .run();
+  await clearCanonicalSlotsForAsset(env, projectId, characterId, id);
   try {
     await mediaOf(env).delete(row.r2_key);
   } catch {
     // Metadata is already gone; leftover R2 objects are orphaned and must not resurrect the row.
   }
   await markLockStale(env, projectId, characterId);
-  return json({ deleted: true, id, coverage: evaluateReferenceCoverage(await listAssets(env, projectId, characterId)) });
+  const payload = await libraryPayload(env, projectId, characterId);
+  return json({ ...payload, deleted: true, id });
 }
 
 async function handleRebuildLock(env, projectId, characterId) {
@@ -516,8 +637,11 @@ function matchPath(pathname) {
       asset: library[4] === "asset",
       lock: false,
       selection: false,
+      canonicalSlots: false,
     };
   }
+  const canonical = pathname.match(/^\/api\/projects\/([^/]+)\/characters\/([^/]+)\/canonical-slots$/);
+  if (canonical) return { projectId: canonical[1], characterId: canonical[2], canonicalSlots: true };
   const lock = pathname.match(/^\/api\/projects\/([^/]+)\/characters\/([^/]+)\/lock$/);
   if (lock) return { projectId: lock[1], characterId: lock[2], lock: true };
   const selection = pathname.match(
@@ -603,6 +727,16 @@ export async function characterReferenceRoutes(request, env) {
       fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
     }
 
+    if (matched.canonicalSlots) {
+      if (request.method === "GET") return json(await libraryPayload(env, projectId, characterId));
+      if (request.method === "PUT") {
+        const body = await request.json().catch(() => ({}));
+        await assignCanonicalSlot(env, projectId, characterId, body.slot, body.assetId ?? null);
+        return json({ ok: true, slot: normalizeCanonicalSlot(body.slot), ...(await libraryPayload(env, projectId, characterId)) });
+      }
+      fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
+    }
+
     if (matched.assetId && matched.asset) {
       if (request.method !== "GET") fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
       const row = await getAssetRow(env, projectId, characterId, matched.assetId);
@@ -619,37 +753,29 @@ export async function characterReferenceRoutes(request, env) {
       if (request.method === "PATCH") {
         const body = await request.json();
         const updated = await applyPatch(env, projectId, characterId, matched.assetId, patchFromBody(body));
+        const payload = await libraryPayload(env, projectId, characterId);
         return json({
-          reference: publicAsset(updated, projectId),
-          coverage: evaluateReferenceCoverage(await listAssets(env, projectId, characterId)),
+          ...payload,
+          reference: payload.references.find((item) => item.id === updated.id) || publicAsset(updated, projectId),
         });
       }
       if (request.method === "DELETE") return await handleDelete(env, projectId, characterId, matched.assetId);
       fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
     }
 
-    if (request.method === "GET") {
-      const assets = await listAssets(env, projectId, characterId);
-      const state = await lockState(env, projectId, characterId, assets);
-      return json({
-        references: assets,
-        coverage: state.coverage,
-        lock: state.lock,
-      });
-    }
+    if (request.method === "GET") return json(await libraryPayload(env, projectId, characterId));
     if (request.method === "POST") return await handleUpload(request, env, projectId, characterId);
     if (request.method === "PATCH") {
       const body = await request.json();
       if (Array.isArray(body.orderedIds)) {
-        const references = await handleReorder(env, projectId, characterId, body.orderedIds);
-        return json({ references, coverage: evaluateReferenceCoverage(references) });
+        await handleReorder(env, projectId, characterId, body.orderedIds);
+        return json(await libraryPayload(env, projectId, characterId));
       }
       const ids = Array.isArray(body.ids) ? body.ids : [];
       if (!ids.length) fail("INVALID_INPUT", "ids or orderedIds are required.");
       const patch = patchFromBody(body.patch || body);
       for (const id of ids) await applyPatch(env, projectId, characterId, id, patch);
-      const references = await listAssets(env, projectId, characterId);
-      return json({ references, coverage: evaluateReferenceCoverage(references) });
+      return json(await libraryPayload(env, projectId, characterId));
     }
     fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
   } catch (error) {

@@ -88,7 +88,9 @@ MAX_SINGLE_JOB_USD = "4"
 
 Put these under the existing `[vars]` section. These server ceilings govern real reservations; editing the browser's production budget does not raise them. Session IDs are operator-controlled: keep the same ID across restarts and deployments for the same spending session.
 
-3. Apply both additive schemas. Neither clears production data:
+3. Apply both additive schemas. Neither clears production data.
+
+`worker/character-schema.sql` is repeatable `CREATE TABLE IF NOT EXISTS`. Re-applying it adds the Character Bible `character_canonical_slots` table when missing and does **not** delete Reference Library photos or reset coverage.
 
 ```bash
 npx wrangler d1 execute fpai-film-studio-generation --config wrangler.toml --remote --file=worker/schema.sql

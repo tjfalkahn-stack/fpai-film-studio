@@ -53,9 +53,9 @@ import {
   characterReferenceCount,
   isCharacterReferenceComplete,
   lockProductionBudget,
+  mergeSavedCharacters,
   missingReferenceCategories,
   normalizeBudget,
-  normalizeCharacter,
   normalizeLedger,
   normalizeLedgerEntry,
   setProductionBudget,
@@ -84,7 +84,7 @@ import { renderRequest, mergeRender } from "./renderClient.js";
 import FilmEngine from "./FilmEngine.jsx";
 import ReferenceLibrary from "./ReferenceLibrary.jsx";
 import { syncCanonicalRefsFromLibrary, LEGACY_SLOT_TO_LIBRARY } from "./characterReferences.js";
-import { uploadCharacterReference } from "./characterReferenceClient.js";
+import { assignCharacterCanonicalSlot, fetchCharacterLibrary, uploadCharacterReference } from "./characterReferenceClient.js";
 
 const STORAGE_KEY = "fpai-film-studio-v1.2";
 const MEDIA_DB = "fpai-film-studio-media";
@@ -275,7 +275,7 @@ function migrateData() {
     ...seed,
     ...old,
     project,
-    characters: (old.characters || seed.characters).map(normalizeCharacter),
+    characters: mergeSavedCharacters(old.characters, seed.characters),
     scenes: (old.scenes || seed.scenes).map((scene) => ({ ...scene, animaticLocked: Boolean(scene.animaticLocked) })),
     assets: old.assets || seed.assets,
     providers: old.providers || seed.providers,
@@ -428,9 +428,61 @@ function App() {
   function updateCharacter(id, patch) {
     setData((current) => ({
       ...current,
-      characters: current.characters.map((item) => item.id === id ? { ...item, ...patch } : item),
+      characters: current.characters.map((item) => {
+        if (item.id !== id) return item;
+        const resolved = typeof patch === "function" ? patch(item) : patch;
+        return { ...item, ...resolved };
+      }),
     }));
   }
+
+  function applyCharacterLibraryPayload(id, payload = {}) {
+    updateCharacter(id, (item) => {
+      const references = payload.references
+        || (payload.reference
+          ? [
+              ...(item.referenceLibrary || []).filter((row) => row.id !== payload.reference.id),
+              payload.reference,
+            ]
+          : payload.deletedId
+            ? (item.referenceLibrary || []).filter((row) => row.id !== payload.deletedId)
+            : item.referenceLibrary);
+      const next = {};
+      if (payload.migratedMediaKeys) next.migratedMediaKeys = payload.migratedMediaKeys;
+      if (payload.lock !== undefined) next.identityLock = payload.lock;
+      if (payload.coverage) next.referenceCoverage = payload.coverage;
+      if (references) next.referenceLibrary = references;
+      if (
+        Object.prototype.hasOwnProperty.call(payload, "canonicalSlots")
+        || payload.references
+        || payload.reference
+        || payload.deletedId
+      ) {
+        next.refs = syncCanonicalRefsFromLibrary(item, references || [], payload.canonicalSlots || {});
+      }
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    let canceled = false;
+    const projectId = data.project.id;
+    const characterIds = data.characters.map((item) => item.id);
+    (async () => {
+      for (const id of characterIds) {
+        try {
+          const payload = await fetchCharacterLibrary(projectId, id);
+          if (canceled) return;
+          applyCharacterLibraryPayload(id, payload);
+        } catch {
+          /* Local production stays usable if the adapter is offline. */
+        }
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [data.project.id]);
 
   function updateShot(id, patch) {
     setData((current) => ({
@@ -514,31 +566,55 @@ function App() {
     await putMedia(key, file);
     if (previous && !String(previous).startsWith("library:")) await deleteMedia(previous);
     const mapping = LEGACY_SLOT_TO_LIBRARY[slot] || { category: "other" };
-    const refs = {
-      ...targetCharacter.refs,
-      [slot]: { key, name: file.name, category: slot, uploadedAt: new Date().toISOString() },
-    };
-    updateCharacter(targetCharacter.id, { refs, locked: false });
+    updateCharacter(targetCharacter.id, (item) => ({
+      refs: {
+        ...item.refs,
+        [slot]: { key, name: file.name, category: slot, uploadedAt: new Date().toISOString() },
+      },
+      locked: false,
+    }));
     try {
-      await uploadCharacterReference(data.project.id, targetCharacter.id, file, {
+      const payload = await uploadCharacterReference(data.project.id, targetCharacter.id, file, {
         category: mapping.category,
         angle: mapping.angle || "",
         expression: mapping.expression || "",
         isPrimary: Boolean(mapping.primary),
         isIdentityAnchor: Boolean(mapping.identityAnchor || mapping.primary),
         approvalState: "approved",
+        canonicalSlot: slot,
       });
+      applyCharacterLibraryPayload(targetCharacter.id, payload);
     } catch (error) {
-      if (error.status !== 409) notify(error.message, "bad");
+      if (error.status === 409 && error.payload?.reference?.id) {
+        try {
+          const assigned = await assignCharacterCanonicalSlot(
+            data.project.id,
+            targetCharacter.id,
+            slot,
+            error.payload.reference.id,
+          );
+          applyCharacterLibraryPayload(targetCharacter.id, assigned);
+        } catch (assignError) {
+          notify(assignError.message, "bad");
+        }
+      } else if (error.status !== 409) notify(error.message, "bad");
     }
   }
 
   async function removeReference(targetCharacter, slot) {
     const reference = targetCharacter.refs?.[slot];
-    if (reference?.key) await deleteMedia(reference.key);
-    const refs = { ...targetCharacter.refs };
-    delete refs[slot];
-    updateCharacter(targetCharacter.id, { refs, locked: false });
+    if (reference?.key && !String(reference.key).startsWith("library:")) await deleteMedia(reference.key);
+    updateCharacter(targetCharacter.id, (item) => {
+      const refs = { ...item.refs };
+      delete refs[slot];
+      return { refs, locked: false };
+    });
+    try {
+      const payload = await assignCharacterCanonicalSlot(data.project.id, targetCharacter.id, slot, null);
+      applyCharacterLibraryPayload(targetCharacter.id, payload);
+    } catch (error) {
+      notify(error.message, "bad");
+    }
   }
 
   async function addExpression(targetCharacter, name, file) {
@@ -1361,19 +1437,30 @@ function BudgetPage({
 function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addReference, removeReference, addExpression, updateCharacter, getMedia, notify, close }) {
   const lockReady = isCharacterReferenceComplete(character);
   function onLibrarySync(payload) {
-    const references = payload.references
-      || (payload.reference
-        ? [...(character.referenceLibrary || []).filter((item) => item.id !== payload.reference.id), payload.reference]
-        : (character.referenceLibrary || []).filter((item) => item.id !== payload.deletedId));
-    const patch = {};
-    if (payload.migratedMediaKeys) patch.migratedMediaKeys = payload.migratedMediaKeys;
-    if (payload.lock) patch.identityLock = payload.lock;
-    if (payload.coverage) patch.referenceCoverage = payload.coverage;
-    if (payload.references || payload.reference || payload.deletedId) {
-      patch.referenceLibrary = references;
-      patch.refs = syncCanonicalRefsFromLibrary(character, references);
-    }
-    if (Object.keys(patch).length) updateCharacter(character.id, patch);
+    updateCharacter(character.id, (item) => {
+      const references = payload.references
+        || (payload.reference
+          ? [...(item.referenceLibrary || []).filter((row) => row.id !== payload.reference.id), payload.reference]
+          : payload.deletedId
+            ? (item.referenceLibrary || []).filter((row) => row.id !== payload.deletedId)
+            : item.referenceLibrary);
+      const next = {};
+      if (payload.migratedMediaKeys) next.migratedMediaKeys = payload.migratedMediaKeys;
+      if (payload.lock !== undefined) next.identityLock = payload.lock;
+      if (payload.coverage) next.referenceCoverage = payload.coverage;
+      if (payload.references || payload.reference || payload.deletedId) {
+        next.referenceLibrary = references;
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(payload, "canonicalSlots")
+        || payload.references
+        || payload.reference
+        || payload.deletedId
+      ) {
+        next.refs = syncCanonicalRefsFromLibrary(item, references || [], payload.canonicalSlots || {});
+      }
+      return next;
+    });
   }
   return (
     <div className="overlay">

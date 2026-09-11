@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  CANONICAL_SLOT_KEYS,
   COVERAGE_RULES,
+  applyPersistedCanonicalSlots,
   buildCharacterLockManifest,
   evaluateReferenceCoverage,
   inferShotContext,
@@ -11,7 +13,7 @@ import {
   shouldInvalidateLock,
   syncCanonicalRefsFromLibrary,
 } from "./characterReferences.js";
-import { isCharacterReferenceComplete, normalizeCharacter as normalizeDomainCharacter } from "./domain.js";
+import { isCharacterReferenceComplete, mergeSavedCharacters, normalizeCharacter as normalizeDomainCharacter } from "./domain.js";
 import { validateReferenceFile } from "./imageMeta.js";
 import { makeJpeg, makePng, makeWebp } from "../tests/imageFixtures.js";
 
@@ -238,8 +240,40 @@ test("inferShotContext reads crying and close-up language from existing seed sho
   assert.equal(inferShotContext({ subject: "Jasmine holding Mikey", prompt: "Jasmine crying" }).expression, "crying");
 });
 
-test("syncing the library backfills canonical Character Bible slots without dropping extras", () => {
-  const character = { id: "jasmine", refs: { strayRain: { key: "rain" } } };
+test("library first-match cannot overwrite persisted Character Bible slots", () => {
+  const character = {
+    id: "jasmine",
+    refs: {
+      identityFront: { key: "char:jasmine:identityFront:1", name: "owner-approved.png" },
+      strayRain: { key: "rain" },
+    },
+  };
+  const seeded = asset("seed-front", { isPrimary: true, category: "identity_anchor", sortOrder: 0 });
+  const approved = asset("approved-front", { category: "identity_anchor", sortOrder: 1 });
+  const refs = syncCanonicalRefsFromLibrary(
+    character,
+    [
+      seeded,
+      approved,
+      asset("pr", { category: "profile", angle: "profile_left" }),
+      asset("fb", { category: "full_body" }),
+      asset("ex", { category: "expression", expression: "crying" }),
+      asset("w", { category: "wardrobe" }),
+    ],
+    { identityFront: approved },
+  );
+  assert.equal(refs.identityFront.assetId, "approved-front");
+  assert.equal(refs.identityFront.canonical, true);
+  assert.notEqual(refs.identityFront.assetId, "seed-front");
+  assert.equal(refs.profile, undefined);
+  assert.equal(refs.strayRain.key, "rain");
+});
+
+test("without persisted assignments, library category inference does not fill canonical slots", () => {
+  const character = {
+    id: "jasmine",
+    refs: { identityFront: { key: "char:jasmine:identityFront:1", name: "local.png" } },
+  };
   const refs = syncCanonicalRefsFromLibrary(character, [
     asset("p", { isPrimary: true, category: "identity_anchor" }),
     asset("pr", { category: "profile", angle: "profile_left" }),
@@ -247,10 +281,67 @@ test("syncing the library backfills canonical Character Bible slots without drop
     asset("ex", { category: "expression", expression: "crying" }),
     asset("w", { category: "wardrobe" }),
   ]);
-  assert.equal(refs.identityFront.assetId, "p");
-  assert.equal(refs.profile.assetId, "pr");
-  assert.equal(refs.fullBody.assetId, "fb");
-  assert.equal(refs.expression.assetId, "ex");
-  assert.equal(refs.wardrobe.assetId, "w");
-  assert.equal(refs.strayRain.key, "rain");
+  assert.equal(refs.identityFront.key, "char:jasmine:identityFront:1");
+  assert.equal(refs.profile, undefined);
+  assert.equal(refs.fullBody, undefined);
+  assert.equal(refs.expression, undefined);
+  assert.equal(refs.wardrobe, undefined);
+});
+
+test("inferred library keys are dropped when no persisted canonical assignment exists", () => {
+  const character = {
+    id: "mikey",
+    refs: { identityFront: { key: "library:seed-front", source: "library", assetId: "seed-front" } },
+  };
+  const refs = syncCanonicalRefsFromLibrary(
+    character,
+    [asset("seed-front", { isPrimary: true, category: "identity_anchor" })],
+    {},
+  );
+  assert.equal(refs.identityFront, undefined);
+});
+
+test("replacing one persisted slot leaves the other four canonical assignments intact", () => {
+  const character = { id: "marcus", refs: {} };
+  const slots = {
+    identityFront: asset("front-1", { category: "identity_anchor" }),
+    profile: asset("profile-1", { category: "profile" }),
+    fullBody: asset("body-1", { category: "full_body" }),
+    expression: asset("expr-1", { category: "expression" }),
+    wardrobe: asset("ward-1", { category: "wardrobe" }),
+  };
+  const afterOne = applyPersistedCanonicalSlots(character, {
+    ...slots,
+    identityFront: asset("front-2", { category: "identity_anchor" }),
+  });
+  assert.equal(afterOne.identityFront.assetId, "front-2");
+  assert.equal(afterOne.profile.assetId, "profile-1");
+  assert.equal(afterOne.fullBody.assetId, "body-1");
+  assert.equal(afterOne.expression.assetId, "expr-1");
+  assert.equal(afterOne.wardrobe.assetId, "ward-1");
+});
+
+test("persisted production canonical slots win over seed character JSON after library hydrate", () => {
+  for (const id of ["jasmine", "mikey", "marcus", "turner"]) {
+    const seedCharacter = {
+      id,
+      refs: { identityFront: { key: "seed-default", name: "seed.jpg" } },
+    };
+    const saved = mergeSavedCharacters(
+      [{ id, refs: { identityFront: { key: "library:approved", canonical: true, assetId: "approved" } } }],
+      [seedCharacter],
+    )[0];
+    assert.equal(saved.refs.identityFront.assetId, "approved");
+    const hydrated = syncCanonicalRefsFromLibrary(
+      saved,
+      [
+        asset("seed-default", { isPrimary: true, category: "identity_anchor", sortOrder: 0, characterId: id }),
+        asset("approved", { category: "identity_anchor", sortOrder: 1, characterId: id }),
+      ],
+      { identityFront: asset("approved", { characterId: id }) },
+    );
+    assert.equal(hydrated.identityFront.assetId, "approved");
+    assert.notEqual(hydrated.identityFront.key, "seed-default");
+  }
+  assert.equal(CANONICAL_SLOT_KEYS.length, 5);
 });

@@ -57,6 +57,34 @@ export function normalizeCharacter(character) {
   return { ...normalized, locked: Boolean(character.locked && isCharacterReferenceComplete(normalized)) };
 }
 
+export function mergeSavedCharacters(saved = [], seedCharacters = []) {
+  const savedList = Array.isArray(saved) ? saved : [];
+  const seedList = Array.isArray(seedCharacters) ? seedCharacters : [];
+  const savedById = new Map(savedList.map((character) => [character.id, character]));
+  const result = [];
+  const seen = new Set();
+  for (const seedCharacter of seedList) {
+    const savedCharacter = savedById.get(seedCharacter.id);
+    if (!savedCharacter) {
+      result.push(normalizeCharacter(seedCharacter));
+      continue;
+    }
+    seen.add(seedCharacter.id);
+    result.push(
+      normalizeCharacter({
+        ...seedCharacter,
+        ...savedCharacter,
+        refs: savedCharacter.refs != null ? savedCharacter.refs : {},
+        expressions: savedCharacter.expressions != null ? savedCharacter.expressions : seedCharacter.expressions || {},
+      }),
+    );
+  }
+  for (const savedCharacter of savedList) {
+    if (!seen.has(savedCharacter.id)) result.push(normalizeCharacter(savedCharacter));
+  }
+  return result;
+}
+
 export function normalizeBudget(project = {}, timestamp = nowIso()) {
   if (project.productionBudget) {
     const original = Number(project.productionBudget.original ?? project.productionBudget.current ?? project.budget ?? 1200);
