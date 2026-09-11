@@ -316,6 +316,10 @@ test("repeatable character-schema application does not drop existing library row
   const after = await db.prepare("SELECT COUNT(*) AS count FROM character_references").first();
   assert.equal(Number(after.count), Number(before.count));
   assert.ok(Number(after.count) > 0);
+  const slotsTable = await db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='character_canonical_slots'",
+  ).first();
+  assert.equal(slotsTable.name, "character_canonical_slots");
 });
 
 test("character factory preflight route stays live-off and fails closed without Comfy", async () => {
@@ -325,4 +329,176 @@ test("character factory preflight route stays live-off and fails closed without 
   assert.equal(data.ready, false);
   assert.equal(data.liveGenerationEnabled, false);
   assert.ok(Array.isArray(data.checks));
+});
+
+const BIBLE_SLOTS = [
+  ["identityFront", "identity_anchor", "front"],
+  ["profile", "profile", "profile_left"],
+  ["fullBody", "full_body", "front"],
+  ["expression", "expression", ""],
+  ["wardrobe", "wardrobe", ""],
+];
+const BIBLE_CHARACTERS = ["jasmine", "mikey", "marcus", "turner"];
+
+function slotPath(characterId) {
+  return `/api/projects/enemies-closer-ep01/characters/${characterId}/canonical-slots`;
+}
+
+async function snapshotLibrary(characterId) {
+  const listed = await call(libraryPath(characterId));
+  return {
+    ids: (listed.data.references || []).map((item) => item.id).sort(),
+    metCount: listed.data.coverage?.metCount ?? 0,
+    total: listed.data.coverage?.total ?? 0,
+    payload: listed.data,
+  };
+}
+
+async function seedSevenOfNineCoverage(characterId, label) {
+  const files = [
+    { name: `${label}-primary.png`, salt: `${label}-primary`, category: "identity_anchor", isPrimary: "true", isIdentityAnchor: "true", angle: "front", approvalState: "approved" },
+    { name: `${label}-anchor-b.png`, salt: `${label}-anchor-b`, category: "identity_anchor", isIdentityAnchor: "true", angle: "front", approvalState: "approved" },
+    { name: `${label}-anchor-c.png`, salt: `${label}-anchor-c`, category: "identity_anchor", isIdentityAnchor: "true", angle: "front", approvalState: "approved" },
+    { name: `${label}-profile.png`, salt: `${label}-profile`, category: "profile", angle: "profile_left", approvalState: "approved" },
+    { name: `${label}-body.png`, salt: `${label}-body`, category: "full_body", angle: "front", approvalState: "approved" },
+    { name: `${label}-other-a.png`, salt: `${label}-other-a`, category: "other", approvalState: "approved" },
+    { name: `${label}-other-b.png`, salt: `${label}-other-b`, category: "other", approvalState: "approved" },
+  ];
+  const ids = [];
+  for (const item of files) {
+    const { name, salt, ...fields } = item;
+    const result = await upload(characterId, pngFile(name, { salt }), fields);
+    assert.equal(result.response.status, 201, result.data.error?.message);
+    ids.push(result.data.reference.id);
+  }
+  return ids;
+}
+
+test("A-C Jasmine identity/front replacement survives reload and does not reset other slots", async () => {
+  const before = await snapshotLibrary("jasmine");
+  const profile = await upload("jasmine", pngFile("jasmine-keep-profile.png", { salt: "jasmine-keep-profile" }), {
+    category: "profile",
+    angle: "profile_left",
+    canonicalSlot: "profile",
+  });
+  assert.equal(profile.response.status, 201, profile.data.error?.message);
+  const originalIdentity = await upload("jasmine", pngFile("jasmine-old-front.png", { salt: "jasmine-old-front" }), {
+    category: "identity_anchor",
+    isPrimary: "true",
+    canonicalSlot: "identityFront",
+  });
+  assert.equal(originalIdentity.response.status, 201, originalIdentity.data.error?.message);
+
+  // A. Replace Jasmine identity/front with a newly approved asset.
+  const replaced = await upload("jasmine", pngFile("jasmine-new-front.png", { salt: "jasmine-new-front" }), {
+    category: "identity_anchor",
+    angle: "front",
+    canonicalSlot: "identityFront",
+  });
+  assert.equal(replaced.response.status, 201, replaced.data.error?.message);
+  assert.equal(replaced.data.canonicalSlots.identityFront.id, replaced.data.reference.id);
+  assert.notEqual(replaced.data.canonicalSlots.identityFront.id, originalIdentity.data.reference.id);
+  assert.equal(replaced.data.canonicalSlots.profile.id, profile.data.reference.id);
+
+  // B/C. Reload character; new identity remains and profile is untouched.
+  const reloaded = await call(libraryPath("jasmine"));
+  assert.equal(reloaded.data.canonicalSlots.identityFront.id, replaced.data.reference.id);
+  assert.equal(reloaded.data.canonicalSlots.profile.id, profile.data.reference.id);
+  const afterIds = (reloaded.data.references || []).map((item) => item.id);
+  for (const id of before.ids) assert.equal(afterIds.includes(id), true);
+});
+
+test("D-H canonical replacements persist for every character without touching the Reference Library", async () => {
+  for (const characterId of BIBLE_CHARACTERS) {
+    const coverageSeed = await seedSevenOfNineCoverage(characterId, `${characterId}-cov`);
+    const before = await snapshotLibrary(characterId);
+    assert.ok(before.total === 9);
+    assert.ok(before.metCount >= 7, `${characterId} coverage ${before.metCount}/${before.total}`);
+
+    const firstPass = {};
+    for (const [slot, category, angle] of BIBLE_SLOTS) {
+      const result = await upload(
+        characterId,
+        pngFile(`${characterId}-${slot}-v1.png`, { salt: `${characterId}-${slot}-v1` }),
+        { category, angle, canonicalSlot: slot, expression: slot === "expression" ? "neutral" : "" },
+      );
+      assert.equal(result.response.status, 201, result.data.error?.message);
+      firstPass[slot] = result.data.reference.id;
+    }
+
+    const afterOne = await call(libraryPath(characterId));
+    for (const [slot] of BIBLE_SLOTS) {
+      assert.equal(afterOne.data.canonicalSlots[slot].id, firstPass[slot], `${characterId} ${slot} v1`);
+    }
+
+    const secondPass = {};
+    for (const [slot, category, angle] of BIBLE_SLOTS) {
+      const result = await upload(
+        characterId,
+        pngFile(`${characterId}-${slot}-v2.png`, { salt: `${characterId}-${slot}-v2` }),
+        { category, angle, canonicalSlot: slot, expression: slot === "expression" ? "smiling" : "" },
+      );
+      assert.equal(result.response.status, 201, result.data.error?.message);
+      secondPass[slot] = result.data.reference.id;
+      const others = BIBLE_SLOTS.filter(([key]) => key !== slot);
+      for (const [other] of others) {
+        const expected = secondPass[other] || firstPass[other];
+        assert.equal(result.data.canonicalSlots[other].id, expected, `${characterId} replacing ${slot} kept ${other}`);
+      }
+    }
+
+    // E/F. Reload/reopen: all five remain the v2 replacements.
+    const reloaded = await call(libraryPath(characterId));
+    for (const [slot] of BIBLE_SLOTS) {
+      assert.equal(reloaded.data.canonicalSlots[slot].id, secondPass[slot], `${characterId} ${slot} survived reload`);
+    }
+
+    // G. Original Reference Library assets remain; coverage stays at least 7/9.
+    const afterIds = new Set((reloaded.data.references || []).map((item) => item.id));
+    for (const id of before.ids) assert.equal(afterIds.has(id), true, `${characterId} lost library asset ${id}`);
+    for (const id of coverageSeed) assert.equal(afterIds.has(id), true);
+    assert.ok(reloaded.data.coverage.metCount >= 7, `${characterId} coverage dropped to ${reloaded.data.coverage.metCount}/${reloaded.data.coverage.total}`);
+    assert.equal(reloaded.data.coverage.total, 9);
+
+    // Duplicate hash of an existing library photo assigns the slot without a second row.
+    const existing = reloaded.data.references.find((item) => item.id === coverageSeed[0]);
+    const dupFile = pngFile(`${characterId}-cov-primary.png`, { salt: `${characterId}-cov-primary` });
+    const reused = await upload(characterId, dupFile, { category: "identity_anchor", canonicalSlot: "identityFront" });
+    assert.equal(reused.response.status, 200, reused.data.error?.message);
+    assert.equal(reused.data.reused, true);
+    assert.equal(reused.data.canonicalSlots.identityFront.id, existing.id);
+    assert.equal((await snapshotLibrary(characterId)).ids.length, reloaded.data.references.length);
+
+    const assignedAgain = await call(slotPath(characterId), {
+      method: "PUT",
+      body: { slot: "identityFront", assetId: secondPass.identityFront },
+    });
+    assert.equal(assignedAgain.response.status, 200, assignedAgain.data.error?.message);
+    assert.equal(assignedAgain.data.canonicalSlots.identityFront.id, secondPass.identityFront);
+
+    // H. Seeded/default extra identity_anchor cannot overwrite persisted replacements.
+    const seedLike = await upload(
+      characterId,
+      pngFile(`${characterId}-seed-front.png`, { salt: `${characterId}-seed-overwrite` }),
+      { category: "identity_anchor", isPrimary: "true", isIdentityAnchor: "true", angle: "front" },
+    );
+    assert.equal(seedLike.response.status, 201, seedLike.data.error?.message);
+    const afterSeed = await call(libraryPath(characterId));
+    assert.equal(afterSeed.data.canonicalSlots.identityFront.id, secondPass.identityFront);
+    assert.notEqual(afterSeed.data.canonicalSlots.identityFront.id, seedLike.data.reference.id);
+    for (const [slot] of BIBLE_SLOTS) {
+      if (slot === "identityFront") continue;
+      assert.equal(afterSeed.data.canonicalSlots[slot].id, secondPass[slot]);
+    }
+
+    const cleared = await call(slotPath(characterId), {
+      method: "PUT",
+      body: { slot: "wardrobe", assetId: null },
+    });
+    assert.equal(cleared.response.status, 200);
+    assert.equal(cleared.data.canonicalSlots.wardrobe, undefined);
+    assert.equal(cleared.data.canonicalSlots.identityFront.id, secondPass.identityFront);
+    const stillThere = await call(libraryPath(characterId, `/${secondPass.wardrobe}`));
+    assert.equal(stillThere.response.status, 200);
+  }
 });

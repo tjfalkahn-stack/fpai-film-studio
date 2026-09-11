@@ -9,6 +9,7 @@ import {
   characterReferenceCount,
   isCharacterReferenceComplete,
   lockProductionBudget,
+  mergeSavedCharacters,
   normalizeCharacter,
   normalizeLedgerEntry,
   setProductionBudget,
@@ -27,6 +28,24 @@ test("character references persist as canonical metadata and count from stored a
   const jasmine = { id: "jasmine", refs: { identityFront: { key: "media:jasmine-front" } }, locked: false };
   assert.equal(characterReferenceCount(jasmine), 1);
   assert.equal(isCharacterReferenceComplete(jasmine), false);
+});
+
+test("seed character JSON cannot overwrite a saved canonical replacement", () => {
+  const seed = {
+    id: "jasmine",
+    name: "Jasmine",
+    refs: { identityFront: { key: "seed-jasmine", name: "old-seed.jpg" } },
+  };
+  const saved = {
+    id: "jasmine",
+    name: "Jasmine",
+    refs: {
+      identityFront: { key: "library:approved-jasmine", canonical: true, assetId: "approved-jasmine" },
+    },
+  };
+  const [merged] = mergeSavedCharacters([saved], [seed]);
+  assert.equal(merged.refs.identityFront.assetId, "approved-jasmine");
+  assert.notEqual(merged.refs.identityFront.key, "seed-jasmine");
 });
 
 test("legacy masterFace references migrate to Identity / Front without completing lock alone", () => {

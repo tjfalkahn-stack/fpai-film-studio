@@ -13,6 +13,78 @@ const CANONICAL_REFERENCE_CATEGORIES = [
   { key: "wardrobe" },
 ];
 
+export const CANONICAL_SLOT_KEYS = Object.freeze(
+  CANONICAL_REFERENCE_CATEGORIES.map((item) => item.key),
+);
+
+export function normalizeCanonicalSlot(value) {
+  const key = String(value || "").trim();
+  if (CANONICAL_SLOT_KEYS.includes(key)) return key;
+  if (key === "masterFace" || key === "identity_front" || key === "identity-front") return "identityFront";
+  if (key === "full_body" || key === "full-body") return "fullBody";
+  return "";
+}
+
+export function canonicalRefFromAsset(asset, slot) {
+  const item = normalizeLibraryAsset(asset);
+  return {
+    key: `library:${item.id}`,
+    name: item.filename,
+    category: slot,
+    source: "canonical",
+    canonical: true,
+    assetId: item.id,
+    assetUrl: item.assetUrl || null,
+    uploadedAt: item.createdAt,
+  };
+}
+
+export function resolveCanonicalSlotMap(assets = [], canonicalSlots = {}) {
+  const library = normalizeReferenceLibrary(assets);
+  const byId = new Map(library.map((asset) => [asset.id, asset]));
+  const resolved = {};
+  if (!canonicalSlots || typeof canonicalSlots !== "object" || Array.isArray(canonicalSlots)) {
+    return resolved;
+  }
+  for (const slot of CANONICAL_SLOT_KEYS) {
+    const value = canonicalSlots[slot];
+    if (!value) continue;
+    if (typeof value === "string") {
+      const asset = byId.get(value);
+      if (asset) resolved[slot] = asset;
+      continue;
+    }
+    if (value.id) {
+      resolved[slot] = byId.get(value.id) || normalizeLibraryAsset(value);
+    }
+  }
+  return resolved;
+}
+
+export function applyPersistedCanonicalSlots(character = {}, canonicalSlots = {}, assets = []) {
+  const resolved = resolveCanonicalSlotMap(
+    [
+      ...normalizeReferenceLibrary(assets),
+      ...Object.values(canonicalSlots || {}).filter((item) => item && typeof item === "object" && item.id),
+    ],
+    canonicalSlots,
+  );
+  const refs = { ...(character.refs || {}) };
+  for (const slot of CANONICAL_SLOT_KEYS) {
+    const asset = resolved[slot];
+    if (asset?.id) {
+      refs[slot] = canonicalRefFromAsset(asset, slot);
+      continue;
+    }
+    const current = refs[slot];
+    if (!current) continue;
+    if (current.source === "library" || (String(current.key || "").startsWith("library:") && current.canonical !== true)) {
+      delete refs[slot];
+    }
+  }
+  return refs;
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -394,29 +466,19 @@ export function canonicalSlotForLibraryAsset(asset) {
   return null;
 }
 
-export function syncCanonicalRefsFromLibrary(character, assets = []) {
+export function syncCanonicalRefsFromLibrary(character, assets = [], canonicalSlots = null) {
   const library = normalizeReferenceLibrary(assets);
-  const refs = { ...(character.refs || {}) };
-  const bySlot = {
-    identityFront: primaryIdentityAsset(library) || library.find((asset) => canonicalSlotForLibraryAsset(asset) === "identityFront"),
-    profile: library.find((asset) => canonicalSlotForLibraryAsset(asset) === "profile"),
-    fullBody: library.find((asset) => canonicalSlotForLibraryAsset(asset) === "fullBody"),
-    expression: library.find((asset) => canonicalSlotForLibraryAsset(asset) === "expression"),
-    wardrobe: library.find((asset) => canonicalSlotForLibraryAsset(asset) === "wardrobe"),
-  };
-  for (const [slot, asset] of Object.entries(bySlot)) {
-    if (!asset) continue;
-    refs[slot] = {
-      key: `library:${asset.id}`,
-      name: asset.filename,
-      category: slot,
-      source: "library",
-      assetId: asset.id,
-      assetUrl: asset.assetUrl || null,
-      uploadedAt: asset.createdAt,
-    };
+  const explicit = {};
+  for (const asset of library) {
+    const slot = normalizeCanonicalSlot(asset.canonicalSlot);
+    if (slot && !explicit[slot]) explicit[slot] = asset;
   }
-  return refs;
+  const fromPayload =
+    canonicalSlots && typeof canonicalSlots === "object" && !Array.isArray(canonicalSlots)
+      ? canonicalSlots
+      : null;
+  const merged = fromPayload ? { ...explicit, ...fromPayload } : explicit;
+  return applyPersistedCanonicalSlots(character, merged, library);
 }
 
 export function buildCharacterLockManifest({

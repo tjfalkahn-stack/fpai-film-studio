@@ -21,7 +21,7 @@ function corsHeaders(request, env) {
   return {
     ...(allowOrigin ? { "access-control-allow-origin": allowOrigin } : {}),
     "access-control-allow-headers": "authorization, content-type, x-fpai-owner-override",
-    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "access-control-max-age": "86400",
     vary: "Origin",
   };

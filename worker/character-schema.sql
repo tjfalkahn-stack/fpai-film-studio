@@ -46,3 +46,15 @@ CREATE TABLE IF NOT EXISTS character_locks (
 
 CREATE INDEX IF NOT EXISTS idx_character_locks_current
   ON character_locks(project_id, character_id, status, lock_version);
+
+-- Additive: Character Bible canonical slot assignments. Does not delete library photos.
+CREATE TABLE IF NOT EXISTS character_canonical_slots (
+  project_id TEXT NOT NULL,
+  character_id TEXT NOT NULL,
+  slot TEXT NOT NULL CHECK(slot IN ('identityFront','profile','fullBody','expression','wardrobe')),
+  asset_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, character_id, slot)
+);
+CREATE INDEX IF NOT EXISTS idx_character_canonical_slots_asset
+  ON character_canonical_slots(project_id, character_id, asset_id);

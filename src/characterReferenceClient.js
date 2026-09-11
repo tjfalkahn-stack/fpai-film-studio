@@ -20,6 +20,16 @@ export async function fetchCharacterLibrary(projectId, characterId) {
   return readJson(await fetch(`${libraryBase(projectId, characterId)}/references`));
 }
 
+export async function assignCharacterCanonicalSlot(projectId, characterId, slot, assetId) {
+  return readJson(
+    await fetch(`${libraryBase(projectId, characterId)}/canonical-slots`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ slot, assetId: assetId ?? null }),
+    }),
+  );
+}
+
 export async function fetchCharacterLock(projectId, characterId) {
   return readJson(await fetch(`${libraryBase(projectId, characterId)}/lock`));
 }
