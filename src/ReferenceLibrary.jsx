@@ -297,7 +297,7 @@ export default function ReferenceLibrary({
   return (
     <section className="referenceLibrary">
       <div className="sectionTitle"><Upload /><span>REFERENCE LIBRARY</span></div>
-      <p className="dropHint">Upload at least 30 individual photos if you have them. Each file stays a separate asset — never a collage or contact sheet.</p>
+      <p className="dropHint">Add extra photos or variants here after committing a Production Character Sheet. Each extra file remains independently selectable.</p>
       <CoveragePanel coverage={coverage} />
       {lock && (
         <p className={lock.needsRebuild || lock.status === "stale" ? "warn" : "good"}>
