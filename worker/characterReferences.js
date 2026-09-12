@@ -19,6 +19,11 @@ import {
   extensionForMime,
   validateReferenceFile,
 } from "../src/imageMeta.js";
+import {
+  buildCharacterSheetManifest,
+  defaultCharacterSheetCells,
+  normalizeCharacterSheetCells,
+} from "../src/characterSheets.js";
 
 const json = (body, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -67,6 +72,10 @@ function safeFilename(name, mimeType) {
 
 function r2Key(projectId, characterId, assetId, filename) {
   return `character-refs/${projectId}/${characterId}/${assetId}/${filename}`;
+}
+
+function sheetR2Key(projectId, characterId, sheetId, filename) {
+  return `character-sheets/${projectId}/${characterId}/${sheetId}/${filename}`;
 }
 
 function assetUrl(projectId, characterId, id) {
@@ -526,6 +535,7 @@ async function handleDelete(env, projectId, characterId, id) {
 
 async function handleRebuildLock(env, projectId, characterId) {
   const assets = await listAssets(env, projectId, characterId);
+  const characterSheets = (await listSheets(env, projectId, characterId)).filter((sheet) => sheet.status === "committed");
   const latest = await dbOf(env)
     .prepare(
       "SELECT MAX(lock_version) AS max_version FROM character_locks WHERE project_id=? AND character_id=?",
@@ -539,6 +549,7 @@ async function handleRebuildLock(env, projectId, characterId) {
     characterId,
     lockVersion,
     assets,
+    characterSheets,
     createdAt,
   });
   await dbOf(env)
@@ -558,6 +569,7 @@ async function handleRebuildLock(env, projectId, characterId) {
 
 async function lockState(env, projectId, characterId, assets) {
   const library = assets || (await listAssets(env, projectId, characterId));
+  const characterSheets = (await listSheets(env, projectId, characterId)).filter((sheet) => sheet.status === "committed");
   const versions = await dbOf(env)
     .prepare(
       "SELECT lock_version, status, created_at, manifest_json FROM character_locks WHERE project_id=? AND character_id=? ORDER BY lock_version DESC",
@@ -571,7 +583,7 @@ async function lockState(env, projectId, characterId, assets) {
       ? {
           ...manifest,
           status: current.status,
-          needsRebuild: current.status === "stale" || shouldInvalidateLock(manifest, library),
+          needsRebuild: current.status === "stale" || shouldInvalidateLock(manifest, library, characterSheets),
         }
       : null,
     versions: (versions.results || []).map((row) => ({
@@ -626,6 +638,18 @@ async function handleSelection(request, env, projectId, characterId) {
 }
 
 function matchPath(pathname) {
+  const sheets = pathname.match(
+    /^\/api\/projects\/([^/]+)\/characters\/([^/]+)\/character-sheets(?:\/([a-f0-9-]{36})(?:\/(asset|commit))?)?$/,
+  );
+  if (sheets) {
+    return {
+      projectId: sheets[1],
+      characterId: sheets[2],
+      characterSheet: true,
+      sheetId: sheets[3] || null,
+      sheetAction: sheets[4] || null,
+    };
+  }
   const library = pathname.match(
     /^\/api\/projects\/([^/]+)\/characters\/([^/]+)\/references(?:\/([a-f0-9-]{36})(?:\/(asset))?)?$/,
   );
@@ -649,6 +673,150 @@ function matchPath(pathname) {
   );
   if (selection) return { projectId: selection[1], characterId: selection[2], selection: true };
   return null;
+}
+
+function publicSheet(row) {
+  let cells = [];
+  let manifest = null;
+  try { cells = normalizeCharacterSheetCells(JSON.parse(row.layout_json || "[]")); } catch { cells = defaultCharacterSheetCells(); }
+  try { manifest = row.manifest_json ? JSON.parse(row.manifest_json) : null; } catch { manifest = null; }
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    characterId: row.character_id,
+    version: Number(row.version),
+    status: row.status,
+    filename: row.filename,
+    mimeType: row.mime_type,
+    byteSize: Number(row.byte_size),
+    width: Number(row.width),
+    height: Number(row.height),
+    contentHash: row.content_hash,
+    cells,
+    manifest,
+    assetUrl: `/api/projects/${row.project_id}/characters/${row.character_id}/character-sheets/${row.id}/asset`,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    committedAt: row.committed_at || null,
+  };
+}
+
+async function getSheetRow(env, projectId, characterId, sheetId) {
+  return dbOf(env).prepare(
+    "SELECT * FROM character_sheets WHERE id=? AND project_id=? AND character_id=?",
+  ).bind(sheetId, projectId, characterId).first();
+}
+
+async function listSheets(env, projectId, characterId) {
+  const result = await dbOf(env).prepare(
+    "SELECT * FROM character_sheets WHERE project_id=? AND character_id=? ORDER BY version DESC, created_at DESC",
+  ).bind(projectId, characterId).all();
+  return (result.results || []).map(publicSheet);
+}
+
+async function handleSheetIngest(request, env, projectId, characterId) {
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.includes("multipart/form-data")) fail("INVALID_INPUT", "multipart/form-data is required for character sheets.", 415);
+  const form = await request.formData();
+  const file = form.get("file");
+  if (!file || typeof file === "string" || typeof file.arrayBuffer !== "function") fail("INVALID_INPUT", "A character sheet image is required.");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const validated = validateReferenceFile({ bytes, mimeType: file.type, filename: file.name, byteSize: bytes.byteLength });
+  if (!validated.ok) fail("INVALID_FILE", validated.errors[0], 400);
+  let cells;
+  try { cells = normalizeCharacterSheetCells(JSON.parse(String(form.get("cells") || "null")) || defaultCharacterSheetCells()); }
+  catch (error) { fail("INVALID_LAYOUT", error.message); }
+  const contentHash = await sha256Hex(bytes);
+  const duplicate = await dbOf(env).prepare(
+    "SELECT * FROM character_sheets WHERE project_id=? AND character_id=? AND content_hash=? ORDER BY version DESC LIMIT 1",
+  ).bind(projectId, characterId, contentHash).first();
+  if (duplicate) return json({ sheet: publicSheet(duplicate), reused: true, sheets: await listSheets(env, projectId, characterId) });
+  const latest = await dbOf(env).prepare(
+    "SELECT MAX(version) AS version FROM character_sheets WHERE project_id=? AND character_id=?",
+  ).bind(projectId, characterId).first();
+  const id = crypto.randomUUID();
+  const version = Number(latest?.version || 0) + 1;
+  const filename = safeFilename(validated.filename, validated.mimeType);
+  const key = sheetR2Key(projectId, characterId, id, filename);
+  const now = stamp();
+  await mediaOf(env).put(key, bytes, {
+    httpMetadata: { contentType: validated.mimeType },
+    customMetadata: { projectId, characterId, sheetId: id, contentHash, filename },
+  });
+  try {
+    await dbOf(env).prepare(
+      `INSERT INTO character_sheets
+       (id, project_id, character_id, version, status, r2_key, filename, mime_type, byte_size, width, height,
+        content_hash, layout_json, manifest_json, created_at, updated_at, committed_at)
+       VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+    ).bind(id, projectId, characterId, version, key, filename, validated.mimeType, validated.byteSize,
+      validated.width, validated.height, contentHash, JSON.stringify(cells), now, now).run();
+  } catch (error) {
+    await mediaOf(env).delete(key);
+    throw error;
+  }
+  return json({ sheet: publicSheet(await getSheetRow(env, projectId, characterId, id)), sheets: await listSheets(env, projectId, characterId) }, 201);
+}
+
+async function handleSheetPatch(request, env, projectId, characterId, sheetId) {
+  const row = await getSheetRow(env, projectId, characterId, sheetId);
+  if (!row) fail("NOT_FOUND", "Character sheet not found.", 404);
+  if (row.status !== "draft") fail("SHEET_COMMITTED", "Committed character sheets are immutable. Upload a new version to make changes.", 409);
+  const body = await request.json().catch(() => ({}));
+  let cells;
+  try { cells = normalizeCharacterSheetCells(body.cells); } catch (error) { fail("INVALID_LAYOUT", error.message); }
+  await dbOf(env).prepare("UPDATE character_sheets SET layout_json=?, updated_at=? WHERE id=?")
+    .bind(JSON.stringify(cells), stamp(), sheetId).run();
+  return json({ sheet: publicSheet(await getSheetRow(env, projectId, characterId, sheetId)) });
+}
+
+async function handleSheetCommit(request, env, projectId, characterId, sheetId) {
+  const row = await getSheetRow(env, projectId, characterId, sheetId);
+  if (!row) fail("NOT_FOUND", "Character sheet not found.", 404);
+  if (row.status === "committed") return json({ sheet: publicSheet(row), idempotent: true, ...(await libraryPayload(env, projectId, characterId)) });
+  if (row.status !== "draft") fail("SHEET_ARCHIVED", "This character sheet version is archived.", 409);
+  const body = await request.json().catch(() => ({}));
+  let cells;
+  try { cells = normalizeCharacterSheetCells(body.cells); } catch (error) { fail("INVALID_LAYOUT", error.message); }
+  for (const cell of cells.filter((item) => item.included)) {
+    if (!cell.assetId || !(await getAssetRow(env, projectId, characterId, cell.assetId))) {
+      fail("INVALID_SHEET_ASSET", `Panel ${cell.id} does not point to a stored reference image.`);
+    }
+  }
+  const committedAt = stamp();
+  const sheet = publicSheet({ ...row, layout_json: JSON.stringify(cells) });
+  let manifest;
+  try { manifest = buildCharacterSheetManifest({ sheet, cells, committedAt, version: row.version }); }
+  catch (error) { fail("INVALID_LAYOUT", error.message); }
+  const db = dbOf(env);
+  await db.batch([
+    db.prepare("UPDATE character_sheets SET status='archived', updated_at=? WHERE project_id=? AND character_id=? AND status='committed' AND id!=?")
+      .bind(committedAt, projectId, characterId, sheetId),
+    db.prepare("UPDATE character_sheets SET status='committed', layout_json=?, manifest_json=?, committed_at=?, updated_at=? WHERE id=?")
+      .bind(JSON.stringify(cells), JSON.stringify(manifest), committedAt, committedAt, sheetId),
+  ]);
+  await markLockStale(env, projectId, characterId);
+  return json({ sheet: publicSheet(await getSheetRow(env, projectId, characterId, sheetId)), ...(await libraryPayload(env, projectId, characterId)) });
+}
+
+async function handleSheetRoute(request, env, projectId, characterId, matched) {
+  if (matched.sheetId && matched.sheetAction === "asset") {
+    if (request.method !== "GET") fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
+    const row = await getSheetRow(env, projectId, characterId, matched.sheetId);
+    if (!row) fail("NOT_FOUND", "Character sheet not found.", 404);
+    return handleAsset(request, env, row);
+  }
+  if (matched.sheetId && matched.sheetAction === "commit") {
+    if (request.method !== "POST") fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
+    return handleSheetCommit(request, env, projectId, characterId, matched.sheetId);
+  }
+  if (matched.sheetId) {
+    if (request.method === "PATCH") return handleSheetPatch(request, env, projectId, characterId, matched.sheetId);
+    fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
+  }
+  if (request.method === "GET") return json({ sheets: await listSheets(env, projectId, characterId) });
+  if (request.method === "POST") return handleSheetIngest(request, env, projectId, characterId);
+  fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
 }
 
 async function handleAsset(request, env, row) {
@@ -715,6 +883,8 @@ export async function characterReferenceRoutes(request, env) {
     if (!matched) return null;
     assertScope(matched.projectId, matched.characterId, env);
     const { projectId, characterId } = matched;
+
+    if (matched.characterSheet) return await handleSheetRoute(request, env, projectId, characterId, matched);
 
     if (matched.lock) {
       if (request.method === "GET") return await handleGetLock(env, projectId, characterId);

@@ -83,6 +83,7 @@ import RenderPanel from "./RenderPanel.jsx";
 import { renderRequest, mergeRender } from "./renderClient.js";
 import FilmEngine from "./FilmEngine.jsx";
 import ReferenceLibrary from "./ReferenceLibrary.jsx";
+import ProductionCharacterSheet from "./ProductionCharacterSheet.jsx";
 import { syncCanonicalRefsFromLibrary, LEGACY_SLOT_TO_LIBRARY } from "./characterReferences.js";
 import { assignCharacterCanonicalSlot, fetchCharacterLibrary, uploadCharacterReference } from "./characterReferenceClient.js";
 
@@ -1468,6 +1469,12 @@ function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addR
         <button className="close" onClick={close}><X /></button>
         <span className="eyebrow">CHARACTER BIBLE</span>
         <h2>{character.name}</h2>
+        <ProductionCharacterSheet
+          projectId={projectId}
+          character={character}
+          onLibrarySync={onLibrarySync}
+          notify={notify}
+        />
         <h3>Required Visual References</h3>
         <p className="dropHint">Drag an image onto a slot, or click the slot to browse.</p>
         <div className="referenceGrid">

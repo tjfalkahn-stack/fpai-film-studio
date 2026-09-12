@@ -486,6 +486,7 @@ export function buildCharacterLockManifest({
   characterId,
   lockVersion,
   assets,
+  characterSheets = [],
   createdAt = nowIso(),
 }) {
   const library = normalizeReferenceLibrary(assets);
@@ -537,6 +538,13 @@ export function buildCharacterLockManifest({
         ]),
       ),
     },
+    sourceSheets: (Array.isArray(characterSheets) ? characterSheets : []).map((sheet) => ({
+      sheetId: sheet.id || sheet.sheetId,
+      version: Number(sheet.version || 1),
+      status: sheet.status || "committed",
+      contentHash: sheet.contentHash || sheet.content_hash || null,
+      panelAssetIds: (sheet.manifest?.panels || sheet.panels || []).map((panel) => panel.assetId).filter(Boolean),
+    })),
     createdAt,
   };
 }
@@ -549,17 +557,19 @@ export function lockFingerprint(manifest) {
     excluded: (manifest?.excludedImages || []).map((asset) => asset.id).sort(),
     categories: manifest?.categories || {},
     tags: manifest?.tags || {},
+    sourceSheets: manifest?.sourceSheets || [],
   };
   return JSON.stringify(relevant);
 }
 
-export function shouldInvalidateLock(currentManifest, assets) {
+export function shouldInvalidateLock(currentManifest, assets, characterSheets = []) {
   if (!currentManifest) return false;
   const next = buildCharacterLockManifest({
     projectId: currentManifest.projectId,
     characterId: currentManifest.characterId,
     lockVersion: currentManifest.lockVersion,
     assets,
+    characterSheets,
     createdAt: currentManifest.createdAt,
   });
   return lockFingerprint(currentManifest) !== lockFingerprint(next);

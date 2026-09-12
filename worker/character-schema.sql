@@ -58,3 +58,29 @@ CREATE TABLE IF NOT EXISTS character_canonical_slots (
 );
 CREATE INDEX IF NOT EXISTS idx_character_canonical_slots_asset
   ON character_canonical_slots(project_id, character_id, asset_id);
+
+-- Additive: source sheets, corrected crop maps, commits, and version manifests.
+CREATE TABLE IF NOT EXISTS character_sheets (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  character_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('draft','committed','archived')),
+  r2_key TEXT NOT NULL UNIQUE,
+  filename TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  byte_size INTEGER NOT NULL,
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  content_hash TEXT NOT NULL,
+  layout_json TEXT NOT NULL,
+  manifest_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  committed_at TEXT,
+  UNIQUE(project_id, character_id, version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_character_sheets_hash
+  ON character_sheets(project_id, character_id, content_hash);
+CREATE INDEX IF NOT EXISTS idx_character_sheets_character
+  ON character_sheets(project_id, character_id, version DESC);
