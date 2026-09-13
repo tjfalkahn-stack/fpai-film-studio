@@ -4,6 +4,13 @@ export const MAX_CHARACTER_SHEET_COMMIT_BYTES = 24 * 1024 * 1024;
 
 export const SHEET_EXPRESSION_NAMES = Object.freeze({
   neutral: "Neutral",
+  suspicious: "Suspicious",
+  controlled_anger: "Controlled Anger",
+  hurt: "Hurt",
+  maternal: "Maternal",
+  paternal: "Paternal",
+  concerned: "Concerned",
+  exhausted: "Exhausted",
   smiling: "Smiling",
   crying: "Hurt",
   angry: "Controlled Anger",
@@ -17,9 +24,16 @@ export const CHARACTER_SHEET_LABELS = Object.freeze([
   { key: "profile_right", label: "Right Profile", category: "profile", angle: "profile_right", canonicalSlot: "profile" },
   { key: "full_body", label: "Full Body", category: "full_body", angle: "front", canonicalSlot: "fullBody" },
   { key: "neutral", label: "Neutral", category: "expression", expression: "neutral", canonicalSlot: "expression" },
+  { key: "suspicious", label: "Suspicious", category: "expression", expression: "suspicious", canonicalSlot: "expression" },
+  { key: "controlled_anger", label: "Controlled Anger", category: "expression", expression: "angry", canonicalSlot: "expression" },
+  { key: "hurt", label: "Hurt", category: "expression", expression: "crying", canonicalSlot: "expression" },
+  { key: "maternal", label: "Maternal", category: "expression", expression: "maternal", canonicalSlot: "expression" },
+  { key: "paternal", label: "Paternal", category: "expression", expression: "paternal", canonicalSlot: "expression" },
+  { key: "concerned", label: "Concerned", category: "expression", expression: "concerned", canonicalSlot: "expression" },
+  { key: "exhausted", label: "Exhausted", category: "expression", expression: "exhausted", canonicalSlot: "expression" },
   { key: "smiling", label: "Smiling", category: "expression", expression: "smiling", canonicalSlot: "expression" },
-  { key: "crying", label: "Crying", category: "expression", expression: "crying", canonicalSlot: "expression" },
-  { key: "angry", label: "Angry", category: "expression", expression: "angry", canonicalSlot: "expression" },
+  { key: "crying", label: "Crying (legacy)", category: "expression", expression: "crying", canonicalSlot: "expression" },
+  { key: "angry", label: "Angry (legacy)", category: "expression", expression: "angry", canonicalSlot: "expression" },
   { key: "wardrobe", label: "Wardrobe", category: "wardrobe", canonicalSlot: "wardrobe" },
   { key: "action_pose", label: "Action / Pose", category: "action_pose" },
   { key: "exclude", label: "Exclude", category: "other", excluded: true },
@@ -40,6 +54,53 @@ export const CUSTOM_CHARACTER_SHEET_LABELS = Object.freeze([
   "angry",
   "action_pose",
 ]);
+
+export const FPAI_EXPRESSION_BANK_SIZE = 6;
+
+function parentalExpressionKey(character = {}) {
+  const id = String(character.id || "").toLowerCase();
+  const role = String(character.role || "").toLowerCase();
+  if (id === "jasmine" || role.includes("mother") || role.includes("woman")) return "maternal";
+  if (id === "marcus" || role.includes("father") || role.includes("kingpin")) return "paternal";
+  return "concerned";
+}
+
+export function fpaiExpressionLabels(character = {}) {
+  return ["neutral", "suspicious", "controlled_anger", "hurt", parentalExpressionKey(character), "exhausted"];
+}
+
+// FPAI's authored 5:6 Character Bible has three hero panels, four wardrobe
+// panels, then a six-image expression strip. These normalized bounds preserve
+// the original source while making every useful panel independently selectable.
+export function fpaiCharacterBibleCells(character = {}) {
+  const cells = [
+    { id: "cell-1", label: "identity_front", x: 0, y: 0, width: 0.5083, height: 0.3836 },
+    { id: "cell-2", label: "profile_left", x: 0.5083, y: 0, width: 0.2803, height: 0.3836 },
+    { id: "cell-3", label: "full_body", x: 0.7886, y: 0, width: 0.2114, height: 0.3836 },
+    { id: "cell-4", label: "wardrobe", x: 0, y: 0.4214, width: 0.1467, height: 0.2489 },
+    { id: "cell-5", label: "wardrobe", x: 0.1467, y: 0.4214, width: 0.159, height: 0.2489 },
+    { id: "cell-6", label: "wardrobe", x: 0.3057, y: 0.4214, width: 0.1467, height: 0.2489 },
+    { id: "cell-7", label: "three_quarter_left", x: 0.4524, y: 0.4214, width: 0.1379, height: 0.2489 },
+  ];
+  fpaiExpressionLabels(character).forEach((label, index) => {
+    cells.push({
+      id: `cell-${index + 8}`,
+      label,
+      x: index / FPAI_EXPRESSION_BANK_SIZE,
+      y: 0.7074,
+      width: 1 / FPAI_EXPRESSION_BANK_SIZE,
+      height: 0.2365,
+    });
+  });
+  return normalizeCharacterSheetCells(cells);
+}
+
+export function isFpaiCharacterBibleDimensions(width, height) {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 900 || h < 1000) return false;
+  return Math.abs(w / h - 5 / 6) <= 0.015;
+}
 
 const acceptedSheetMimeTypes = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
 
@@ -184,4 +245,13 @@ export function expressionAssignmentsForSheets(sheets = [], assets = []) {
     }
   }
   return assignments;
+}
+
+export function expressionBankNamesForSheets(sheets = []) {
+  const latest = [...sheets]
+    .filter((sheet) => sheet.status === "committed")
+    .sort((a, b) => b.version - a.version || String(a.id).localeCompare(String(b.id)))[0];
+  if (!latest) return [];
+  const names = [...new Set((latest.manifest?.panels || []).map((panel) => SHEET_EXPRESSION_NAMES[panel.label]).filter(Boolean))];
+  return names.length === FPAI_EXPRESSION_BANK_SIZE ? names : [];
 }

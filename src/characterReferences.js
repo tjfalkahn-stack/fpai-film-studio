@@ -125,6 +125,12 @@ export const REFERENCE_ANGLES = Object.freeze([
 
 export const EXPRESSION_TAGS = Object.freeze([
   "neutral",
+  "suspicious",
+  "controlled_anger",
+  "hurt",
+  "maternal",
+  "paternal",
+  "concerned",
   "smiling",
   "angry",
   "afraid",

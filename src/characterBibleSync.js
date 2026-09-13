@@ -4,8 +4,25 @@ export const LEGACY_EXPRESSION_NAMES = Object.freeze([
   "Neutral", "Suspicious", "Controlled Anger", "Hurt", "Paternal", "Exhausted",
 ]);
 
-export function visibleExpressionNames(expressions = {}) {
-  return [...new Set([...LEGACY_EXPRESSION_NAMES, ...Object.keys(expressions)])];
+const STANDARD_EXPRESSION_NAMES = new Set([
+  ...LEGACY_EXPRESSION_NAMES, "Maternal", "Concerned", "Smiling",
+]);
+
+export function defaultExpressionBankNames(character = {}) {
+  const id = String(character.id || "").toLowerCase();
+  const role = String(character.role || "").toLowerCase();
+  const parental = id === "jasmine" || role.includes("mother") || role.includes("woman")
+    ? "Maternal"
+    : id === "marcus" || role.includes("father") || role.includes("kingpin")
+      ? "Paternal"
+      : "Concerned";
+  return ["Neutral", "Suspicious", "Controlled Anger", "Hurt", parental, "Exhausted"];
+}
+
+export function visibleExpressionNames(expressions = {}, preferredNames = LEGACY_EXPRESSION_NAMES, exactStandardBank = false) {
+  const preferred = Array.isArray(preferredNames) && preferredNames.length ? preferredNames : LEGACY_EXPRESSION_NAMES;
+  const additional = Object.keys(expressions).filter((name) => !exactStandardBank || !STANDARD_EXPRESSION_NAMES.has(name));
+  return [...new Set([...preferred, ...additional])];
 }
 
 // Shared by background hydration and the open drawer. Only explicit canonical
@@ -45,6 +62,9 @@ export function characterBiblePatch(character, payload = {}) {
     }
     next.expressions = expressions;
     next.sheetExpressionSources = sources;
+  }
+  if (Array.isArray(payload.sheetExpressionOrder) && payload.sheetExpressionOrder.length) {
+    next.expressionBankOrder = [...new Set(payload.sheetExpressionOrder)];
   }
   return next;
 }

@@ -24,6 +24,7 @@ import {
   buildCharacterSheetManifest,
   canonicalAssignmentsForSheet,
   defaultCharacterSheetCells,
+  expressionBankNamesForSheets,
   expressionAssignmentsForSheets,
   normalizeCharacterSheetCells,
   referenceFieldsForSheetCell,
@@ -167,6 +168,7 @@ async function libraryPayload(env, projectId, characterId, extra = {}) {
     coverage: state.coverage,
     lock: state.lock,
     sheetExpressions: expressionAssignmentsForSheets(sheets, decorated.references),
+    sheetExpressionOrder: expressionBankNamesForSheets(sheets),
     ...extra,
   };
 }

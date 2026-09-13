@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { characterBiblePatch, visibleExpressionNames } from "./characterBibleSync.js";
+import { characterBiblePatch, defaultExpressionBankNames, visibleExpressionNames } from "./characterBibleSync.js";
 import { canonicalAssignmentsForSheet, expressionAssignmentsForSheets } from "./characterSheets.js";
 
 const image = (id) => ({ id, filename: `${id}.png`, assetUrl: `/references/${id}/asset` });
@@ -48,6 +48,18 @@ test("the shared UI patch synchronizes committed refs, lock, coverage, and visib
   assert.equal(patch.expressions.Neutral.assetUrl, "/references/neutral/asset");
   for (const name of ["Suspicious", "Paternal", "Custom"]) assert.deepEqual(patch.expressions[name], character.expressions[name]);
   assert.deepEqual(visibleExpressionNames(patch.expressions), ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Paternal", "Exhausted", "Custom", "Smiling"]);
+});
+
+test("Jasmine's committed six-panel order replaces the visible legacy bank without deleting old local images", () => {
+  const oldPaternal = { key: "old-paternal" };
+  const character = { id: "jasmine", role: "Marcus's woman", expressions: { Paternal: oldPaternal, Custom: { key: "custom" } } };
+  const order = ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Maternal", "Exhausted"];
+  const patch = characterBiblePatch(character, { sheetExpressions: {}, sheetExpressionOrder: order });
+  assert.deepEqual(patch.expressionBankOrder, order);
+  assert.deepEqual(character.expressions.Paternal, oldPaternal, "the hidden legacy image remains preserved");
+  assert.deepEqual(visibleExpressionNames(character.expressions, patch.expressionBankOrder, true), [...order, "Custom"]);
+  assert.deepEqual(defaultExpressionBankNames(character), order);
+  assert.equal(defaultExpressionBankNames({ id: "marcus" })[4], "Paternal");
 });
 
 test("later manual expression replacements survive refresh and old payload replay until explicitly reselected", () => {
