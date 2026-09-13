@@ -20,9 +20,13 @@ import {
   validateReferenceFile,
 } from "../src/imageMeta.js";
 import {
+  MAX_CHARACTER_SHEET_COMMIT_BYTES,
   buildCharacterSheetManifest,
+  canonicalAssignmentsForSheet,
   defaultCharacterSheetCells,
+  expressionAssignmentsForSheets,
   normalizeCharacterSheetCells,
+  referenceFieldsForSheetCell,
 } from "../src/characterSheets.js";
 
 const json = (body, status = 200) =>
@@ -106,6 +110,14 @@ function isMissingCanonicalTable(error) {
   return /no such table|character_canonical_slots/i.test(String(error?.message || error || ""));
 }
 
+function isMissingCharacterSheetsTable(error) {
+  const message = String(error?.message || error || "");
+  return /character_sheets/i.test(message) && /no such table|does not exist|SQLITE_ERROR|D1_ERROR/i.test(message);
+}
+
+const CHARACTER_SHEETS_SCHEMA_MESSAGE =
+  "Production Character Sheet storage is not initialized. Apply the current additive worker/character-schema.sql migration. Existing characters and references are preserved.";
+
 async function listCanonicalSlotIds(env, projectId, characterId) {
   try {
     const result = await dbOf(env)
@@ -148,11 +160,13 @@ async function libraryPayload(env, projectId, characterId, extra = {}) {
   const slotIds = await listCanonicalSlotIds(env, projectId, characterId);
   const decorated = decorateLibrary(assets, slotIds);
   const state = await lockState(env, projectId, characterId, assets);
+  const sheets = await listSheets(env, projectId, characterId, { allowMissing: true });
   return {
     references: decorated.references,
     canonicalSlots: decorated.canonicalSlots,
     coverage: state.coverage,
     lock: state.lock,
+    sheetExpressions: expressionAssignmentsForSheets(sheets, decorated.references),
     ...extra,
   };
 }
@@ -192,6 +206,7 @@ async function assignCanonicalSlot(env, projectId, characterId, slot, assetId) {
     }
     throw error;
   }
+  await markLockStale(env, projectId, characterId);
   return normalizedSlot;
 }
 
@@ -535,7 +550,7 @@ async function handleDelete(env, projectId, characterId, id) {
 
 async function handleRebuildLock(env, projectId, characterId) {
   const assets = await listAssets(env, projectId, characterId);
-  const characterSheets = (await listSheets(env, projectId, characterId)).filter((sheet) => sheet.status === "committed");
+  const characterSheets = (await listSheets(env, projectId, characterId, { allowMissing: true })).filter((sheet) => sheet.status === "committed");
   const latest = await dbOf(env)
     .prepare(
       "SELECT MAX(lock_version) AS max_version FROM character_locks WHERE project_id=? AND character_id=?",
@@ -550,26 +565,26 @@ async function handleRebuildLock(env, projectId, characterId) {
     lockVersion,
     assets,
     characterSheets,
+    canonicalSlots: await listCanonicalSlotIds(env, projectId, characterId),
     createdAt,
   });
-  await dbOf(env)
-    .prepare(
+  const db = dbOf(env);
+  await db.batch([
+    db.prepare(
       "UPDATE character_locks SET status='archived' WHERE project_id=? AND character_id=? AND status IN ('current','stale')",
     )
-    .bind(projectId, characterId)
-    .run();
-  await dbOf(env)
-    .prepare(
+    .bind(projectId, characterId),
+    db.prepare(
       "INSERT INTO character_locks (id, project_id, character_id, lock_version, status, manifest_json, created_at) VALUES (?,?,?,?, 'current', ?, ?)",
     )
-    .bind(crypto.randomUUID(), projectId, characterId, lockVersion, JSON.stringify(manifest), createdAt)
-    .run();
+    .bind(crypto.randomUUID(), projectId, characterId, lockVersion, JSON.stringify(manifest), createdAt),
+  ]);
   return json({ lock: { ...manifest, status: "current" }, coverage: evaluateReferenceCoverage(assets) }, 201);
 }
 
 async function lockState(env, projectId, characterId, assets) {
   const library = assets || (await listAssets(env, projectId, characterId));
-  const characterSheets = (await listSheets(env, projectId, characterId)).filter((sheet) => sheet.status === "committed");
+  const characterSheets = (await listSheets(env, projectId, characterId, { allowMissing: true })).filter((sheet) => sheet.status === "committed");
   const versions = await dbOf(env)
     .prepare(
       "SELECT lock_version, status, created_at, manifest_json FROM character_locks WHERE project_id=? AND character_id=? ORDER BY lock_version DESC",
@@ -578,12 +593,13 @@ async function lockState(env, projectId, characterId, assets) {
     .all();
   const current = (versions.results || []).find((row) => row.status === "current" || row.status === "stale") || null;
   const manifest = current ? JSON.parse(current.manifest_json) : null;
+  const canonicalSlots = await listCanonicalSlotIds(env, projectId, characterId);
   return {
     lock: manifest
       ? {
           ...manifest,
           status: current.status,
-          needsRebuild: current.status === "stale" || shouldInvalidateLock(manifest, library, characterSheets),
+          needsRebuild: current.status === "stale" || shouldInvalidateLock(manifest, library, characterSheets, canonicalSlots),
         }
       : null,
     versions: (versions.results || []).map((row) => ({
@@ -639,7 +655,7 @@ async function handleSelection(request, env, projectId, characterId) {
 
 function matchPath(pathname) {
   const sheets = pathname.match(
-    /^\/api\/projects\/([^/]+)\/characters\/([^/]+)\/character-sheets(?:\/([a-f0-9-]{36})(?:\/(asset|commit))?)?$/,
+    /^\/api\/projects\/([^/]+)\/characters\/([^/]+)\/character-sheets(?:\/([a-f0-9-]{36})(?:\/(asset|commit|apply-labels))?)?$/,
   );
   if (sheets) {
     return {
@@ -707,11 +723,16 @@ async function getSheetRow(env, projectId, characterId, sheetId) {
   ).bind(sheetId, projectId, characterId).first();
 }
 
-async function listSheets(env, projectId, characterId) {
-  const result = await dbOf(env).prepare(
-    "SELECT * FROM character_sheets WHERE project_id=? AND character_id=? ORDER BY version DESC, created_at DESC",
-  ).bind(projectId, characterId).all();
-  return (result.results || []).map(publicSheet);
+async function listSheets(env, projectId, characterId, { allowMissing = false } = {}) {
+  try {
+    const result = await dbOf(env).prepare(
+      "SELECT * FROM character_sheets WHERE project_id=? AND character_id=? ORDER BY version DESC, created_at DESC",
+    ).bind(projectId, characterId).all();
+    return (result.results || []).map(publicSheet);
+  } catch (error) {
+    if (allowMissing && isMissingCharacterSheetsTable(error)) return [];
+    throw error;
+  }
 }
 
 async function handleSheetIngest(request, env, projectId, characterId) {
@@ -770,36 +791,147 @@ async function handleSheetPatch(request, env, projectId, characterId, sheetId) {
   return json({ sheet: publicSheet(await getSheetRow(env, projectId, characterId, sheetId)) });
 }
 
-async function handleSheetCommit(request, env, projectId, characterId, sheetId) {
+function insertSheetReference(db, asset) {
+  const columns = ["id", "project_id", "character_id", "r2_key", "filename", "mime_type", "byte_size", "width", "height", "content_hash", "category", "angle", "expression", "wardrobe", "tags", "approval_state", "is_primary", "is_identity_anchor", "include_in_generation", "sort_order", "created_at", "updated_at"];
+  return db.prepare(`INSERT INTO character_references (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`)
+    .bind(...columns.map((column) => asset[column]));
+}
+
+async function handleSheetCommit(request, env, projectId, characterId, sheetId, applyLabels = false) {
   const row = await getSheetRow(env, projectId, characterId, sheetId);
   if (!row) fail("NOT_FOUND", "Character sheet not found.", 404);
-  if (row.status === "committed") return json({ sheet: publicSheet(row), idempotent: true, ...(await libraryPayload(env, projectId, characterId)) });
-  if (row.status !== "draft") fail("SHEET_ARCHIVED", "This character sheet version is archived.", 409);
-  const body = await request.json().catch(() => ({}));
+  if (row.status === "committed" && !applyLabels) return json({ sheet: publicSheet(row), idempotent: true, ...(await libraryPayload(env, projectId, characterId)) });
+  if (applyLabels ? row.status !== "committed" : row.status !== "draft") {
+    fail("SHEET_IMMUTABLE", "Only a draft can be committed; only the current committed sheet can have its labels applied.", 409);
+  }
+  const sheet = publicSheet(row);
+  let form = null;
+  let body;
+  if (applyLabels) body = { cells: sheet.manifest?.panels || [] };
+  else if ((request.headers.get("content-type") || "").includes("multipart/form-data")) {
+    if (Number(request.headers.get("content-length")) > MAX_CHARACTER_SHEET_COMMIT_BYTES + 1024 * 1024) {
+      fail("SHEET_TOO_LARGE", "Prepared crops exceed the 24 MB commit limit. Use smaller crops or fewer panels.", 413);
+    }
+    form = await request.formData();
+    try { body = { cells: JSON.parse(String(form.get("cells"))), wardrobe: String(form.get("wardrobe") || "") }; }
+    catch { fail("INVALID_LAYOUT", "Character sheet cells must be valid JSON."); }
+  } else body = await request.json().catch(() => ({}));
   let cells;
   try { cells = normalizeCharacterSheetCells(body.cells); } catch (error) { fail("INVALID_LAYOUT", error.message); }
+  const existing = await listAssets(env, projectId, characterId);
+  const byHash = new Map(existing.map((asset) => [asset.contentHash, asset]));
+  const newAssets = [];
+  const panelRows = new Map();
+  const committedAt = stamp();
+  let totalBytes = 0;
   for (const cell of cells.filter((item) => item.included)) {
-    if (!cell.assetId || !(await getAssetRow(env, projectId, characterId, cell.assetId))) {
+    let asset;
+    const file = form?.get(`panel:${cell.id}`);
+    if (file && typeof file !== "string" && typeof file.arrayBuffer === "function") {
+      totalBytes += file.size;
+      if (totalBytes > MAX_CHARACTER_SHEET_COMMIT_BYTES) fail("SHEET_TOO_LARGE", "Prepared crops exceed the 24 MB commit limit. Use smaller crops or fewer panels.", 413);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const validated = validateReferenceFile({ bytes, mimeType: file.type, filename: file.name, byteSize: bytes.byteLength });
+      if (!validated.ok) fail("INVALID_FILE", `Panel ${cell.id}: ${validated.errors[0]}`);
+      const contentHash = await sha256Hex(bytes);
+      const duplicate = byHash.get(contentHash);
+      if (duplicate) asset = await getAssetRow(env, projectId, characterId, duplicate.id) || newAssets.find((item) => item.id === duplicate.id);
+      else {
+        const id = crypto.randomUUID();
+        const filename = safeFilename(validated.filename, validated.mimeType);
+        asset = {
+          id, project_id: projectId, character_id: characterId, r2_key: r2Key(projectId, characterId, id, filename),
+          filename, mime_type: validated.mimeType, byte_size: bytes.byteLength, width: validated.width, height: validated.height,
+          content_hash: contentHash, category: "other", angle: "", expression: "", wardrobe: "", tags: "[]",
+          approval_state: "pending", is_primary: 0, is_identity_anchor: 0, include_in_generation: 0,
+          sort_order: Math.max(-1, ...existing.map((item) => item.sortOrder)) + newAssets.length + 1,
+          created_at: committedAt, updated_at: committedAt, bytes,
+        };
+        newAssets.push(asset);
+        byHash.set(contentHash, asset);
+      }
+      cell.assetId = asset.id;
+    } else if (cell.assetId) asset = await getAssetRow(env, projectId, characterId, cell.assetId);
+    if (!asset) {
       fail("INVALID_SHEET_ASSET", `Panel ${cell.id} does not point to a stored reference image.`);
     }
+    if (panelRows.has(asset.id)) fail("DUPLICATE_SHEET_PANEL", "Each included panel must use a distinct crop. Exclude repeated images before committing.");
+    panelRows.set(asset.id, asset);
   }
-  const committedAt = stamp();
-  const sheet = publicSheet({ ...row, layout_json: JSON.stringify(cells) });
+  if (existing.length + newAssets.length > MAX_REFERENCES_PER_CHARACTER) fail("LIBRARY_FULL", `Each character can store at most ${MAX_REFERENCES_PER_CHARACTER} individual reference photos.`);
   let manifest;
-  try { manifest = buildCharacterSheetManifest({ sheet, cells, committedAt, version: row.version }); }
+  try { manifest = buildCharacterSheetManifest({ sheet: { ...sheet, wardrobe: body.wardrobe }, cells, committedAt, version: row.version }); }
   catch (error) { fail("INVALID_LAYOUT", error.message); }
   const db = dbOf(env);
-  await db.batch([
+  const assignments = canonicalAssignmentsForSheet(manifest.panels);
+  // Check the additive slot table before any writes. A missing migration cannot
+  // leave a partially committed library behind.
+  let slotRows;
+  try { slotRows = await db.prepare("SELECT slot, asset_id FROM character_canonical_slots WHERE project_id=? AND character_id=?").bind(projectId, characterId).all(); }
+  catch (error) {
+    if (isMissingCanonicalTable(error)) fail("CANONICAL_SLOTS_SCHEMA", "Re-apply worker/character-schema.sql to persist Character Bible slots. Existing library photos are not deleted.", 503);
+    throw error;
+  }
+  const oldSlots = Object.fromEntries((slotRows.results || []).map((item) => [item.slot, item.asset_id]));
+  const statements = newAssets.map((asset) => insertSheetReference(db, asset));
+  const primaryId = assignments.identityFront;
+  if (primaryId && existing.some((asset) => asset.isPrimary && asset.id !== primaryId)) {
+    statements.push(db.prepare("UPDATE character_references SET is_primary=0, updated_at=? WHERE project_id=? AND character_id=? AND is_primary=1 AND id!=?")
+      .bind(committedAt, projectId, characterId, primaryId));
+  }
+  for (const panel of manifest.panels) {
+    const asset = panelRows.get(panel.assetId);
+    const fields = referenceFieldsForSheetCell(panel, applyLabels ? (sheet.manifest.panels.find((item) => item.id === panel.id)?.wardrobe || asset.wardrobe) : body.wardrobe);
+    const tags = JSON.stringify(normalizeTags([...fields.tags, ...parseTags(asset.tags)]));
+    const primary = primaryId ? Number(asset.id === primaryId) : Number(asset.is_primary);
+    const values = [fields.category, fields.angle, fields.expression, fields.wardrobe, tags, "approved", primary, Number(fields.isIdentityAnchor), 1];
+    const oldValues = [asset.category, asset.angle, asset.expression, asset.wardrobe, asset.tags, asset.approval_state, Number(asset.is_primary), Number(asset.is_identity_anchor), Number(asset.include_in_generation)];
+    if (JSON.stringify(values) !== JSON.stringify(oldValues)) {
+      statements.push(db.prepare(`UPDATE character_references SET category=?, angle=?, expression=?, wardrobe=?, tags=?, approval_state=?, is_primary=?, is_identity_anchor=?, include_in_generation=?, updated_at=? WHERE id=? AND project_id=? AND character_id=?`)
+        .bind(...values, committedAt, asset.id, projectId, characterId));
+    }
+  }
+  for (const [slot, id] of Object.entries(assignments)) {
+    if (oldSlots[slot] === id) continue;
+    statements.push(db.prepare(`INSERT INTO character_canonical_slots (project_id, character_id, slot, asset_id, updated_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, character_id, slot) DO UPDATE SET asset_id=excluded.asset_id, updated_at=excluded.updated_at`)
+      .bind(projectId, characterId, slot, id, committedAt));
+  }
+  if (!applyLabels) statements.push(
     db.prepare("UPDATE character_sheets SET status='archived', updated_at=? WHERE project_id=? AND character_id=? AND status='committed' AND id!=?")
       .bind(committedAt, projectId, characterId, sheetId),
     db.prepare("UPDATE character_sheets SET status='committed', layout_json=?, manifest_json=?, committed_at=?, updated_at=? WHERE id=?")
       .bind(JSON.stringify(cells), JSON.stringify(manifest), committedAt, committedAt, sheetId),
-  ]);
-  await markLockStale(env, projectId, characterId);
-  return json({ sheet: publicSheet(await getSheetRow(env, projectId, characterId, sheetId)), ...(await libraryPayload(env, projectId, characterId)) });
+  );
+  const changed = statements.length > 0;
+  if (changed) statements.push(db.prepare("UPDATE character_locks SET status='stale' WHERE project_id=? AND character_id=? AND status='current'").bind(projectId, characterId));
+  const written = [];
+  try {
+    for (const asset of newAssets) {
+      await mediaOf(env).put(asset.r2_key, asset.bytes, {
+        httpMetadata: { contentType: asset.mime_type },
+        customMetadata: { projectId, characterId, assetId: asset.id, contentHash: asset.content_hash, filename: asset.filename },
+      });
+      written.push(asset.r2_key);
+    }
+    if (changed) await db.batch(statements);
+  } catch (error) {
+    // A transport failure may arrive after D1 committed. Remove only objects
+    // confirmed absent from D1; failed reads conservatively preserve the bytes.
+    await Promise.allSettled(newAssets.filter((asset) => written.includes(asset.r2_key)).map(async (asset) => {
+      if (!(await getAssetRow(env, projectId, characterId, asset.id))) await mediaOf(env).delete(asset.r2_key);
+    }));
+    throw error;
+  }
+  return json({ sheet: publicSheet(await getSheetRow(env, projectId, characterId, sheetId)), idempotent: !changed,
+    ...(await libraryPayload(env, projectId, characterId)), applySheetExpressions: sheetId });
 }
 
 async function handleSheetRoute(request, env, projectId, characterId, matched) {
+  if (matched.sheetId && matched.sheetAction === "apply-labels") {
+    if (request.method !== "POST") fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
+    return handleSheetCommit(request, env, projectId, characterId, matched.sheetId, true);
+  }
   if (matched.sheetId && matched.sheetAction === "asset") {
     if (request.method !== "GET") fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
     const row = await getSheetRow(env, projectId, characterId, matched.sheetId);
@@ -949,6 +1081,9 @@ export async function characterReferenceRoutes(request, env) {
     }
     fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
   } catch (error) {
+    if (isMissingCharacterSheetsTable(error)) {
+      return json({ error: { code: "CHARACTER_SHEETS_SCHEMA", message: CHARACTER_SHEETS_SCHEMA_MESSAGE } }, 503);
+    }
     const status = error instanceof ProviderError ? error.httpStatus : 500;
     return json(
       {

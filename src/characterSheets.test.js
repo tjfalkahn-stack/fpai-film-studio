@@ -3,8 +3,11 @@ import assert from "node:assert/strict";
 import {
   CHARACTER_SHEET_SCHEMA,
   buildCharacterSheetManifest,
+  createCustomCharacterSheetCell,
   defaultCharacterSheetCells,
+  normalizeDrawnSheetBounds,
   normalizeCharacterSheetCells,
+  pickCharacterSheetFile,
   referenceFieldsForSheetCell,
 } from "./characterSheets.js";
 import { buildCharacterLockManifest, shouldInvalidateLock } from "./characterReferences.js";
@@ -24,6 +27,26 @@ test("sheet review normalizes safe crop bounds and rejects duplicate panel ids",
     { id: "same", label: "neutral", width: 0.5, height: 0.5 },
     { id: "same", label: "crying", x: 0.5, width: 0.5, height: 0.5 },
   ]), /unique/);
+});
+
+test("click and drop file selection accepts supported Character Bible images", () => {
+  const png = { name: "jasmine-bible.png", type: "image/png", size: 2048 };
+  const extensionOnly = { name: "mikey-bible.WEBP", type: "", size: 1024 };
+  assert.equal(pickCharacterSheetFile([{ name: "notes.txt", type: "text/plain", size: 20 }, png]), png);
+  assert.equal(pickCharacterSheetFile([extensionOnly]), extensionOnly);
+  assert.equal(pickCharacterSheetFile([{ name: "empty.png", type: "image/png", size: 0 }]), null);
+});
+
+test("custom Character Bible crops support reverse drawing, safe bounds, and stable labels", () => {
+  const bounds = normalizeDrawnSheetBounds({ x: 0.8, y: 0.7 }, { x: 0.2, y: 0.1 });
+  assert.deepEqual(bounds, { x: 0.2, y: 0.1, width: 0.6000000000000001, height: 0.6 });
+  assert.equal(normalizeDrawnSheetBounds({ x: 0.1, y: 0.1 }, { x: 0.11, y: 0.11 }), null);
+  const first = createCustomCharacterSheetCell([], bounds);
+  const second = createCustomCharacterSheetCell([first], { x: 0, y: 0, width: 0.2, height: 0.2 });
+  assert.equal(first.id, "cell-1");
+  assert.equal(first.label, "identity_front");
+  assert.equal(second.id, "cell-2");
+  assert.equal(second.label, "profile_left");
 });
 
 test("reviewed panels map to canonical slots, variants, and an immutable manifest", () => {

@@ -84,14 +84,14 @@ import { renderRequest, mergeRender } from "./renderClient.js";
 import FilmEngine from "./FilmEngine.jsx";
 import ReferenceLibrary from "./ReferenceLibrary.jsx";
 import ProductionCharacterSheet from "./ProductionCharacterSheet.jsx";
-import { syncCanonicalRefsFromLibrary, LEGACY_SLOT_TO_LIBRARY } from "./characterReferences.js";
+import { LEGACY_SLOT_TO_LIBRARY } from "./characterReferences.js";
+import { characterBiblePatch, visibleExpressionNames } from "./characterBibleSync.js";
 import { assignCharacterCanonicalSlot, fetchCharacterLibrary, uploadCharacterReference } from "./characterReferenceClient.js";
 
 const STORAGE_KEY = "fpai-film-studio-v1.2";
 const MEDIA_DB = "fpai-film-studio-media";
 const MEDIA_STORE = "media";
 const REFERENCE_SLOTS = CANONICAL_REFERENCE_CATEGORIES.map(({ key, label }) => [key, label.toUpperCase()]);
-const EXPRESSIONS = ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Paternal", "Exhausted"];
 
 const seedShots = [
   ["001", 2, "CHAOS", "BLACK / Mikey crying", "Sound-first opening", [], [], "Planned", { motionNeed: "local", shotCap: 0 }],
@@ -438,31 +438,7 @@ function App() {
   }
 
   function applyCharacterLibraryPayload(id, payload = {}) {
-    updateCharacter(id, (item) => {
-      const references = payload.references
-        || (payload.reference
-          ? [
-              ...(item.referenceLibrary || []).filter((row) => row.id !== payload.reference.id),
-              payload.reference,
-            ]
-          : payload.deletedId
-            ? (item.referenceLibrary || []).filter((row) => row.id !== payload.deletedId)
-            : item.referenceLibrary);
-      const next = {};
-      if (payload.migratedMediaKeys) next.migratedMediaKeys = payload.migratedMediaKeys;
-      if (payload.lock !== undefined) next.identityLock = payload.lock;
-      if (payload.coverage) next.referenceCoverage = payload.coverage;
-      if (references) next.referenceLibrary = references;
-      if (
-        Object.prototype.hasOwnProperty.call(payload, "canonicalSlots")
-        || payload.references
-        || payload.reference
-        || payload.deletedId
-      ) {
-        next.refs = syncCanonicalRefsFromLibrary(item, references || [], payload.canonicalSlots || {});
-      }
-      return next;
-    });
+    updateCharacter(id, (item) => characterBiblePatch(item, payload));
   }
 
   useEffect(() => {
@@ -622,8 +598,9 @@ function App() {
     if (!file) return;
     const key = `char:${targetCharacter.id}:expr:${name}:${Date.now()}`;
     await putMedia(key, file);
-    const expressions = { ...targetCharacter.expressions, [name]: { key, name: file.name } };
-    updateCharacter(targetCharacter.id, { expressions });
+    updateCharacter(targetCharacter.id, (item) => ({
+      expressions: { ...item.expressions, [name]: { key, name: file.name, uploadedAt: new Date().toISOString() } },
+    }));
   }
 
   async function addTake(targetShot, file) {
@@ -1438,30 +1415,7 @@ function BudgetPage({
 function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addReference, removeReference, addExpression, updateCharacter, getMedia, notify, close }) {
   const lockReady = isCharacterReferenceComplete(character);
   function onLibrarySync(payload) {
-    updateCharacter(character.id, (item) => {
-      const references = payload.references
-        || (payload.reference
-          ? [...(item.referenceLibrary || []).filter((row) => row.id !== payload.reference.id), payload.reference]
-          : payload.deletedId
-            ? (item.referenceLibrary || []).filter((row) => row.id !== payload.deletedId)
-            : item.referenceLibrary);
-      const next = {};
-      if (payload.migratedMediaKeys) next.migratedMediaKeys = payload.migratedMediaKeys;
-      if (payload.lock !== undefined) next.identityLock = payload.lock;
-      if (payload.coverage) next.referenceCoverage = payload.coverage;
-      if (payload.references || payload.reference || payload.deletedId) {
-        next.referenceLibrary = references;
-      }
-      if (
-        Object.prototype.hasOwnProperty.call(payload, "canonicalSlots")
-        || payload.references
-        || payload.reference
-        || payload.deletedId
-      ) {
-        next.refs = syncCanonicalRefsFromLibrary(item, references || [], payload.canonicalSlots || {});
-      }
-      return next;
-    });
+    updateCharacter(character.id, (item) => characterBiblePatch(item, payload));
   }
   return (
     <div className="overlay">
@@ -1518,7 +1472,7 @@ function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addR
         />
         <h3>Expression Bank</h3>
         <div className="expressionGrid">
-          {EXPRESSIONS.map((name) => {
+          {visibleExpressionNames(character.expressions).map((name) => {
             const key = `expr:${name}`;
             return (
               <label
@@ -1534,7 +1488,7 @@ function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addR
                   if (file?.type?.startsWith("image/")) addExpression(character, name, file);
                 }}
               >
-                <div>{character.expressions?.[name] ? <Media mediaKey={character.expressions[name].key} /> : <><Upload /><span>DROP</span></>}</div>
+                <div>{character.expressions?.[name] ? <Media mediaKey={character.expressions[name].key} assetUrl={character.expressions[name].assetUrl} /> : <><Upload /><span>DROP</span></>}</div>
                 <b>{name}</b>
                 <input type="file" accept="image/*" onChange={(event) => addExpression(character, name, event.target.files?.[0])} />
               </label>

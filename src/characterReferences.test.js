@@ -125,6 +125,39 @@ test("duplicate content hashes fail the duplicate coverage rule", () => {
   assert.equal(coverage.rules.find((rule) => rule.id === "duplicates").met, false);
 });
 
+test("empty coverage is 0/9 and excluded/disabled or unlabeled images do not satisfy view or expression checks", () => {
+  assert.equal(evaluateReferenceCoverage([]).metCount, 0);
+  assert.equal(evaluateReferenceCoverage([]).score, 0);
+  const coverage = evaluateReferenceCoverage([
+    asset("disabled", { category: "three_quarter", angle: "three_quarter_right", includeInGeneration: false, isPrimary: true }),
+    asset("excluded", { category: "profile", approvalState: "excluded" }),
+    asset("neutral", { category: "expression", expression: "neutral" }),
+    asset("smile", { category: "expression", expression: "smiling" }),
+    asset("unlabeled", { category: "expression" }),
+  ]);
+  for (const id of ["primary", "three_quarter", "profile", "expression"]) assert.equal(coverage.rules.find((rule) => rule.id === id).met, false);
+});
+
+test("anchor approval, not merely an angle label, is required for the three-anchor coverage point", () => {
+  const refs = [
+    asset("front", { isIdentityAnchor: true, category: "identity_anchor", angle: "front" }),
+    asset("quarter", { isIdentityAnchor: true, category: "three_quarter", angle: "three_quarter_right" }),
+    asset("profile", { isIdentityAnchor: true, category: "profile", approvalState: "pending" }),
+  ];
+  assert.equal(evaluateReferenceCoverage(refs).rules.find((rule) => rule.id === "anchors").met, false);
+  assert.equal(evaluateReferenceCoverage(refs.map((row) => ({ ...row, approvalState: "approved" }))).rules.find((rule) => rule.id === "anchors").met, true);
+});
+
+test("reference angle, wardrobe, tags, ordering and canonical assignments invalidate a versioned manifest", () => {
+  const refs = [asset("p", { isPrimary: true, angle: "front", isIdentityAnchor: true }), asset("s")];
+  const manifest = buildCharacterLockManifest({ projectId: "test", characterId: "test", assets: refs, canonicalSlots: { identityFront: "p" } });
+  for (const patch of [{ angle: "profile_left" }, { wardrobe: "new look" }, { tags: ["new tag"] }, { sortOrder: 5 }]) {
+    assert.equal(shouldInvalidateLock(manifest, [refs[0], { ...refs[1], ...patch }]), true);
+  }
+  assert.equal(shouldInvalidateLock(manifest, refs, [], { identityFront: "s" }), true);
+  assert.equal(shouldInvalidateLock(manifest, refs), false);
+});
+
 test("character lock manifests are versioned and become stale after approved reference changes", () => {
   const library = [
     asset("p", { isPrimary: true, isIdentityAnchor: true, category: "identity_anchor" }),
