@@ -306,8 +306,8 @@ function hasAngleFamily(assets, family) {
 function expressionCoverageCount(assets) {
   const found = new Set(
     assets
-      .filter((asset) => asset.approvalState !== "excluded" && (asset.category === "expression" || asset.expression))
-      .map((asset) => asset.expression || "custom"),
+      .filter((asset) => asset.approvalState !== "excluded" && asset.expression)
+      .map((asset) => asset.expression),
   );
   found.delete("");
   return found.size;
@@ -379,14 +379,15 @@ export const COVERAGE_RULES = Object.freeze([
   {
     id: "duplicates",
     label: "No exact duplicate uploads",
-    check: (assets) => duplicateHashCount(assets) === 0,
+    check: (assets) => assets.length > 0 && duplicateHashCount(assets) === 0,
   },
 ]);
 
 export function evaluateReferenceCoverage(assets = []) {
   const library = normalizeReferenceLibrary(assets);
+  const included = library.filter((asset) => asset.approvalState !== "excluded" && asset.includeInGeneration);
   const rules = COVERAGE_RULES.map((rule) => {
-    const met = rule.check(library);
+    const met = rule.check(rule.id === "duplicates" ? library : included);
     return { id: rule.id, label: rule.label, met };
   });
   const metCount = rules.filter((rule) => rule.met).length;
@@ -487,6 +488,7 @@ export function buildCharacterLockManifest({
   lockVersion,
   assets,
   characterSheets = [],
+  canonicalSlots = {},
   createdAt = nowIso(),
 }) {
   const library = normalizeReferenceLibrary(assets);
@@ -514,12 +516,15 @@ export function buildCharacterLockManifest({
     width: asset.width,
     height: asset.height,
     sortOrder: asset.sortOrder,
+    contentHash: asset.contentHash,
+    includeInGeneration: asset.includeInGeneration,
   });
   return {
     schema: CHARACTER_LOCK_SCHEMA,
     projectId,
     characterId,
     lockVersion: Number(lockVersion) || 1,
+    canonicalSlots: Object.fromEntries(CANONICAL_SLOT_KEYS.filter((slot) => canonicalSlots[slot]).map((slot) => [slot, canonicalSlots[slot]])),
     primaryIdentityAsset: primary ? publicAsset(primary) : null,
     approvedIdentityAnchors: anchors.map(publicAsset),
     supplementalReferences: supplemental.map(publicAsset),
@@ -558,11 +563,14 @@ export function lockFingerprint(manifest) {
     categories: manifest?.categories || {},
     tags: manifest?.tags || {},
     sourceSheets: manifest?.sourceSheets || [],
+    canonicalSlots: manifest?.canonicalSlots || {},
+    references: [manifest?.primaryIdentityAsset, ...(manifest?.approvedIdentityAnchors || []), ...(manifest?.supplementalReferences || []), ...(manifest?.excludedImages || [])]
+      .filter(Boolean).sort((a, b) => a.id.localeCompare(b.id)),
   };
   return JSON.stringify(relevant);
 }
 
-export function shouldInvalidateLock(currentManifest, assets, characterSheets = []) {
+export function shouldInvalidateLock(currentManifest, assets, characterSheets = [], canonicalSlots = currentManifest?.canonicalSlots || {}) {
   if (!currentManifest) return false;
   const next = buildCharacterLockManifest({
     projectId: currentManifest.projectId,
@@ -570,6 +578,7 @@ export function shouldInvalidateLock(currentManifest, assets, characterSheets = 
     lockVersion: currentManifest.lockVersion,
     assets,
     characterSheets,
+    canonicalSlots,
     createdAt: currentManifest.createdAt,
   });
   return lockFingerprint(currentManifest) !== lockFingerprint(next);

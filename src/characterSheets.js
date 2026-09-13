@@ -1,16 +1,25 @@
 export const CHARACTER_SHEET_SCHEMA = "fpai.production-character-sheet.v1";
+// Keep multipart commits comfortably below the Worker's request/memory limits.
+export const MAX_CHARACTER_SHEET_COMMIT_BYTES = 24 * 1024 * 1024;
+
+export const SHEET_EXPRESSION_NAMES = Object.freeze({
+  neutral: "Neutral",
+  smiling: "Smiling",
+  crying: "Hurt",
+  angry: "Controlled Anger",
+});
 
 export const CHARACTER_SHEET_LABELS = Object.freeze([
   { key: "identity_front", label: "Identity Front", category: "identity_anchor", angle: "front", canonicalSlot: "identityFront" },
   { key: "three_quarter_left", label: "Left Three-Quarter", category: "three_quarter", angle: "three_quarter_left" },
   { key: "three_quarter_right", label: "Right Three-Quarter", category: "three_quarter", angle: "three_quarter_right" },
   { key: "profile_left", label: "Left Profile", category: "profile", angle: "profile_left", canonicalSlot: "profile" },
-  { key: "profile_right", label: "Right Profile", category: "profile", angle: "profile_right" },
+  { key: "profile_right", label: "Right Profile", category: "profile", angle: "profile_right", canonicalSlot: "profile" },
   { key: "full_body", label: "Full Body", category: "full_body", angle: "front", canonicalSlot: "fullBody" },
   { key: "neutral", label: "Neutral", category: "expression", expression: "neutral", canonicalSlot: "expression" },
-  { key: "smiling", label: "Smiling", category: "expression", expression: "smiling" },
-  { key: "crying", label: "Crying", category: "expression", expression: "crying" },
-  { key: "angry", label: "Angry", category: "expression", expression: "angry" },
+  { key: "smiling", label: "Smiling", category: "expression", expression: "smiling", canonicalSlot: "expression" },
+  { key: "crying", label: "Crying", category: "expression", expression: "crying", canonicalSlot: "expression" },
+  { key: "angry", label: "Angry", category: "expression", expression: "angry", canonicalSlot: "expression" },
   { key: "wardrobe", label: "Wardrobe", category: "wardrobe", canonicalSlot: "wardrobe" },
   { key: "action_pose", label: "Action / Pose", category: "action_pose" },
   { key: "exclude", label: "Exclude", category: "other", excluded: true },
@@ -18,6 +27,56 @@ export const CHARACTER_SHEET_LABELS = Object.freeze([
 
 const labelByKey = new Map(CHARACTER_SHEET_LABELS.map((item) => [item.key, item]));
 const clamp = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+
+export const CUSTOM_CHARACTER_SHEET_LABELS = Object.freeze([
+  "identity_front",
+  "profile_left",
+  "full_body",
+  "neutral",
+  "wardrobe",
+  "three_quarter_left",
+  "smiling",
+  "crying",
+  "angry",
+  "action_pose",
+]);
+
+const acceptedSheetMimeTypes = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+
+export function pickCharacterSheetFile(fileList) {
+  return [...(fileList || [])].find((file) => {
+    if (!file || Number(file.size) <= 0) return false;
+    const type = String(file.type || "").toLowerCase();
+    const name = String(file.name || "").toLowerCase();
+    return acceptedSheetMimeTypes.has(type) || /\.(jpe?g|png|webp)$/.test(name);
+  }) || null;
+}
+
+export function normalizeDrawnSheetBounds(start, end, minimumSize = 0.02) {
+  if (!start || !end) return null;
+  const left = clamp(Math.min(Number(start.x), Number(end.x)));
+  const top = clamp(Math.min(Number(start.y), Number(end.y)));
+  const right = clamp(Math.max(Number(start.x), Number(end.x)));
+  const bottom = clamp(Math.max(Number(start.y), Number(end.y)));
+  if (right - left < minimumSize || bottom - top < minimumSize) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+export function createCustomCharacterSheetCell(cells, bounds, overrides = {}) {
+  const current = Array.isArray(cells) ? cells : [];
+  if (current.length >= 20) throw new Error("A character sheet can contain at most 20 review panels.");
+  const used = new Set(current.map((cell) => cell.id));
+  let number = 1;
+  while (used.has(`cell-${number}`)) number += 1;
+  const cell = {
+    id: overrides.id || `cell-${number}`,
+    label: overrides.label || CUSTOM_CHARACTER_SHEET_LABELS[current.length % CUSTOM_CHARACTER_SHEET_LABELS.length],
+    ...bounds,
+    included: overrides.included !== false,
+    assetId: null,
+  };
+  return normalizeCharacterSheetCells([cell])[0];
+}
 
 export function defaultCharacterSheetCells(columns = 3, rows = 3) {
   const labels = ["identity_front", "three_quarter_left", "profile_left", "full_body", "neutral", "smiling", "crying", "wardrobe", "action_pose"];
@@ -99,3 +158,30 @@ export function buildCharacterSheetManifest({ sheet, cells, committedAt, version
   };
 }
 
+// Preferred label order breaks ties; repeated labels use the first reviewed crop.
+// A missing slot is deliberately omitted so older assignments survive.
+export function canonicalAssignmentsForSheet(panels = []) {
+  const slots = {};
+  for (const label of CHARACTER_SHEET_LABELS) {
+    if (!label.canonicalSlot) continue;
+    const panel = panels.find((item) => item.label === label.key && item.included !== false && item.assetId);
+    if (panel && !slots[label.canonicalSlot]) slots[label.canonicalSlot] = panel.assetId;
+  }
+  return slots;
+}
+
+export function expressionAssignmentsForSheets(sheets = [], assets = []) {
+  const available = new Map(assets.map((asset) => [asset.id, asset]));
+  const assignments = {};
+  const ordered = [...sheets].filter((sheet) => ["committed", "archived"].includes(sheet.status))
+    .sort((a, b) => b.version - a.version || String(a.id).localeCompare(String(b.id)));
+  for (const sheet of ordered) {
+    for (const panel of sheet.manifest?.panels || []) {
+      const name = SHEET_EXPRESSION_NAMES[panel.label];
+      const asset = available.get(panel.assetId);
+      if (!name || assignments[name] || !asset || panel.included === false) continue;
+      assignments[name] = { asset, sheetId: sheet.id, sheetVersion: sheet.version, committedAt: sheet.committedAt || sheet.manifest.committedAt };
+    }
+  }
+  return assignments;
+}

@@ -63,9 +63,9 @@ export default function ReferenceLibrary({
   onLibrarySync,
   notify,
 }) {
-  const [assets, setAssets] = useState([]);
-  const [coverage, setCoverage] = useState(null);
-  const [lock, setLock] = useState(null);
+  const [assets, setAssets] = useState(character.referenceLibrary || []);
+  const [coverage, setCoverage] = useState(character.referenceCoverage || null);
+  const [lock, setLock] = useState(character.identityLock || null);
   const [uploads, setUploads] = useState([]);
   const [filters, setFilters] = useState({ category: "", angle: "", expression: "", wardrobe: "" });
   const [selected, setSelected] = useState([]);
@@ -76,6 +76,14 @@ export default function ReferenceLibrary({
   const [bulk, setBulk] = useState({ category: "", expression: "", angle: "" });
   const migrated = useRef(false);
   const fileInput = useRef(null);
+
+  // A sheet commit is initiated by our sibling, not by this component. Consume
+  // its authoritative payload immediately without requiring the drawer to reopen.
+  useEffect(() => {
+    setAssets(character.referenceLibrary || []);
+    setCoverage(character.referenceCoverage || null);
+    setLock(character.identityLock || null);
+  }, [character.referenceLibrary, character.referenceCoverage, character.identityLock]);
 
   function applyPayload(payload) {
     if (payload.references) setAssets(payload.references);
@@ -395,16 +403,17 @@ export default function ReferenceLibrary({
       )}
       <div className="libraryGrid">
         {visible.map((asset) => (
-          <article className={`libraryCard ${asset.isPrimary ? "primary" : ""} ${!asset.includeInGeneration ? "excluded" : ""}`} key={asset.id}>
+          <article className={`libraryCard ${asset.isPrimary ? "isPrimary" : ""} ${!asset.includeInGeneration ? "excluded" : ""}`} key={asset.id}>
             <label className="libraryCheck">
               <input
                 type="checkbox"
+                aria-label={`Select ${asset.filename}`}
                 checked={selected.includes(asset.id)}
                 onChange={(event) => setSelected((current) => event.target.checked ? [...current, asset.id] : current.filter((id) => id !== asset.id))}
               />
             </label>
             <button type="button" className="libraryThumb" onClick={() => setPreview(asset)}>
-              <img src={asset.assetUrl} alt={asset.filename} />
+              <img src={asset.assetUrl} alt={asset.filename} loading="lazy" />
             </button>
             <b>{asset.filename}</b>
             <small>{asset.width}×{asset.height} · {title(asset.category)}</small>

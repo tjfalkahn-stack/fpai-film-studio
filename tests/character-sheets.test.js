@@ -5,6 +5,8 @@ import { Miniflare } from "miniflare";
 import worker from "../worker/index.js";
 import { makePng } from "./imageFixtures.js";
 import { defaultCharacterSheetCells } from "../src/characterSheets.js";
+import { characterBiblePatch } from "../src/characterBibleSync.js";
+import { characterReferenceCount } from "../src/domain.js";
 
 let mf;
 let db;
@@ -74,4 +76,217 @@ test("commit API validates stored crop assets, archives older versions, and pres
 test("all paid and live rendering controls remain disabled", () => {
   assert.equal(env.LIVE_RENDERING_ENABLED, "false");
   assert.equal(env.SEEDANCE_LIVE_ENABLED, "false");
+});
+
+async function draftFor(character, salt, cells = defaultCharacterSheetCells()) {
+  const path = `/api/projects/enemies-closer-ep01/characters/${character}`;
+  const form = new FormData();
+  form.set("file", new File([makePng(2400, 2400, { salt })], `${salt}.png`, { type: "image/png" }));
+  form.set("cells", JSON.stringify(cells));
+  const result = await call(`${path}/character-sheets`, { method: "POST", body: form });
+  assert.equal(result.response.status, 201, result.data.error?.message);
+  return { path, sheet: result.data.sheet };
+}
+
+function cropForm(sheet, salt, { size = 640, invalidLast = false } = {}) {
+  const form = new FormData();
+  form.set("cells", JSON.stringify(sheet.cells));
+  form.set("wardrobe", "Tarmac Look 01");
+  const included = sheet.cells.filter((cell) => cell.included);
+  included.forEach((cell, index) => {
+    const bytes = invalidLast && index === included.length - 1 ? Buffer.from("invalid image") : makePng(size, size, { salt: `${salt}-${cell.id}` });
+    form.set(`panel:${cell.id}`, new File([bytes], `${salt}-${cell.id}.png`, { type: "image/png" }));
+  });
+  return form;
+}
+
+test("multipart commit publishes all five required slots, labeled anchors, expression bank, and accurate 9-point coverage together", async () => {
+  const { path, sheet } = await draftFor("mikey", "mikey-atomic");
+  await call(`${path}/lock`, { method: "POST", body: {} });
+  const before = await call(`${path}/references`);
+  assert.equal(before.data.references.length, 0);
+  assert.equal(before.data.coverage.metCount, 0);
+  assert.equal(before.data.coverage.score, 0);
+  assert.equal(before.data.lock.status, "current");
+  await call(`${path}/character-sheets/${sheet.id}`, { method: "PATCH", body: { cells: sheet.cells } });
+  assert.deepEqual((await call(`${path}/references`)).data, before.data, "draft correction must not mutate references or the lock");
+
+  const commit = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "mikey-atomic") });
+  assert.equal(commit.response.status, 200, commit.data.error?.message);
+  assert.equal(commit.data.references.length, 9);
+  assert.equal(commit.data.coverage.metCount, 9);
+  assert.equal(commit.data.coverage.score, 1);
+  assert.equal(commit.data.lock.status, "stale");
+  assert.equal(commit.data.lock.needsRebuild, true);
+  const refsByLabel = Object.fromEntries(commit.data.sheet.manifest.panels.map((panel) => [panel.label, panel.assetId]));
+  for (const [slot, label] of Object.entries({ identityFront: "identity_front", profile: "profile_left", fullBody: "full_body", expression: "neutral", wardrobe: "wardrobe" })) {
+    assert.equal(commit.data.canonicalSlots[slot].id, refsByLabel[label]);
+  }
+  const approvedAnchors = commit.data.references.filter((asset) => asset.isIdentityAnchor && asset.approvalState === "approved");
+  assert.equal(approvedAnchors.length, 3);
+  assert.equal(commit.data.references.filter((asset) => asset.isPrimary).length, 1);
+  const ui = characterBiblePatch({ id: "mikey", expressions: { Paternal: { key: "keep-old" } } }, commit.data);
+  assert.equal(characterReferenceCount(ui), 5);
+  assert.equal(ui.expressions.Neutral.assetId, refsByLabel.neutral);
+  assert.equal(ui.expressions.Smiling.assetId, refsByLabel.smiling);
+  assert.equal(ui.expressions.Hurt.assetId, refsByLabel.crying);
+  assert.equal(ui.expressions.Paternal.key, "keep-old");
+  const reloaded = await call(`${path}/references`);
+  assert.deepEqual(reloaded.data.canonicalSlots, commit.data.canonicalSlots);
+  assert.deepEqual(reloaded.data.sheetExpressions, commit.data.sheetExpressions);
+  const rebuilt = await call(`${path}/lock`, { method: "POST", body: {} });
+  assert.equal(rebuilt.data.lock.lockVersion, 2);
+  assert.equal(rebuilt.data.lock.canonicalSlots.identityFront, refsByLabel.identity_front);
+  assert.equal((await call(`${path}/lock`)).data.lock.needsRebuild, false);
+  const preservedManifest = commit.data.sheet.manifest;
+  const again = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: { cells: [] } });
+  assert.equal(again.data.idempotent, true);
+  assert.deepEqual(again.data.sheet.manifest, preservedManifest);
+  assert.equal(again.data.lock.status, "current");
+  for (const table of ["renders", "generation_jobs"]) {
+    assert.equal((await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()).count, 0, "commit/rebuild must never start training or rendering");
+  }
+});
+
+test("failed validation and failed transactions cannot partially publish crop refs, slots, expressions, or stale locks", async () => {
+  const { path, sheet } = await draftFor("turner", "turner-retry");
+  await call(`${path}/lock`, { method: "POST", body: {} });
+  const before = (await call(`${path}/references`)).data;
+  const invalid = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "turner-retry", { invalidLast: true }) });
+  assert.equal(invalid.response.status, 400);
+  assert.deepEqual((await call(`${path}/references`)).data, before);
+  const objectsBefore = await env.GENERATION_MEDIA.list({ prefix: "character-refs/enemies-closer-ep01/turner/" });
+  env.GENERATION_DB = { prepare: db.prepare.bind(db), batch: () => { throw new Error("Simulated transaction failure"); } };
+  try {
+    const failed = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "turner-retry") });
+    assert.equal(failed.response.status, 500);
+  } finally { env.GENERATION_DB = db; }
+  assert.deepEqual((await call(`${path}/references`)).data, before);
+  assert.deepEqual((await env.GENERATION_MEDIA.list({ prefix: "character-refs/enemies-closer-ep01/turner/" })).objects, objectsBefore.objects);
+  assert.equal((await call(`${path}/character-sheets`)).data.sheets[0].status, "draft");
+});
+
+test("a new sheet version preserves previous assets and manifests, fills right-profile/expression fallback, and leaves absent slots alone", async () => {
+  const path = "/api/projects/enemies-closer-ep01/characters/mikey";
+  const old = (await call(`${path}/character-sheets`)).data.sheets[0];
+  const oldSlots = (await call(`${path}/references`)).data.canonicalSlots;
+  const cells = defaultCharacterSheetCells().slice(0, 2).map((cell, index) => ({ ...cell, label: index ? "angry" : "profile_right" }));
+  const { sheet } = await draftFor("mikey", "mikey-v2", cells);
+  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "mikey-v2", { size: 128 }) });
+  assert.equal(result.response.status, 200, result.data.error?.message);
+  assert.equal(result.data.references.length, 11);
+  assert.equal(result.data.canonicalSlots.profile.angle, "profile_right");
+  assert.equal(result.data.canonicalSlots.expression.expression, "angry");
+  for (const slot of ["identityFront", "fullBody", "wardrobe"]) assert.deepEqual(result.data.canonicalSlots[slot], oldSlots[slot]);
+  assert.ok(result.data.sheetExpressions.Neutral, "unmatched archived neutral remains available");
+  assert.ok(result.data.sheetExpressions["Controlled Anger"]);
+  const archived = (await call(`${path}/character-sheets`)).data.sheets.find((item) => item.id === old.id);
+  assert.equal(archived.status, "archived");
+  assert.deepEqual(archived.manifest, old.manifest);
+});
+
+test("explicit label repair upgrades an old committed sheet without changing its manifest or ids, and repeated repair is idempotent", async () => {
+  const { path, sheet } = await draftFor("marcus", "marcus-repair");
+  const initial = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "marcus-repair") });
+  assert.equal(initial.response.status, 200, initial.data.error?.message);
+  const manifest = initial.data.sheet.manifest;
+  await db.prepare("UPDATE character_references SET category='other', angle='', expression='', is_primary=0, is_identity_anchor=0 WHERE character_id='marcus'").run();
+  await db.prepare("DELETE FROM character_canonical_slots WHERE character_id='marcus'").run();
+  const before = (await call(`${path}/references`)).data;
+  assert.deepEqual(before.canonicalSlots, {}, "GET never silently repairs earlier imports");
+  await call(`${path}/lock`, { method: "POST", body: {} });
+  const fixed = await call(`${path}/character-sheets/${sheet.id}/apply-labels`, { method: "POST" });
+  assert.equal(fixed.response.status, 200, fixed.data.error?.message);
+  assert.equal(fixed.data.coverage.metCount, 9);
+  assert.equal(Object.keys(fixed.data.canonicalSlots).length, 5);
+  assert.equal(fixed.data.lock.status, "stale");
+  assert.deepEqual(fixed.data.sheet.manifest, manifest);
+  assert.deepEqual(fixed.data.references.map((asset) => asset.id), before.references.map((asset) => asset.id));
+  await call(`${path}/lock`, { method: "POST", body: {} });
+  const repeated = await call(`${path}/character-sheets/${sheet.id}/apply-labels`, { method: "POST" });
+  assert.equal(repeated.data.idempotent, true);
+  assert.equal(repeated.data.lock.status, "current");
+  assert.equal(repeated.data.applySheetExpressions, sheet.id);
+});
+
+test("canonical-only reassignment and duplicate upload reassignment invalidate the manifest lock", async () => {
+  const path = "/api/projects/enemies-closer-ep01/characters/marcus";
+  const refs = (await call(`${path}/references`)).data.references;
+  const profile = refs.find((item) => item.category === "profile");
+  const assigned = await call(`${path}/canonical-slots`, { method: "PUT", body: { slot: "identityFront", assetId: profile.id } });
+  assert.equal(assigned.data.lock.status, "stale");
+  await call(`${path}/lock`, { method: "POST", body: {} });
+  const file = new FormData();
+  file.set("file", new File([makePng(640, 640, { salt: "marcus-repair-cell-1" })], "reused.png", { type: "image/png" }));
+  file.set("canonicalSlot", "identityFront");
+  const reused = await call(`${path}/references`, { method: "POST", body: file });
+  assert.equal(reused.data.reused, true);
+  assert.equal(reused.data.lock.status, "stale");
+});
+
+test("commit reuses exact crop bytes and applies reviewed labels without changing the reference id", async () => {
+  const { path, sheet } = await draftFor("jasmine", "jasmine-reuse", [{ id: "front", label: "identity_front", x: 0, y: 0, width: 1, height: 1, included: true }]);
+  const existing = await uploadReference("reusable.png", "reuse-front");
+  const originalId = existing.data.reference.id;
+  const form = new FormData();
+  form.set("cells", JSON.stringify(sheet.cells));
+  form.set("panel:front", new File([makePng(640, 640, { salt: "reuse-front" })], "reusable.png", { type: "image/png" }));
+  const count = (await call(`${path}/references`)).data.references.length;
+  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: form });
+  assert.equal(result.response.status, 200, result.data.error?.message);
+  assert.equal(result.data.references.length, count);
+  assert.equal(result.data.canonicalSlots.identityFront.id, originalId);
+  assert.equal(result.data.canonicalSlots.identityFront.angle, "front");
+  assert.equal(result.data.canonicalSlots.identityFront.isPrimary, true);
+  assert.equal(result.data.canonicalSlots.identityFront.isIdentityAnchor, true);
+});
+
+test("commit fails safely with missing canonical migration and preserves the draft and library", async () => {
+  const { path, sheet } = await draftFor("turner", "turner-schema");
+  const before = (await call(`${path}/references`)).data;
+  await db.prepare("ALTER TABLE character_canonical_slots RENAME TO character_canonical_slots_test_backup").run();
+  try {
+    const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "turner-schema") });
+    assert.equal(result.response.status, 503);
+    assert.equal(result.data.error.code, "CANONICAL_SLOTS_SCHEMA");
+    assert.equal((await call(`${path}/character-sheets`)).data.sheets[0].status, "draft");
+  } finally {
+    await db.prepare("ALTER TABLE character_canonical_slots_test_backup RENAME TO character_canonical_slots").run();
+  }
+  assert.deepEqual((await call(`${path}/references`)).data, before);
+});
+
+test("commit rejects cross-character asset ids, repeated crop images, and oversized multipart bodies", async () => {
+  const { path, sheet } = await draftFor("turner", "turner-invalid");
+  const foreign = (await call(`${root}/references`)).data.references[0];
+  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: { cells: [{ ...sheet.cells[0], assetId: foreign.id }] } });
+  assert.equal(result.response.status, 400);
+  assert.equal(result.data.error.code, "INVALID_SHEET_ASSET");
+  const form = cropForm(sheet, "turner-invalid");
+  form.set("panel:cell-2", form.get("panel:cell-1"));
+  const repeated = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: form });
+  assert.equal(repeated.data.error.code, "DUPLICATE_SHEET_PANEL");
+  const tooLarge = await worker.fetch(new Request(`http://localhost${path}/character-sheets/${sheet.id}/commit`, {
+    method: "POST", headers: { authorization: "Bearer test", "content-type": "multipart/form-data; boundary=test", "content-length": String(26 * 1024 * 1024) }, body: "test",
+  }), env);
+  assert.equal(tooLarge.status, 413);
+  assert.equal((await call(`${path}/references`)).data.references.length, 0);
+});
+
+test("an ambiguous response after D1 commit never deletes published R2 crops, and retry reads the committed manifest", async () => {
+  const { path, sheet } = await draftFor("ambiguous-test", "ambiguous-response", defaultCharacterSheetCells().slice(0, 1));
+  env.GENERATION_DB = { prepare: db.prepare.bind(db), batch: async (statements) => {
+    await db.batch(statements);
+    throw new Error("Simulated lost response after commit");
+  } };
+  try {
+    const response = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "ambiguous-response") });
+    assert.equal(response.response.status, 500);
+  } finally { env.GENERATION_DB = db; }
+  const retry = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: {} });
+  assert.equal(retry.response.status, 200);
+  assert.equal(retry.data.idempotent, true);
+  assert.equal(retry.data.references.length, 1);
+  const reference = await db.prepare("SELECT r2_key FROM character_references WHERE character_id='ambiguous-test'").first();
+  assert.ok(await env.GENERATION_MEDIA.get(reference.r2_key));
 });

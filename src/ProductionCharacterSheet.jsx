@@ -1,19 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Grid3X3, Upload } from "lucide-react";
+import { CheckCircle2, Crop, Grid3X3, RotateCcw, Trash2, Upload } from "lucide-react";
 import {
   CHARACTER_SHEET_LABELS,
+  createCustomCharacterSheetCell,
   defaultCharacterSheetCells,
-  referenceFieldsForSheetCell,
+  normalizeDrawnSheetBounds,
+  pickCharacterSheetFile,
 } from "./characterSheets.js";
 import {
+  applyCommittedSheetLabels,
   commitCharacterSheet,
   fetchCharacterSheets,
   ingestCharacterSheet,
   updateCharacterSheet,
 } from "./characterSheetClient.js";
-import { uploadCharacterReference } from "./characterReferenceClient.js";
 
 const ACCEPT = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
+const clamp = (value) => Math.max(0, Math.min(1, Number(value) || 0));
 
 async function loadImage(source) {
   const url = source instanceof Blob ? URL.createObjectURL(source) : source;
@@ -49,104 +52,285 @@ async function cropPanel(source, cell, filename) {
 
 export default function ProductionCharacterSheet({ projectId, character, onLibrarySync, notify }) {
   const input = useRef(null);
+  const canvas = useRef(null);
   const [sheets, setSheets] = useState([]);
   const [sheet, setSheet] = useState(null);
   const [sourceFile, setSourceFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState(0);
+  const [dropActive, setDropActive] = useState(false);
+  const [customMode, setCustomMode] = useState(false);
+  const [drawing, setDrawing] = useState(null);
+  const [redrawCell, setRedrawCell] = useState(null);
   const cells = sheet?.cells || [];
   const previewUrl = useMemo(() => sourceFile ? URL.createObjectURL(sourceFile) : sheet?.assetUrl || "", [sourceFile, sheet?.assetUrl]);
-  useEffect(() => () => { if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  const committed = sheet?.status === "committed" || sheet?.status === "archived";
+  const drawnBounds = drawing ? normalizeDrawnSheetBounds(drawing.start, drawing.end, 0) : null;
+
+  useEffect(() => () => {
+    if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
 
   useEffect(() => {
     let canceled = false;
+    setSheet(null);
+    setSheets([]);
+    setSourceFile(null);
+    setCustomMode(false);
+    setDrawing(null);
+    setRedrawCell(null);
+    setError("");
+    setStatus("Checking for a saved character sheet…");
     fetchCharacterSheets(projectId, character.id).then((payload) => {
       if (canceled) return;
       setSheets(payload.sheets || []);
       setSheet((payload.sheets || []).find((item) => item.status === "draft") || (payload.sheets || [])[0] || null);
-    }).catch(() => {});
+      setStatus("");
+    }).catch((err) => {
+      if (canceled) return;
+      setError(err.message);
+      setStatus("");
+    });
     return () => { canceled = true; };
   }, [projectId, character.id]);
 
-  async function ingest(file) {
-    if (!file) return;
+  async function ingest(candidate) {
+    const file = pickCharacterSheetFile([candidate]);
+    if (!file) {
+      setError("Choose a JPG, PNG, or WebP character sheet.");
+      return;
+    }
     setBusy(true);
     setError("");
+    setStatus(`Uploading ${file.name}…`);
+    setProgress(0);
     try {
-      const payload = await ingestCharacterSheet(projectId, character.id, file, defaultCharacterSheetCells());
+      const payload = await ingestCharacterSheet(
+        projectId,
+        character.id,
+        file,
+        defaultCharacterSheetCells(),
+        { onProgress: setProgress },
+      );
       setSourceFile(file);
       setSheet(payload.sheet);
       setSheets(payload.sheets || [payload.sheet]);
-      notify?.("Character sheet uploaded. Review the panel labels before committing it.");
+      setCustomMode(false);
+      setDrawing(null);
+      setRedrawCell(null);
+      setStatus(payload.reused
+        ? "This source sheet was already stored. Review its crops below."
+        : "Source sheet stored. Review every crop before committing.");
+      notify?.("Character sheet uploaded. Review the crop boxes and labels before committing it.");
     } catch (err) {
       setError(err.message);
+      setStatus("Upload stopped. Nothing was committed.");
     } finally {
       setBusy(false);
     }
   }
 
+  function receiveFiles(fileList) {
+    const file = pickCharacterSheetFile(fileList);
+    if (!file) {
+      setError("Choose a JPG, PNG, or WebP character sheet.");
+      return;
+    }
+    void ingest(file);
+  }
+
+  function dropSheet(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropActive(false);
+    if (!busy) receiveFiles(event.dataTransfer.files);
+  }
+
   function changeCell(id, patch) {
-    setSheet((current) => ({ ...current, cells: current.cells.map((cell) => cell.id === id ? { ...cell, ...patch, assetId: null } : cell) }));
+    setSheet((current) => ({
+      ...current,
+      cells: current.cells.map((cell) => cell.id === id ? { ...cell, ...patch, assetId: null } : cell),
+    }));
   }
 
   function applyGrid(columns, rows) {
     setSheet((current) => ({ ...current, cells: defaultCharacterSheetCells(columns, rows) }));
+    setCustomMode(false);
+    setDrawing(null);
+    setRedrawCell(null);
+    setStatus(`${columns}×${rows} grid applied. Confirm every crop and label.`);
+  }
+
+  function startCustomLayout() {
+    setSheet((current) => ({ ...current, cells: [] }));
+    setCustomMode(true);
+    setDrawing(null);
+    setRedrawCell(null);
+    setStatus("Custom layout active. Drag a box around each useful image in the Bible.");
+  }
+
+  function addCustomCrop() {
+    setCustomMode(true);
+    setDrawing(null);
+    setRedrawCell(null);
+    setStatus("Drag a box around the next useful image.");
+  }
+
+  function pointFromEvent(event) {
+    const bounds = canvas.current?.getBoundingClientRect();
+    if (!bounds?.width || !bounds?.height) return null;
+    return {
+      x: clamp((event.clientX - bounds.left) / bounds.width),
+      y: clamp((event.clientY - bounds.top) / bounds.height),
+    };
+  }
+
+  function beginDrawing(event) {
+    if (!customMode || busy || committed || (event.button != null && event.button !== 0)) return;
+    const point = pointFromEvent(event);
+    if (!point) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDrawing({ start: point, end: point });
+  }
+
+  function continueDrawing(event) {
+    if (!drawing || !customMode) return;
+    const point = pointFromEvent(event);
+    if (!point) return;
+    event.preventDefault();
+    setDrawing((current) => current ? { ...current, end: point } : current);
+  }
+
+  function finishDrawing(event) {
+    if (!drawing || !customMode) return;
+    const point = pointFromEvent(event) || drawing.end;
+    const bounds = normalizeDrawnSheetBounds(drawing.start, point);
+    setDrawing(null);
+    if (!bounds) {
+      setStatus("That box was too small. Drag around the full image panel.");
+      return;
+    }
+    setSheet((current) => {
+      const base = current.cells || [];
+      const next = createCustomCharacterSheetCell(base, bounds, redrawCell || {});
+      return { ...current, cells: [...base, next] };
+    });
+    setRedrawCell(null);
+    setStatus("Crop added. Check its label below, then draw another or finish drawing.");
+  }
+
+  function redraw(cell) {
+    setSheet((current) => ({ ...current, cells: current.cells.filter((item) => item.id !== cell.id) }));
+    setRedrawCell({ id: cell.id, label: cell.label, included: cell.included });
+    setCustomMode(true);
+    setDrawing(null);
+    setStatus(`Redraw panel ${cell.id.replace("cell-", "")}: drag a new box around the image.`);
+  }
+
+  function removeCell(id) {
+    setSheet((current) => ({ ...current, cells: current.cells.filter((cell) => cell.id !== id) }));
+    setStatus("Crop removed from this draft. The source Bible is unchanged.");
   }
 
   async function saveReview() {
+    if (!cells.length) {
+      setError("Draw at least one crop before saving the review.");
+      return;
+    }
     setBusy(true);
     setError("");
+    setStatus("Saving crop corrections…");
     try {
       const payload = await updateCharacterSheet(projectId, character.id, sheet.id, cells);
       setSheet(payload.sheet);
+      setStatus("Crop corrections saved. No references were committed yet.");
       notify?.("Character sheet review saved.");
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    } catch (err) {
+      setError(err.message);
+      setStatus("Save stopped. The previous draft remains available.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function commit() {
     setBusy(true);
     setError("");
+    setProgress(0);
     try {
       const source = sourceFile || await fetch(sheet.assetUrl).then((response) => {
         if (!response.ok) throw new Error("The stored character sheet could not be loaded.");
         return response.blob();
       });
-      const committedCells = [];
+      const selected = cells.filter((cell) => cell.included);
+      const crops = [];
+      let completed = 0;
       for (const cell of cells) {
-        if (!cell.included) { committedCells.push({ ...cell, assetId: null }); continue; }
-        const fields = referenceFieldsForSheetCell(cell, character.wardrobe);
+        if (!cell.included) continue;
+        setStatus(`Preparing reference ${completed + 1} of ${selected.length}…`);
         const crop = await cropPanel(source, cell, sheet.filename);
-        let payload;
-        try {
-          payload = await uploadCharacterReference(projectId, character.id, crop, fields);
-        } catch (err) {
-          if (err.status !== 409 || !err.payload?.reference?.id) throw err;
-          payload = { reference: err.payload.reference };
-        }
-        committedCells.push({ ...cell, assetId: payload.reference.id });
-        onLibrarySync?.(payload);
+        crops.push({ id: cell.id, file: crop });
+        completed += 1;
+        setProgress(0.5 * completed / selected.length);
       }
-      const payload = await commitCharacterSheet(projectId, character.id, sheet.id, committedCells);
+      setStatus("Uploading reviewed crops and committing reference assignments together…");
+      const payload = await commitCharacterSheet(projectId, character.id, sheet.id, cells.map((cell) => ({ ...cell, assetId: null })), {
+        crops, wardrobe: character.wardrobe, onProgress: (value) => setProgress(0.5 + value * 0.5),
+      });
       setSheet(payload.sheet);
       setSheets((current) => [payload.sheet, ...current.filter((item) => item.id !== payload.sheet.id)]);
+      setCustomMode(false);
+      setProgress(1);
+      setStatus(`Production Character Sheet v${payload.sheet.version} committed. No paid generation was started.`);
       onLibrarySync?.(payload);
       notify?.(`Production Character Sheet v${payload.sheet.version} committed. Rebuild the Character Lock when ready.`);
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    } catch (err) {
+      setError(err.message);
+      setStatus("Commit was not confirmed. The source draft remains recoverable; refresh to check whether the commit completed before retrying. No paid render was started.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  const committed = sheet?.status === "committed" || sheet?.status === "archived";
+  async function applyLabels() {
+    setBusy(true);
+    setError("");
+    setStatus("Applying this committed sheet’s labels to its stored references…");
+    try {
+      const payload = await applyCommittedSheetLabels(projectId, character.id, sheet.id);
+      onLibrarySync?.(payload);
+      setStatus("Committed labels applied. Required slots, expressions, and coverage are synchronized. No generation was started.");
+      notify?.("Committed reference labels applied. Existing images and sheet versions were preserved.");
+    } catch (err) {
+      setError(err.message);
+      setStatus("Labels were not applied. Existing references were preserved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="productionSheet">
       <div className="sectionTitle"><Grid3X3 /><span>PRODUCTION CHARACTER SHEET</span></div>
-      <p className="dropHint">Upload one character sheet, confirm what each panel shows, then commit it. The studio creates the usable references for you.</p>
+      <p className="dropHint">Upload one Character Bible, confirm the crop around each useful image, then commit it. Grid and custom layouts are supported.</p>
       {!sheet && (
-        <button type="button" className="sheetUpload" disabled={busy} onClick={() => input.current?.click()}>
-          <Upload /><b>Upload one character sheet</b><small>JPG, PNG, or WebP · a 3×3 sheet works best</small>
+        <button
+          type="button"
+          className={`sheetUpload ${dropActive ? "dragging" : ""}`}
+          disabled={busy}
+          onClick={() => input.current?.click()}
+          onDragEnter={(event) => { event.preventDefault(); setDropActive(true); }}
+          onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setDropActive(true); }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropActive(false); }}
+          onDrop={dropSheet}
+        >
+          <Upload /><b>{busy ? "Uploading character sheet…" : "Click or drop one character sheet"}</b><small>JPG, PNG, or WebP · regular grids and detailed custom Bibles</small>
         </button>
       )}
-      <input ref={input} className="hiddenInput" type="file" accept={ACCEPT} onChange={(event) => { ingest(event.target.files?.[0]); event.target.value = ""; }} />
+      <input ref={input} className="hiddenInput" type="file" accept={ACCEPT} onChange={(event) => { receiveFiles(event.target.files); event.target.value = ""; }} />
       {sheet && (
         <>
           <div className="sheetHead">
@@ -154,15 +338,37 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
             <button type="button" className="ghost compact" disabled={busy} onClick={() => input.current?.click()}>Upload new version</button>
           </div>
           <div className="sheetPreview">
-            <img src={previewUrl} alt={`${character.name} production character sheet`} />
-            {cells.map((cell) => <i key={cell.id} className={cell.included ? "" : "excluded"} style={{ left: `${cell.x * 100}%`, top: `${cell.y * 100}%`, width: `${cell.width * 100}%`, height: `${cell.height * 100}%` }}><span>{cell.id.replace("cell-", "")}</span></i>)}
+            <div
+              ref={canvas}
+              className={`sheetCanvas ${customMode && !committed ? "drawing" : ""}`}
+              onPointerDown={beginDrawing}
+              onPointerMove={continueDrawing}
+              onPointerUp={finishDrawing}
+              onPointerCancel={() => setDrawing(null)}
+            >
+              <img src={previewUrl} alt={`${character.name} production character sheet`} draggable="false" />
+              {cells.map((cell) => (
+                <i key={cell.id} className={cell.included ? "" : "excluded"} style={{ left: `${cell.x * 100}%`, top: `${cell.y * 100}%`, width: `${cell.width * 100}%`, height: `${cell.height * 100}%` }}>
+                  <span>{cell.id.replace("cell-", "")}</span>
+                </i>
+              ))}
+              {drawnBounds && <i className="drawingBox" style={{ left: `${drawnBounds.x * 100}%`, top: `${drawnBounds.y * 100}%`, width: `${drawnBounds.width * 100}%`, height: `${drawnBounds.height * 100}%` }} />}
+            </div>
           </div>
           {!committed && (
             <div className="sheetTemplates">
-              <span>Sheet layout</span>
+              <span>Crop layout</span>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(2, 3)}>2×3</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(3, 3)}>3×3</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(4, 3)}>4×3</button>
+              <button type="button" className="ghost compact" disabled={busy} onClick={startCustomLayout}><Crop /> Custom layout</button>
+            </div>
+          )}
+          {customMode && !committed && (
+            <div className="customCropHelp">
+              <Crop />
+              <span>Drag directly over one useful image at a time. Draw Identity Front, Profile, Full Body, an Expression, and Wardrobe first.</span>
+              <button type="button" className="ghost compact" onClick={() => setCustomMode(false)}>Finish drawing</button>
             </div>
           )}
           <div className="sheetCells">
@@ -173,21 +379,37 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
                   {CHARACTER_SHEET_LABELS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
                 </select>
                 <label><input type="checkbox" disabled={busy || committed} checked={cell.included} onChange={(event) => changeCell(cell.id, { included: event.target.checked })} /> Use</label>
+                {!committed && <button type="button" className="iconButton cropAction" title="Redraw this crop" disabled={busy} onClick={() => redraw(cell)}><RotateCcw /></button>}
+                {!committed && <button type="button" className="iconButton cropAction" title="Remove this crop" disabled={busy} onClick={() => removeCell(cell.id)}><Trash2 /></button>}
               </div>
             ))}
+            {!cells.length && <p className="sub">No crops yet. Drag boxes over the useful images in the Bible.</p>}
           </div>
+          {!committed && !customMode && cells.length < 20 && (
+            <button type="button" className="ghost compact addCrop" disabled={busy} onClick={addCustomCrop}><Crop /> Add a custom crop</button>
+          )}
           {committed ? (
-            <p className="sheetCommitted"><CheckCircle2 /> Version {sheet.version} is committed with {sheet.manifest?.panels?.length || 0} usable references.</p>
+            <>
+              <p className="sheetCommitted"><CheckCircle2 /> Version {sheet.version} is committed with {sheet.manifest?.panels?.length || 0} usable references.</p>
+              {sheet.status === "committed" && <>
+                <button type="button" className="ghost" disabled={busy} onClick={applyLabels}>Apply committed labels</button>
+                <p className="sub">Use this to repair an earlier import or explicitly reselect this sheet’s required slots and matching expression images. Other images are preserved.</p>
+              </>}
+            </>
           ) : (
             <div className="buttonRow">
-              <button type="button" className="ghost" disabled={busy} onClick={saveReview}>Save corrections</button>
+              <button type="button" className="ghost" disabled={busy || !cells.length} onClick={saveReview}>Save corrections</button>
               <button type="button" className="primary" disabled={busy || !cells.some((cell) => cell.included)} onClick={commit}>Commit Character Sheet</button>
             </div>
           )}
           {sheets.length > 1 && <p className="sub">{sheets.length} sheet versions preserved. Older committed versions remain available in their manifests.</p>}
         </>
       )}
-      {error && <div className="validation">{error}</div>}
+      {(busy || progress > 0 && progress < 1) && (
+        <div className="sheetProgress" aria-live="polite"><i><em style={{ width: `${Math.round(progress * 100)}%` }} /></i><span>{Math.round(progress * 100)}%</span></div>
+      )}
+      {status && <p className="sheetStatus" aria-live="polite">{status}</p>}
+      {error && <div className="validation" role="alert">{error}</div>}
     </section>
   );
 }
