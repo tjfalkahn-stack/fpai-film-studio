@@ -50,16 +50,37 @@ test("the shared UI patch synchronizes committed refs, lock, coverage, and visib
   assert.deepEqual(visibleExpressionNames(patch.expressions), ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Paternal", "Exhausted", "Custom", "Smiling"]);
 });
 
-test("Jasmine's committed six-panel order replaces the visible legacy bank without deleting old local images", () => {
+test("Jasmine expands a committed six-panel sheet into eight visible production slots without deleting old local images", () => {
   const oldPaternal = { key: "old-paternal" };
   const character = { id: "jasmine", role: "Marcus's woman", expressions: { Paternal: oldPaternal, Custom: { key: "custom" } } };
-  const order = ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Maternal", "Exhausted"];
-  const patch = characterBiblePatch(character, { sheetExpressions: {}, sheetExpressionOrder: order });
+  const sheetOrder = ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Maternal", "Exhausted"];
+  const order = [...sheetOrder, "Concerned", "Smiling"];
+  const patch = characterBiblePatch(character, { sheetExpressions: {}, sheetExpressionOrder: sheetOrder });
   assert.deepEqual(patch.expressionBankOrder, order);
   assert.deepEqual(character.expressions.Paternal, oldPaternal, "the hidden legacy image remains preserved");
+  assert.deepEqual(patch.expressions.Smiling, { ...oldPaternal, migratedFromExpression: "Paternal" });
   assert.deepEqual(visibleExpressionNames(character.expressions, patch.expressionBankOrder, true), [...order, "Custom"]);
   assert.deepEqual(defaultExpressionBankNames(character), order);
   assert.equal(defaultExpressionBankNames({ id: "marcus" })[4], "Paternal");
+  assert.equal(defaultExpressionBankNames({ id: "marcus" }).length, 8);
+});
+
+test("tagged library expressions fill the expanded bank while newer manual replacements survive", () => {
+  const character = {
+    id: "jasmine",
+    role: "Marcus's woman",
+    expressions: { Concerned: { key: "manual-concerned", uploadedAt: "2026-09-14T14:10:00Z" } },
+  };
+  const references = [
+    { ...image("concerned"), category: "expression", expression: "concerned", approvalState: "approved", includeInGeneration: true, updatedAt: "2026-09-14T14:00:00Z" },
+    { ...image("smile"), category: "expression", expression: "smiling", approvalState: "approved", includeInGeneration: true, updatedAt: "2026-09-14T14:05:00Z" },
+    { ...image("excluded"), category: "expression", expression: "neutral", approvalState: "excluded", includeInGeneration: false, updatedAt: "2026-09-14T14:06:00Z" },
+  ];
+  const patch = characterBiblePatch(character, { references });
+  assert.equal(patch.expressions.Concerned.key, "manual-concerned");
+  assert.equal(patch.expressions.Smiling.assetId, "smile");
+  assert.equal(patch.expressions.Smiling.source, "reference-library");
+  assert.equal(patch.expressions.Neutral, undefined);
 });
 
 test("later manual expression replacements survive refresh and old payload replay until explicitly reselected", () => {

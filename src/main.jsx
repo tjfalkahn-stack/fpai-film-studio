@@ -1414,6 +1414,12 @@ function BudgetPage({
 
 function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addReference, removeReference, addExpression, updateCharacter, getMedia, notify, close }) {
   const lockReady = isCharacterReferenceComplete(character);
+  const defaultExpressions = defaultExpressionBankNames(character);
+  const expressionNames = visibleExpressionNames(
+    character.expressions,
+    character.expressionBankOrder || defaultExpressions,
+    Boolean(character.expressionBankOrder?.length || defaultExpressions.length === 8),
+  );
   function onLibrarySync(payload) {
     updateCharacter(character.id, (item) => characterBiblePatch(item, payload));
   }
@@ -1470,13 +1476,9 @@ function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addR
           onLibrarySync={onLibrarySync}
           notify={notify}
         />
-        <h3>Expression Bank</h3>
+        <h3>Expression Bank · {expressionNames.length} slots</h3>
         <div className="expressionGrid">
-          {visibleExpressionNames(
-            character.expressions,
-            character.expressionBankOrder || defaultExpressionBankNames(character),
-            Boolean(character.expressionBankOrder?.length),
-          ).map((name) => {
+          {expressionNames.map((name) => {
             const key = `expr:${name}`;
             return (
               <label
