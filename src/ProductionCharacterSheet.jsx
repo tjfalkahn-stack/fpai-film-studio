@@ -4,10 +4,12 @@ import {
   CHARACTER_SHEET_LABELS,
   FPAI_EXPRESSION_BANK_SIZE,
   SHEET_EXPRESSION_NAMES,
+  characterSheetCropPixels,
   createCustomCharacterSheetCell,
   defaultCharacterSheetCells,
   fpaiCharacterBibleCells,
   isFpaiCharacterBibleDimensions,
+  isLowResolutionReferenceCrop,
   normalizeDrawnSheetBounds,
   pickCharacterSheetFile,
 } from "./characterSheets.js";
@@ -21,6 +23,19 @@ import {
 
 const ACCEPT = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
 const clamp = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+
+function cropPreviewStyle(source, cell) {
+  if (!source) return {};
+  const width = Math.max(0.01, Number(cell.width) || 0.01);
+  const height = Math.max(0.01, Number(cell.height) || 0.01);
+  const horizontal = width >= 1 ? 0 : clamp(Number(cell.x)) / (1 - width) * 100;
+  const vertical = height >= 1 ? 0 : clamp(Number(cell.y)) / (1 - height) * 100;
+  return {
+    backgroundImage: `url("${String(source).replaceAll('"', "%22")}")`,
+    backgroundSize: `${100 / width}% ${100 / height}%`,
+    backgroundPosition: `${horizontal}% ${vertical}%`,
+  };
+}
 
 async function loadImage(source) {
   const url = source instanceof Blob ? URL.createObjectURL(source) : source;
@@ -85,9 +100,14 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   const [customMode, setCustomMode] = useState(false);
   const [drawing, setDrawing] = useState(null);
   const [redrawCell, setRedrawCell] = useState(null);
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const cells = sheet?.cells || [];
   const previewUrl = useMemo(() => sourceFile ? URL.createObjectURL(sourceFile) : sheet?.assetUrl || "", [sourceFile, sheet?.assetUrl]);
   const committed = sheet?.status === "committed" || sheet?.status === "archived";
+  const fpaiSourceCompatible = isFpaiCharacterBibleDimensions(
+    sheet?.width || sheet?.manifest?.source?.width,
+    sheet?.height || sheet?.manifest?.source?.height,
+  );
   const drawnBounds = drawing ? normalizeDrawnSheetBounds(drawing.start, drawing.end, 0) : null;
 
   useEffect(() => () => {
@@ -102,6 +122,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     setCustomMode(false);
     setDrawing(null);
     setRedrawCell(null);
+    setReviewConfirmed(false);
     setError("");
     setStatus("Checking for a saved character sheet…");
     fetchCharacterSheets(projectId, character.id).then((payload) => {
@@ -144,6 +165,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
       setCustomMode(false);
       setDrawing(null);
       setRedrawCell(null);
+      setReviewConfirmed(false);
       setStatus(payload.reused
         ? "This source sheet was already stored. Review its crops below."
         : fpaiLayout
@@ -175,6 +197,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   }
 
   function changeCell(id, patch) {
+    setReviewConfirmed(false);
     setSheet((current) => ({
       ...current,
       cells: current.cells.map((cell) => cell.id === id ? { ...cell, ...patch, assetId: null } : cell),
@@ -182,6 +205,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   }
 
   function applyGrid(columns, rows) {
+    setReviewConfirmed(false);
     setSheet((current) => ({ ...current, cells: defaultCharacterSheetCells(columns, rows) }));
     setCustomMode(false);
     setDrawing(null);
@@ -190,6 +214,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   }
 
   function applyFpaiLayout() {
+    setReviewConfirmed(false);
     setSheet((current) => ({ ...current, cells: fpaiCharacterBibleCells(character) }));
     setCustomMode(false);
     setDrawing(null);
@@ -198,6 +223,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   }
 
   function startCustomLayout() {
+    setReviewConfirmed(false);
     setSheet((current) => ({ ...current, cells: [] }));
     setCustomMode(true);
     setDrawing(null);
@@ -206,6 +232,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   }
 
   function addCustomCrop() {
+    setReviewConfirmed(false);
     setCustomMode(true);
     setDrawing(null);
     setRedrawCell(null);
@@ -252,11 +279,13 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
       const next = createCustomCharacterSheetCell(base, bounds, redrawCell || {});
       return { ...current, cells: [...base, next] };
     });
+    setReviewConfirmed(false);
     setRedrawCell(null);
     setStatus("Crop added. Check its label below, then draw another or finish drawing.");
   }
 
   function redraw(cell) {
+    setReviewConfirmed(false);
     setSheet((current) => ({ ...current, cells: current.cells.filter((item) => item.id !== cell.id) }));
     setRedrawCell({ id: cell.id, label: cell.label, included: cell.included });
     setCustomMode(true);
@@ -265,6 +294,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   }
 
   function removeCell(id) {
+    setReviewConfirmed(false);
     setSheet((current) => ({ ...current, cells: current.cells.filter((cell) => cell.id !== id) }));
     setStatus("Crop removed from this draft. The source Bible is unchanged.");
   }
@@ -291,6 +321,16 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   }
 
   async function commit() {
+    if (!reviewConfirmed) {
+      setError("Confirm that you reviewed every crop and label before committing this Character Sheet.");
+      return;
+    }
+    const lowResolutionReferences = cells.filter((cell) => isLowResolutionReferenceCrop(sheet, cell));
+    if (lowResolutionReferences.length) {
+      const panels = lowResolutionReferences.map((cell) => cell.id.replace("cell-", "")).join(", ");
+      setError(`Reference panel${lowResolutionReferences.length === 1 ? "" : "s"} ${panels} ${lowResolutionReferences.length === 1 ? "is" : "are"} below the 512×512 minimum. Uncheck Use for those crops and upload full-resolution individual photos in the Reference Library.`);
+      return;
+    }
     setBusy(true);
     setError("");
     setProgress(0);
@@ -347,6 +387,11 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   }
 
   async function reprocessExpressionBank() {
+    if (!fpaiSourceCompatible) {
+      setError("Automatic six-panel extraction is available only for the single-page 5:6 FPAI Bible layout. This source uses a different layout; create custom crops or upload individual expression portraits instead.");
+      setStatus("No repair draft was created and every existing reference remains unchanged.");
+      return;
+    }
     setBusy(true);
     setError("");
     setProgress(0);
@@ -369,6 +414,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
       setCustomMode(false);
       setDrawing(null);
       setRedrawCell(null);
+      setReviewConfirmed(false);
       if (payload.sheet.status === "draft") {
         setStatus("Repair version ready. The six expression crops are outlined below; review them, then click Commit Character Sheet.");
         notify?.("Six-expression repair draft created from the stored Bible. No images were generated and no paid service was called.");
@@ -451,9 +497,13 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
             </div>
           )}
           <div className="sheetCells">
-            {cells.map((cell) => (
-              <div className={cell.included ? "sheetCell" : "sheetCell excluded"} key={cell.id}>
-                <b>Panel {cell.id.replace("cell-", "")}</b>
+            {cells.map((cell) => {
+              const size = characterSheetCropPixels(sheet, cell);
+              const lowResolution = isLowResolutionReferenceCrop(sheet, cell);
+              return (
+              <div className={`${cell.included ? "sheetCell" : "sheetCell excluded"}${lowResolution ? " lowResolution" : ""}`} key={cell.id}>
+                <span className="sheetCellThumb" style={cropPreviewStyle(previewUrl, cell)} aria-hidden="true" />
+                <span className="sheetCellTitle"><b>Panel {cell.id.replace("cell-", "")}</b>{size.width > 0 && <small>{size.width}×{size.height}{lowResolution ? " · too small" : ""}</small>}</span>
                 <select disabled={busy || committed} value={cell.label} onChange={(event) => changeCell(cell.id, { label: event.target.value, included: event.target.value !== "exclude" })}>
                   {CHARACTER_SHEET_LABELS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
                 </select>
@@ -461,7 +511,8 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
                 {!committed && <button type="button" className="iconButton cropAction" title="Redraw this crop" disabled={busy} onClick={() => redraw(cell)}><RotateCcw /></button>}
                 {!committed && <button type="button" className="iconButton cropAction" title="Remove this crop" disabled={busy} onClick={() => removeCell(cell.id)}><Trash2 /></button>}
               </div>
-            ))}
+              );
+            })}
             {!cells.length && <p className="sub">No crops yet. Drag boxes over the useful images in the Bible.</p>}
           </div>
           {!committed && !customMode && cells.length < 20 && (
@@ -473,15 +524,21 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
               {sheet.status === "committed" && <>
                 <button type="button" className="ghost" disabled={busy} onClick={applyLabels}>Apply committed labels</button>
                 <p className="sub">Use this to repair an earlier import or explicitly reselect this sheet’s required slots and matching expression images. Other images are preserved.</p>
-                <button type="button" className="primary full sheetRepair" disabled={busy} onClick={reprocessExpressionBank}><Grid3X3 /> Extract 6 Expression Panels</button>
-                <p className="sub">Creates a reviewable new version from the stored FPAI Bible and cuts out the six finished expression portraits. It does not generate images, call a paid provider, or change the committed version.</p>
+                <button type="button" className="primary full sheetRepair" disabled={busy || !fpaiSourceCompatible} onClick={reprocessExpressionBank}><Grid3X3 /> Extract 6 Expression Panels</button>
+                <p className="sub">{fpaiSourceCompatible ? "For the single-page 5:6 FPAI Bible only. Creates a reviewable version and does not generate images, call a paid provider, or change the committed version." : "Unavailable for this source layout. Use custom crops or full-resolution individual expression portraits; no existing references are changed."}</p>
               </>}
             </>
           ) : (
-            <div className="buttonRow">
-              <button type="button" className="ghost" disabled={busy || !cells.length} onClick={saveReview}>Save corrections</button>
-              <button type="button" className="primary" disabled={busy || !cells.some((cell) => cell.included)} onClick={commit}>Commit Character Sheet</button>
-            </div>
+            <>
+              <label className="sheetReviewConfirm">
+                <input type="checkbox" disabled={busy || !cells.length} checked={reviewConfirmed} onChange={(event) => { setReviewConfirmed(event.target.checked); setError(""); }} />
+                <span><b>I reviewed every crop and label.</b><small>Each Expression preview shows one face—not a full sheet, body panel, or detail collage.</small></span>
+              </label>
+              <div className="buttonRow">
+                <button type="button" className="ghost" disabled={busy || !cells.length} onClick={saveReview}>Save corrections</button>
+                <button type="button" className="primary" disabled={busy || !reviewConfirmed || !cells.some((cell) => cell.included)} onClick={commit}>Commit Character Sheet</button>
+              </div>
+            </>
           )}
           {sheets.length > 1 && <p className="sub">{sheets.length} sheet versions preserved. Older committed versions remain available in their manifests.</p>}
         </>

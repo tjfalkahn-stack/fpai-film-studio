@@ -150,17 +150,32 @@ test("multipart commit publishes all five required slots, labeled anchors, expre
 
 test("FPAI Bible commit publishes Jasmine's exact six-picture Expression Bank without starting generation", async () => {
   const { path, sheet } = await draftFor("jasmine-expression-bank", "jasmine-six", fpaiCharacterBibleCells({ id: "jasmine" }));
-  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "jasmine-six", { size: 320 }) });
+  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "jasmine-six", { size: 640 }) });
   assert.equal(result.response.status, 200, result.data.error?.message);
   assert.deepEqual(result.data.sheetExpressionOrder, ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Maternal", "Exhausted"]);
   assert.deepEqual(Object.keys(result.data.sheetExpressions), result.data.sheetExpressionOrder);
   assert.equal(result.data.references.filter((asset) => asset.category === "expression").length, 6);
   assert.equal(result.data.references.filter((asset) => asset.isIdentityAnchor).length, 3);
-  assert.equal(result.data.coverage.metCount, 8, "the low-resolution fixture satisfies every rule except source resolution");
-  assert.deepEqual(result.data.coverage.missing, ["Sufficient image resolution"]);
+  assert.equal(result.data.coverage.metCount, 9);
+  assert.deepEqual(result.data.coverage.missing, []);
   for (const table of ["renders", "generation_jobs"]) {
     assert.equal((await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()).count, 0);
   }
+});
+
+test("commit rejects undersized sheet crops before publishing slots, expressions, or references", async () => {
+  const { path, sheet } = await draftFor("lowres-guard", "lowres-sheet");
+  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, {
+    method: "POST",
+    body: cropForm(sheet, "lowres-sheet", { size: 320 }),
+  });
+  assert.equal(result.response.status, 400);
+  assert.equal(result.data.error.code, "SHEET_CROP_TOO_SMALL");
+  assert.match(result.data.error.message, /at least 512×512/);
+  const library = await call(`${path}/references`);
+  assert.equal(library.data.references.length, 0);
+  assert.deepEqual(library.data.canonicalSlots, {});
+  assert.equal((await call(`${path}/character-sheets`)).data.sheets[0].status, "draft");
 });
 
 test("failed validation and failed transactions cannot partially publish crop refs, slots, expressions, or stale locks", async () => {
@@ -187,7 +202,7 @@ test("a new sheet version preserves previous assets and manifests, fills right-p
   const oldSlots = (await call(`${path}/references`)).data.canonicalSlots;
   const cells = defaultCharacterSheetCells().slice(0, 2).map((cell, index) => ({ ...cell, label: index ? "angry" : "profile_right" }));
   const { sheet } = await draftFor("mikey", "mikey-v2", cells);
-  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "mikey-v2", { size: 128 }) });
+  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "mikey-v2", { size: 640 }) });
   assert.equal(result.response.status, 200, result.data.error?.message);
   assert.equal(result.data.references.length, 11);
   assert.equal(result.data.canonicalSlots.profile.angle, "profile_right");

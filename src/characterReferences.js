@@ -71,13 +71,18 @@ export function applyPersistedCanonicalSlots(character = {}, canonicalSlots = {}
   );
   const refs = { ...(character.refs || {}) };
   for (const slot of CANONICAL_SLOT_KEYS) {
-    const asset = resolved[slot];
+    const selected = resolved[slot];
+    const asset = selected && isUsableProviderReference(selected) ? selected : null;
     if (asset?.id) {
       refs[slot] = canonicalRefFromAsset(asset, slot);
       continue;
     }
     const current = refs[slot];
     if (!current) continue;
+    if (selected?.id && (current.assetId === selected.id || current.key === `library:${selected.id}`)) {
+      delete refs[slot];
+      continue;
+    }
     if (current.source === "library" || (String(current.key || "").startsWith("library:") && current.canonical !== true)) {
       delete refs[slot];
     }
@@ -224,6 +229,22 @@ export function normalizeTags(tags) {
   return next;
 }
 
+export const MIN_PROVIDER_REFERENCE_DIMENSION = SUFFICIENT_RESOLUTION;
+
+export function isCharacterSheetCropReference(asset = {}) {
+  return normalizeTags(asset.tags).some((tag) => tag.toLowerCase() === "production-character-sheet");
+}
+
+export function isUsableProviderReference(asset = {}) {
+  if (!isCharacterSheetCropReference(asset)) return true;
+  const width = Number(asset.width);
+  const height = Number(asset.height);
+  // Older rows can lack dimensions. Preserve their existing behavior until
+  // metadata is available rather than breaking a migration-era character.
+  if (!(width > 0) || !(height > 0)) return true;
+  return Math.min(width, height) >= MIN_PROVIDER_REFERENCE_DIMENSION;
+}
+
 export function normalizeLibraryAsset(asset = {}, index = 0) {
   const approvalState = normalizeApprovalState(asset.approvalState ?? asset.approval_state);
   const includeInGeneration =
@@ -274,18 +295,18 @@ export function normalizeReferenceLibrary(assets = []) {
 
 export function primaryIdentityAsset(assets = []) {
   const library = normalizeReferenceLibrary(assets);
-  return library.find((asset) => asset.isPrimary) || null;
+  return library.find((asset) => asset.isPrimary && isUsableProviderReference(asset)) || null;
 }
 
 export function approvedIdentityAnchors(assets = []) {
   return normalizeReferenceLibrary(assets).filter(
-    (asset) => asset.isIdentityAnchor && asset.approvalState === "approved" && asset.includeInGeneration,
+    (asset) => asset.isIdentityAnchor && asset.approvalState === "approved" && asset.includeInGeneration && isUsableProviderReference(asset),
   );
 }
 
 export function generationEligibleAssets(assets = []) {
   return normalizeReferenceLibrary(assets).filter(
-    (asset) => asset.approvalState !== "excluded" && asset.includeInGeneration,
+    (asset) => asset.approvalState !== "excluded" && asset.includeInGeneration && isUsableProviderReference(asset),
   );
 }
 
@@ -391,7 +412,7 @@ export const COVERAGE_RULES = Object.freeze([
 
 export function evaluateReferenceCoverage(assets = []) {
   const library = normalizeReferenceLibrary(assets);
-  const included = library.filter((asset) => asset.approvalState !== "excluded" && asset.includeInGeneration);
+  const included = library.filter((asset) => asset.approvalState !== "excluded" && asset.includeInGeneration && isUsableProviderReference(asset));
   const rules = COVERAGE_RULES.map((rule) => {
     const met = rule.check(rule.id === "duplicates" ? library : included);
     return { id: rule.id, label: rule.label, met };
@@ -498,10 +519,12 @@ export function buildCharacterLockManifest({
   createdAt = nowIso(),
 }) {
   const library = normalizeReferenceLibrary(assets);
-  const primary = primaryIdentityAsset(library);
-  const anchors = approvedIdentityAnchors(library);
-  const excluded = library.filter((asset) => asset.approvalState === "excluded" || !asset.includeInGeneration);
-  const supplemental = library.filter(
+  const eligible = generationEligibleAssets(library);
+  const eligibleIds = new Set(eligible.map((asset) => asset.id));
+  const primary = primaryIdentityAsset(eligible);
+  const anchors = approvedIdentityAnchors(eligible);
+  const excluded = library.filter((asset) => asset.approvalState === "excluded" || !asset.includeInGeneration || !eligibleIds.has(asset.id));
+  const supplemental = eligible.filter(
     (asset) =>
       asset.id !== primary?.id &&
       !anchors.some((anchor) => anchor.id === asset.id) &&
@@ -530,7 +553,11 @@ export function buildCharacterLockManifest({
     projectId,
     characterId,
     lockVersion: Number(lockVersion) || 1,
-    canonicalSlots: Object.fromEntries(CANONICAL_SLOT_KEYS.filter((slot) => canonicalSlots[slot]).map((slot) => [slot, canonicalSlots[slot]])),
+    canonicalSlots: Object.fromEntries(CANONICAL_SLOT_KEYS.filter((slot) => {
+      const value = canonicalSlots[slot];
+      const id = typeof value === "string" ? value : value?.id;
+      return id && eligibleIds.has(id);
+    }).map((slot) => [slot, canonicalSlots[slot]])),
     primaryIdentityAsset: primary ? publicAsset(primary) : null,
     approvedIdentityAnchors: anchors.map(publicAsset),
     supplementalReferences: supplemental.map(publicAsset),
@@ -538,14 +565,14 @@ export function buildCharacterLockManifest({
     categories: Object.fromEntries(
       REFERENCE_CATEGORIES.map((category) => [
         category.key,
-        library.filter((asset) => asset.category === category.key).map((asset) => asset.id),
+        eligible.filter((asset) => asset.category === category.key).map((asset) => asset.id),
       ]),
     ),
     tags: {
       expressions: Object.fromEntries(
         EXPRESSION_TAGS.map((tag) => [
           tag,
-          library.filter((asset) => asset.expression === tag).map((asset) => asset.id),
+          eligible.filter((asset) => asset.expression === tag).map((asset) => asset.id),
         ]),
       ),
     },

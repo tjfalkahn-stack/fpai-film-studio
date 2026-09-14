@@ -7,6 +7,7 @@ import {
   buildCharacterLockManifest,
   evaluateReferenceCoverage,
   inferShotContext,
+  isUsableProviderReference,
   migrateLegacyCharacterRefs,
   normalizeLibraryAsset,
   selectGenerationReferences,
@@ -377,4 +378,44 @@ test("persisted production canonical slots win over seed character JSON after li
     assert.notEqual(hydrated.identityFront.key, "seed-default");
   }
   assert.equal(CANONICAL_SLOT_KEYS.length, 5);
+});
+
+test("small generated sheet crops are preserved but excluded from canonical slots, coverage, locks, and provider selection", () => {
+  const bad = asset("sheet-page", {
+    width: 341,
+    height: 512,
+    tags: ["production-character-sheet", "sheet-panel:cell-1"],
+    category: "identity_anchor",
+    angle: "front",
+    isPrimary: true,
+    isIdentityAnchor: true,
+  });
+  const good = asset("portrait", { characterId: "marcus", category: "identity_anchor", angle: "front" });
+  assert.equal(isUsableProviderReference(bad), false);
+  assert.equal(isUsableProviderReference(good), true);
+
+  const refs = applyPersistedCanonicalSlots(
+    { refs: { identityFront: { key: `library:${bad.id}`, assetId: bad.id, canonical: true } } },
+    { identityFront: bad },
+    [bad, good],
+  );
+  assert.equal(refs.identityFront, undefined);
+  const coverage = evaluateReferenceCoverage([bad]);
+  assert.equal(coverage.rules.find((rule) => rule.id === "primary").met, false);
+  const manifest = buildCharacterLockManifest({
+    projectId: "enemies-closer-ep01",
+    characterId: "marcus",
+    lockVersion: 2,
+    assets: [bad, good],
+    canonicalSlots: { identityFront: bad.id },
+  });
+  assert.equal(manifest.canonicalSlots.identityFront, undefined);
+  assert.equal(manifest.excludedImages.some((item) => item.id === bad.id), true);
+  const selection = selectGenerationReferences({
+    characters: [{ id: "marcus" }],
+    libraries: { marcus: [{ ...bad, characterId: "marcus" }, good] },
+    shot: { id: "safe-selection" },
+  });
+  assert.equal(selection.selected.some((item) => item.assetId === bad.id), false);
+  assert.equal(selection.selected.some((item) => item.assetId === good.id), true);
 });

@@ -56,6 +56,7 @@ export const CUSTOM_CHARACTER_SHEET_LABELS = Object.freeze([
 ]);
 
 export const FPAI_EXPRESSION_BANK_SIZE = 6;
+export const MIN_CHARACTER_SHEET_REFERENCE_DIMENSION = 512;
 
 function parentalExpressionKey(character = {}) {
   const id = String(character.id || "").toLowerCase();
@@ -100,6 +101,30 @@ export function isFpaiCharacterBibleDimensions(width, height) {
   const h = Number(height);
   if (!Number.isFinite(w) || !Number.isFinite(h) || w < 900 || h < 1000) return false;
   return Math.abs(w / h - 5 / 6) <= 0.015;
+}
+
+export function characterSheetCropPixels(sheet = {}, cell = {}) {
+  const source = sheet.manifest?.source || {};
+  const sourceWidth = Number(sheet.width || source.width);
+  const sourceHeight = Number(sheet.height || source.height);
+  if (!(sourceWidth > 0) || !(sourceHeight > 0)) return { width: 0, height: 0 };
+  return {
+    width: Math.max(1, Math.round(sourceWidth * Number(cell.width || 0))),
+    height: Math.max(1, Math.round(sourceHeight * Number(cell.height || 0))),
+  };
+}
+
+export function isLowResolutionExpressionCrop(sheet = {}, cell = {}) {
+  if (!SHEET_EXPRESSION_NAMES[cell.label] || cell.included === false) return false;
+  return isLowResolutionReferenceCrop(sheet, cell);
+}
+
+export function isLowResolutionReferenceCrop(sheet = {}, cell = {}) {
+  const preset = labelByKey.get(cell.label);
+  if (!preset || preset.excluded || preset.category === "other" || cell.included === false) return false;
+  const size = characterSheetCropPixels(sheet, cell);
+  if (!size.width || !size.height) return false;
+  return Math.min(size.width, size.height) < MIN_CHARACTER_SHEET_REFERENCE_DIMENSION;
 }
 
 const acceptedSheetMimeTypes = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);

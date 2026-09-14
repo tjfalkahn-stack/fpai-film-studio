@@ -1,4 +1,10 @@
-import { canonicalRefFromAsset, syncCanonicalRefsFromLibrary } from "./characterReferences.js";
+import {
+  MIN_PROVIDER_REFERENCE_DIMENSION,
+  canonicalRefFromAsset,
+  isCharacterSheetCropReference,
+  isUsableProviderReference,
+  syncCanonicalRefsFromLibrary,
+} from "./characterReferences.js";
 
 export const LEGACY_EXPRESSION_NAMES = Object.freeze([
   "Neutral", "Suspicious", "Controlled Anger", "Hurt", "Paternal", "Exhausted",
@@ -22,6 +28,17 @@ const EXPRESSION_NAME_BY_TAG = Object.freeze({
   exhausted: "Exhausted",
 });
 
+// Character-sheet panels are useful only when a crop is large enough to be an
+// individual provider reference. A 3x3 crop from a 1024px-wide contact sheet,
+// for example, is 341px wide and must never replace a full-resolution portrait.
+// Missing dimensions remain allowed for migration compatibility with older
+// reference rows that predate stored image metadata.
+export const MIN_EXPRESSION_REFERENCE_DIMENSION = MIN_PROVIDER_REFERENCE_DIMENSION;
+
+export function isUsableExpressionReference(asset = {}) {
+  return isUsableProviderReference(asset);
+}
+
 function parentalExpressionName(character = {}) {
   const id = String(character.id || "").toLowerCase();
   const role = String(character.role || "").toLowerCase();
@@ -43,13 +60,18 @@ function expressionNameForAsset(asset = {}) {
 
 function syncLibraryExpressions(expressions, references, sheetExpressions = {}, explicitNames = new Set()) {
   const candidates = [...(references || [])]
-    .filter((asset) => asset.category === "expression" && asset.approvalState !== "excluded" && asset.includeInGeneration !== false)
-    .sort((a, b) => expressionTime(a) - expressionTime(b) || Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+    .filter((asset) => asset.category === "expression" && asset.approvalState !== "excluded" && asset.includeInGeneration !== false && isUsableExpressionReference(asset))
+    // Apply generated sheet crops first. A reviewed independent portrait with
+    // the same expression then wins even when it was uploaded earlier.
+    .sort((a, b) => Number(isCharacterSheetCropReference(b)) - Number(isCharacterSheetCropReference(a))
+      || expressionTime(a) - expressionTime(b)
+      || Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
   for (const asset of candidates) {
     const name = expressionNameForAsset(asset);
     if (!name || explicitNames.has(name) || sheetExpressions[name]?.asset?.id === asset.id) continue;
     const current = expressions[name];
-    if (current && current.source !== "reference-library" && expressionTime(current) > expressionTime(asset)) continue;
+    const independentReplacement = current?.source === "character-sheet" && !isCharacterSheetCropReference(asset);
+    if (current && current.source !== "reference-library" && !independentReplacement && expressionTime(current) > expressionTime(asset)) continue;
     expressions[name] = {
       ...canonicalRefFromAsset(asset, "expression"),
       source: "reference-library",
@@ -108,6 +130,17 @@ export function characterBiblePatch(character, payload = {}) {
       if (!binding.asset?.id || !binding.sheetId) continue;
       const source = `${binding.sheetId}:${binding.asset.id}`;
       const explicit = payload.applySheetExpressions === binding.sheetId;
+      if (!isUsableExpressionReference(binding.asset)) {
+        // Keep the underlying reference and sheet manifest intact, but remove
+        // an unsafe automatic slot assignment so it cannot reach a provider.
+        const current = expressions[name];
+        if (current?.source === "character-sheet"
+          && (current.assetId === binding.asset.id || sources[name] === source)) {
+          delete expressions[name];
+        }
+        if (sources[name] === source) delete sources[name];
+        continue;
+      }
       if (explicit) explicitNames.add(name);
       const current = expressions[name];
       const manualTime = expressionTime(current);

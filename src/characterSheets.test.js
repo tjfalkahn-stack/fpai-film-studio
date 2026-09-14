@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import {
   CHARACTER_SHEET_SCHEMA,
   buildCharacterSheetManifest,
+  characterSheetCropPixels,
   createCustomCharacterSheetCell,
   defaultCharacterSheetCells,
   expressionBankNamesForSheets,
   fpaiCharacterBibleCells,
   fpaiExpressionLabels,
   isFpaiCharacterBibleDimensions,
+  isLowResolutionExpressionCrop,
+  isLowResolutionReferenceCrop,
   normalizeDrawnSheetBounds,
   normalizeCharacterSheetCells,
   pickCharacterSheetFile,
@@ -38,6 +41,18 @@ test("the authored FPAI Bible preset extracts exactly six character-aware expres
   assert.equal(jasmine.every((cell) => cell.x >= 0 && cell.y >= 0 && cell.x + cell.width <= 1 && cell.y + cell.height <= 1), true);
   assert.equal(isFpaiCharacterBibleDimensions(1145, 1374), true);
   assert.equal(isFpaiCharacterBibleDimensions(1200, 1200), false);
+});
+
+test("expression crop quality uses the source sheet resolution without rejecting older unknown metadata", () => {
+  const [expression] = defaultCharacterSheetCells().filter((cell) => cell.label === "neutral");
+  assert.deepEqual(characterSheetCropPixels({ width: 1024, height: 1536 }, expression), { width: 341, height: 512 });
+  assert.equal(isLowResolutionExpressionCrop({ width: 1024, height: 1536 }, expression), true);
+  assert.equal(isLowResolutionExpressionCrop({ width: 2400, height: 2400 }, expression), false);
+  assert.equal(isLowResolutionExpressionCrop({}, expression), false, "legacy sheets with no dimensions remain compatible");
+  assert.equal(isLowResolutionExpressionCrop({ width: 300, height: 300 }, { ...expression, label: "wardrobe" }), false);
+  assert.equal(isLowResolutionReferenceCrop({ width: 1024, height: 1536 }, { ...expression, label: "identity_front" }), true);
+  assert.equal(isLowResolutionReferenceCrop({ width: 300, height: 300 }, { ...expression, label: "action_pose" }), true);
+  assert.equal(isLowResolutionReferenceCrop({ width: 300, height: 300 }, { ...expression, label: "exclude" }), false);
 });
 
 test("expression bank order follows only the current immutable sheet version", () => {
