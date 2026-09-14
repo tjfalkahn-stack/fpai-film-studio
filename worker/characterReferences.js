@@ -21,6 +21,7 @@ import {
 } from "../src/imageMeta.js";
 import {
   MAX_CHARACTER_SHEET_COMMIT_BYTES,
+  MIN_CHARACTER_SHEET_REFERENCE_DIMENSION,
   buildCharacterSheetManifest,
   canonicalAssignmentsForSheet,
   defaultCharacterSheetCells,
@@ -856,6 +857,17 @@ async function handleSheetCommit(request, env, projectId, characterId, sheetId, 
     } else if (cell.assetId) asset = await getAssetRow(env, projectId, characterId, cell.assetId);
     if (!asset) {
       fail("INVALID_SHEET_ASSET", `Panel ${cell.id} does not point to a stored reference image.`);
+    }
+    const referenceFields = referenceFieldsForSheetCell(cell);
+    const width = Number(asset.width);
+    const height = Number(asset.height);
+    if (referenceFields.category !== "other" && width > 0 && height > 0
+      && Math.min(width, height) < MIN_CHARACTER_SHEET_REFERENCE_DIMENSION) {
+      fail(
+        "SHEET_CROP_TOO_SMALL",
+        `Panel ${cell.id} is ${width}×${height}. Character Sheet references must be at least ${MIN_CHARACTER_SHEET_REFERENCE_DIMENSION}×${MIN_CHARACTER_SHEET_REFERENCE_DIMENSION}; exclude this crop and upload a full-resolution individual photo.`,
+        400,
+      );
     }
     if (panelRows.has(asset.id)) fail("DUPLICATE_SHEET_PANEL", "Each included panel must use a distinct crop. Exclude repeated images before committing.");
     panelRows.set(asset.id, asset);

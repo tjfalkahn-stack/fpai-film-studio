@@ -14,6 +14,8 @@ test("reference cards render hydrated coverage, images and all controls without 
   assert.match(html, /rebuild required after reference changes/);
   assert.match(html, /Rebuild Character Lock/);
   assert.match(html, /writes a versioned reference manifest only/);
+  assert.match(html, /Use as Identity \/ Front/);
+  assert.match(html, /Use as Expression/);
 });
 
 test("card CSS bounds thumbnail height, allows action wrapping, and collapses columns at narrow widths", () => {

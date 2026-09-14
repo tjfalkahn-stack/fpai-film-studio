@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { characterBiblePatch, defaultExpressionBankNames, visibleExpressionNames } from "./characterBibleSync.js";
+import {
+  characterBiblePatch,
+  defaultExpressionBankNames,
+  isUsableExpressionReference,
+  visibleExpressionNames,
+} from "./characterBibleSync.js";
 import { canonicalAssignmentsForSheet, expressionAssignmentsForSheets } from "./characterSheets.js";
 
 const image = (id) => ({ id, filename: `${id}.png`, assetUrl: `/references/${id}/asset` });
@@ -97,4 +102,77 @@ test("partial/draft payloads cannot populate required slots or alter legacy expr
   const character = { id: "mikey", refs: { identityFront: { key: "manual-front" } }, expressions: { Neutral: { key: "manual-neutral" } } };
   assert.equal(characterBiblePatch(character, { sheet: { status: "draft" } }).refs, undefined);
   assert.equal(characterBiblePatch(character, { sheet: { status: "draft" } }).expressions, undefined);
+});
+
+test("low-resolution character-sheet crops cannot replace full-resolution individual expression portraits", () => {
+  const badSheetCrop = {
+    ...image("bad-sheet-neutral"),
+    category: "expression",
+    expression: "neutral",
+    width: 341,
+    height: 512,
+    tags: ["production-character-sheet", "sheet-panel:cell-5"],
+    approvalState: "approved",
+    includeInGeneration: true,
+    updatedAt: "2026-09-14T16:00:00Z",
+  };
+  const goodPortrait = {
+    ...image("good-neutral"),
+    category: "expression",
+    expression: "neutral",
+    width: 1254,
+    height: 1254,
+    tags: ["individual-reference"],
+    approvalState: "approved",
+    includeInGeneration: true,
+    updatedAt: "2026-09-14T15:00:00Z",
+  };
+  const character = {
+    id: "marcus",
+    expressions: {
+      Neutral: {
+        assetId: badSheetCrop.id,
+        key: `library:${badSheetCrop.id}`,
+        source: "character-sheet",
+        sheetId: "sheet-2",
+      },
+    },
+    sheetExpressionSources: { Neutral: `sheet-2:${badSheetCrop.id}` },
+  };
+  const patch = characterBiblePatch(character, {
+    references: [badSheetCrop, goodPortrait],
+    sheetExpressions: { Neutral: { ...binding(badSheetCrop.id, "sheet-2"), asset: badSheetCrop } },
+  });
+
+  assert.equal(isUsableExpressionReference(badSheetCrop), false);
+  assert.equal(isUsableExpressionReference(goodPortrait), true);
+  assert.equal(patch.expressions.Neutral.assetId, goodPortrait.id);
+  assert.equal(patch.expressions.Neutral.source, "reference-library");
+  assert.equal(patch.sheetExpressionSources.Neutral, undefined);
+  assert.equal(patch.referenceLibrary.length, 2, "both underlying assets remain preserved");
+});
+
+test("an invalid sheet-only expression is cleared instead of displaying a collage as a portrait", () => {
+  const badSheetCrop = {
+    ...image("bad-sheet-smile"),
+    category: "expression",
+    expression: "smiling",
+    width: 341,
+    height: 512,
+    tags: JSON.stringify(["production-character-sheet", "sheet-panel:cell-6"]),
+    approvalState: "approved",
+    includeInGeneration: true,
+  };
+  const character = {
+    id: "marcus",
+    expressions: { Smiling: { assetId: badSheetCrop.id, source: "character-sheet" } },
+    sheetExpressionSources: { Smiling: `sheet-3:${badSheetCrop.id}` },
+  };
+  const patch = characterBiblePatch(character, {
+    references: [badSheetCrop],
+    sheetExpressions: { Smiling: { ...binding(badSheetCrop.id, "sheet-3"), asset: badSheetCrop } },
+  });
+
+  assert.equal(patch.expressions.Smiling, undefined);
+  assert.equal(patch.referenceLibrary[0].id, badSheetCrop.id, "the source media is not deleted");
 });

@@ -14,10 +14,13 @@ import {
   EXPRESSION_TAGS,
   REFERENCE_ANGLES,
   REFERENCE_CATEGORIES,
+  canonicalSlotForLibraryAsset,
   evaluateReferenceCoverage,
+  isUsableProviderReference,
   migrateLegacyCharacterRefs,
 } from "./characterReferences.js";
 import {
+  assignCharacterCanonicalSlot,
   deleteCharacterReference,
   fetchCharacterLibrary,
   patchCharacterLibrary,
@@ -27,6 +30,13 @@ import {
 } from "./characterReferenceClient.js";
 
 const ACCEPT = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
+const CANONICAL_SLOT_LABELS = Object.freeze({
+  identityFront: "Identity / Front",
+  profile: "Profile",
+  fullBody: "Full Body",
+  expression: "Expression",
+  wardrobe: "Wardrobe",
+});
 
 function title(value) {
   return String(value || "").replaceAll("_", " ");
@@ -234,6 +244,21 @@ export default function ReferenceLibrary({
     }
   }
 
+  async function useForRequiredSlot(asset) {
+    const slot = canonicalSlotForLibraryAsset(asset);
+    if (!slot || !isUsableProviderReference(asset)) return;
+    setBusy(true);
+    setError("");
+    try {
+      applyPayload(await assignCharacterCanonicalSlot(projectId, character.id, slot, asset.id));
+      notify?.(`${asset.filename} selected for ${CANONICAL_SLOT_LABELS[slot]}. Character Lock is now stale until rebuilt.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function bulkPatch(patch) {
     if (!selected.length) return;
     setBusy(true);
@@ -423,8 +448,19 @@ export default function ReferenceLibrary({
               {asset.expression && <span className="pill">{title(asset.expression)}</span>}
               {asset.angle && <span className="pill">{title(asset.angle)}</span>}
               {!asset.includeInGeneration && <span className="pill bad">Excluded</span>}
+              {!isUsableProviderReference(asset) && <span className="pill bad">Stored only · below 512px</span>}
             </div>
             <div className="libraryActions">
+              {canonicalSlotForLibraryAsset(asset) && isUsableProviderReference(asset) && (
+                <button
+                  type="button"
+                  className="ghost compact"
+                  disabled={busy || character.refs?.[canonicalSlotForLibraryAsset(asset)]?.assetId === asset.id}
+                  onClick={() => useForRequiredSlot(asset)}
+                >
+                  {character.refs?.[canonicalSlotForLibraryAsset(asset)]?.assetId === asset.id ? "Required slot selected" : `Use as ${CANONICAL_SLOT_LABELS[canonicalSlotForLibraryAsset(asset)]}`}
+                </button>
+              )}
               <button type="button" className="ghost compact" disabled={busy} onClick={() => updateAsset(asset, { isPrimary: true })}><Star /> Primary</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => updateAsset(asset, { isIdentityAnchor: !asset.isIdentityAnchor, approvalState: "approved" })}>Anchor</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => updateAsset(asset, { includeInGeneration: !asset.includeInGeneration, approvalState: asset.includeInGeneration ? "excluded" : "approved" })}>
