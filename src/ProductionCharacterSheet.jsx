@@ -2,14 +2,20 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Crop, Grid3X3, RotateCcw, Trash2, Upload } from "lucide-react";
 import {
   CHARACTER_SHEET_LABELS,
+  FPAI_CONTACT_SHEET_PANEL_COUNT,
   FPAI_EXPRESSION_BANK_SIZE,
+  MAX_CHARACTER_SHEET_PANELS,
   SHEET_EXPRESSION_NAMES,
   characterSheetCropPixels,
+  characterSheetSeparationPlan,
   createCustomCharacterSheetCell,
   defaultCharacterSheetCells,
   fpaiCharacterBibleCells,
+  fpaiContactSheetCells,
   isFpaiCharacterBibleDimensions,
+  isFpaiContactSheetDimensions,
   isLowResolutionReferenceCrop,
+  isUnseparableReferenceCrop,
   normalizeDrawnSheetBounds,
   pickCharacterSheetFile,
 } from "./characterSheets.js";
@@ -59,17 +65,28 @@ async function cropPanel(source, cell, filename) {
   const sy = Math.round(cell.y * image.naturalHeight);
   const sw = Math.max(1, Math.round(cell.width * image.naturalWidth));
   const sh = Math.max(1, Math.round(cell.height * image.naturalHeight));
+  const separation = characterSheetSeparationPlan(
+    { width: image.naturalWidth, height: image.naturalHeight },
+    cell,
+  );
+  if (!separation.canSeparate) {
+    throw new Error(`Panel ${cell.id.replace("cell-", "")} is too small to separate safely from this source sheet.`);
+  }
   const canvas = document.createElement("canvas");
-  canvas.width = sw;
-  canvas.height = sh;
-  canvas.getContext("2d", { alpha: false }).drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+  canvas.width = separation.output.width;
+  canvas.height = separation.output.height;
+  const context = canvas.getContext("2d", { alpha: false });
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   const type = "image/jpeg";
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.94));
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.95));
   if (!blob) throw new Error("A selected character sheet panel could not be prepared.");
-  return new File([blob], `${filename.replace(/\.[^.]+$/, "")}-${cell.id}.jpg`, { type });
+  const variant = String(cell.variant || cell.label || cell.id).replace(/[^a-zA-Z0-9_-]+/g, "-");
+  return new File([blob], `${filename.replace(/\.[^.]+$/, "")}-${variant}.jpg`, { type });
 }
 
-async function normalizedSheetVersion(source, filename) {
+async function normalizedSheetVersion(source, filename, suffix = "expression-bank") {
   const image = await loadImage(source);
   const canvas = document.createElement("canvas");
   canvas.width = image.naturalWidth;
@@ -80,7 +97,7 @@ async function normalizedSheetVersion(source, filename) {
   if (!blob) throw new Error("The stored Character Bible could not be prepared for a repair version.");
   const type = blob.type || requestedType;
   const extension = type === "image/webp" ? "webp" : type === "image/png" ? "png" : "jpg";
-  return new File([blob], `${filename.replace(/\.[^.]+$/, "")}-expression-bank.${extension}`, {
+  return new File([blob], `${filename.replace(/\.[^.]+$/, "")}-${suffix}.${extension}`, {
     type,
     lastModified: Date.now(),
   });
@@ -105,6 +122,10 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   const previewUrl = useMemo(() => sourceFile ? URL.createObjectURL(sourceFile) : sheet?.assetUrl || "", [sourceFile, sheet?.assetUrl]);
   const committed = sheet?.status === "committed" || sheet?.status === "archived";
   const fpaiSourceCompatible = isFpaiCharacterBibleDimensions(
+    sheet?.width || sheet?.manifest?.source?.width,
+    sheet?.height || sheet?.manifest?.source?.height,
+  );
+  const contactSheetCompatible = isFpaiContactSheetDimensions(
     sheet?.width || sheet?.manifest?.source?.width,
     sheet?.height || sheet?.manifest?.source?.height,
   );
@@ -150,8 +171,13 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     setProgress(0);
     try {
       const image = await loadImage(file);
+      const contactLayout = isFpaiContactSheetDimensions(image.naturalWidth, image.naturalHeight);
       const fpaiLayout = isFpaiCharacterBibleDimensions(image.naturalWidth, image.naturalHeight);
-      const proposedCells = fpaiLayout ? fpaiCharacterBibleCells(character) : defaultCharacterSheetCells();
+      const proposedCells = contactLayout
+        ? fpaiContactSheetCells(character)
+        : fpaiLayout
+          ? fpaiCharacterBibleCells(character)
+          : defaultCharacterSheetCells();
       const payload = await ingestCharacterSheet(
         projectId,
         character.id,
@@ -168,7 +194,9 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
       setReviewConfirmed(false);
       setStatus(payload.reused
         ? "This source sheet was already stored. Review its crops below."
-        : fpaiLayout
+        : contactLayout
+          ? `FPAI v1.2 contact sheet detected. ${FPAI_CONTACT_SHEET_PANEL_COUNT} individual photos are ready for review and high-quality separation.`
+          : fpaiLayout
           ? "FPAI Bible layout detected. Six expression panels are ready for review; confirm the boxes, then commit."
           : "Source sheet stored. Review every crop before committing.");
       notify?.("Character sheet uploaded. Review the crop boxes and labels before committing it.");
@@ -220,6 +248,15 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     setDrawing(null);
     setRedrawCell(null);
     setStatus("FPAI Bible layout applied: six expression panels plus identity, profile, full body, wardrobe, and three-quarter references. Review, then commit.");
+  }
+
+  function applyContactSheetLayout() {
+    setReviewConfirmed(false);
+    setSheet((current) => ({ ...current, cells: fpaiContactSheetCells(character) }));
+    setCustomMode(false);
+    setDrawing(null);
+    setRedrawCell(null);
+    setStatus(`FPAI v1.2 layout applied: ${FPAI_CONTACT_SHEET_PANEL_COUNT} photos will be separated without headings or captions. Review, then commit.`);
   }
 
   function startCustomLayout() {
@@ -325,10 +362,10 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
       setError("Confirm that you reviewed every crop and label before committing this Character Sheet.");
       return;
     }
-    const lowResolutionReferences = cells.filter((cell) => isLowResolutionReferenceCrop(sheet, cell));
-    if (lowResolutionReferences.length) {
-      const panels = lowResolutionReferences.map((cell) => cell.id.replace("cell-", "")).join(", ");
-      setError(`Reference panel${lowResolutionReferences.length === 1 ? "" : "s"} ${panels} ${lowResolutionReferences.length === 1 ? "is" : "are"} below the 512×512 minimum. Uncheck Use for those crops and upload full-resolution individual photos in the Reference Library.`);
+    const unseparableReferences = cells.filter((cell) => isUnseparableReferenceCrop(sheet, cell));
+    if (unseparableReferences.length) {
+      const panels = unseparableReferences.map((cell) => cell.id.replace("cell-", "")).join(", ");
+      setError(`Reference panel${unseparableReferences.length === 1 ? "" : "s"} ${panels} ${unseparableReferences.length === 1 ? "is" : "are"} too small to separate safely. Uncheck Use for only those panels or replace them with a larger source.`);
       return;
     }
     setBusy(true);
@@ -340,17 +377,18 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
         return response.blob();
       });
       const selected = cells.filter((cell) => cell.included);
+      const separationCount = selected.filter((cell) => characterSheetSeparationPlan(sheet, cell).needsSeparation).length;
       const crops = [];
       let completed = 0;
       for (const cell of cells) {
         if (!cell.included) continue;
-        setStatus(`Preparing reference ${completed + 1} of ${selected.length}…`);
+        setStatus(`Separating reference ${completed + 1} of ${selected.length} at high quality…`);
         const crop = await cropPanel(source, cell, sheet.filename);
         crops.push({ id: cell.id, file: crop });
         completed += 1;
         setProgress(0.5 * completed / selected.length);
       }
-      setStatus("Uploading reviewed crops and committing reference assignments together…");
+      setStatus(`Uploading ${selected.length} individual references${separationCount ? ` (${separationCount} locally enhanced)` : ""} and committing assignments together…`);
       const payload = await commitCharacterSheet(projectId, character.id, sheet.id, cells.map((cell) => ({ ...cell, assetId: null })), {
         crops, wardrobe: character.wardrobe, onProgress: (value) => setProgress(0.5 + value * 0.5),
       });
@@ -436,6 +474,55 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     }
   }
 
+  async function reprocessContactSheet() {
+    if (!contactSheetCompatible) {
+      setError("Automatic 26-photo separation is available only for the 2:3 FPAI Character Bible v1.2 contact-sheet layout.");
+      setStatus("No repair draft was created and every existing reference remains unchanged.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setProgress(0);
+    setStatus("Preparing a new 26-photo separation version from the stored Character Bible…");
+    try {
+      const response = await fetch(sheet.assetUrl);
+      if (!response.ok) throw new Error("The stored Character Bible could not be loaded.");
+      const source = await response.blob();
+      const file = await normalizedSheetVersion(source, sheet.filename, "contact-sheet-separation");
+      const payload = await ingestCharacterSheet(
+        projectId,
+        character.id,
+        file,
+        fpaiContactSheetCells(character),
+        { onProgress: setProgress },
+      );
+      setSourceFile(file);
+      setSheet(payload.sheet);
+      setSheets(payload.sheets || [payload.sheet]);
+      setCustomMode(false);
+      setDrawing(null);
+      setRedrawCell(null);
+      setReviewConfirmed(false);
+      if (payload.sheet.status === "draft") {
+        setStatus(`${FPAI_CONTACT_SHEET_PANEL_COUNT}-photo repair version ready. Review the individual crops, then commit.`);
+        notify?.("FPAI v1.2 separation draft created. No paid service was called and the committed version was preserved.");
+        return;
+      }
+      if ((payload.sheet.manifest?.panels || []).length !== FPAI_CONTACT_SHEET_PANEL_COUNT) {
+        throw new Error("A complete 26-photo repair version could not be created. The existing committed Bible was left unchanged.");
+      }
+      const synced = await applyCommittedSheetLabels(projectId, character.id, payload.sheet.id);
+      onLibrarySync?.(synced);
+      setStatus("The complete contact-sheet version already existed, so its labels were reapplied.");
+      notify?.("FPAI v1.2 contact-sheet references synchronized.");
+    } catch (err) {
+      setError(err.message);
+      setStatus("Contact-sheet separation stopped. Every committed reference and source sheet remains unchanged.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="productionSheet">
       <div className="sectionTitle"><Grid3X3 /><span>PRODUCTION CHARACTER SHEET</span></div>
@@ -485,6 +572,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(2, 3)}>2×3</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(3, 3)}>3×3</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(4, 3)}>4×3</button>
+              <button type="button" className="ghost compact" disabled={busy} onClick={applyContactSheetLayout}><Grid3X3 /> FPAI v1.2 · 26 photos</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={applyFpaiLayout}><Grid3X3 /> FPAI Bible · 6 expressions</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={startCustomLayout}><Crop /> Custom layout</button>
             </div>
@@ -499,11 +587,16 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
           <div className="sheetCells">
             {cells.map((cell) => {
               const size = characterSheetCropPixels(sheet, cell);
+              const separation = characterSheetSeparationPlan(sheet, cell);
               const lowResolution = isLowResolutionReferenceCrop(sheet, cell);
+              const unseparable = isUnseparableReferenceCrop(sheet, cell);
               return (
-              <div className={`${cell.included ? "sheetCell" : "sheetCell excluded"}${lowResolution ? " lowResolution" : ""}`} key={cell.id}>
+              <div className={`${cell.included ? "sheetCell" : "sheetCell excluded"}${lowResolution ? " lowResolution" : ""}${unseparable ? " unseparable" : ""}`} key={cell.id}>
                 <span className="sheetCellThumb" style={cropPreviewStyle(previewUrl, cell)} aria-hidden="true" />
-                <span className="sheetCellTitle"><b>Panel {cell.id.replace("cell-", "")}</b>{size.width > 0 && <small>{size.width}×{size.height}{lowResolution ? " · too small" : ""}</small>}</span>
+                <span className="sheetCellTitle">
+                  <b>Panel {cell.id.replace("cell-", "")}{cell.variant ? ` · ${cell.variant.replace(/^\d+-/, "").replaceAll("-", " ")}` : ""}</b>
+                  {size.width > 0 && <small>{size.width}×{size.height}{unseparable ? " · too small" : separation.needsSeparation ? ` → ${separation.output.width}×${separation.output.height}` : ""}</small>}
+                </span>
                 <select disabled={busy || committed} value={cell.label} onChange={(event) => changeCell(cell.id, { label: event.target.value, included: event.target.value !== "exclude" })}>
                   {CHARACTER_SHEET_LABELS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
                 </select>
@@ -515,8 +608,11 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
             })}
             {!cells.length && <p className="sub">No crops yet. Drag boxes over the useful images in the Bible.</p>}
           </div>
-          {!committed && !customMode && cells.length < 20 && (
+          {!committed && !customMode && cells.length < MAX_CHARACTER_SHEET_PANELS && (
             <button type="button" className="ghost compact addCrop" disabled={busy} onClick={addCustomCrop}><Crop /> Add a custom crop</button>
+          )}
+          {!committed && cells.some((cell) => cell.included && characterSheetSeparationPlan(sheet, cell).needsSeparation && !isUnseparableReferenceCrop(sheet, cell)) && (
+            <p className="sheetSeparationNote">Small contact-sheet panels will be separated into individual high-resolution files in your browser. The original Character Bible remains unchanged, and no paid model is called.</p>
           )}
           {committed ? (
             <>
@@ -524,8 +620,13 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
               {sheet.status === "committed" && <>
                 <button type="button" className="ghost" disabled={busy} onClick={applyLabels}>Apply committed labels</button>
                 <p className="sub">Use this to repair an earlier import or explicitly reselect this sheet’s required slots and matching expression images. Other images are preserved.</p>
-                <button type="button" className="primary full sheetRepair" disabled={busy || !fpaiSourceCompatible} onClick={reprocessExpressionBank}><Grid3X3 /> Extract 6 Expression Panels</button>
-                <p className="sub">{fpaiSourceCompatible ? "For the single-page 5:6 FPAI Bible only. Creates a reviewable version and does not generate images, call a paid provider, or change the committed version." : "Unavailable for this source layout. Use custom crops or full-resolution individual expression portraits; no existing references are changed."}</p>
+                {contactSheetCompatible ? <>
+                  <button type="button" className="primary full sheetRepair" disabled={busy} onClick={reprocessContactSheet}><Grid3X3 /> Re-separate 26 Contact Sheet Photos</button>
+                  <p className="sub">Creates a reviewable high-resolution separation version from the stored FPAI v1.2 source. No paid provider is called.</p>
+                </> : <>
+                  <button type="button" className="primary full sheetRepair" disabled={busy || !fpaiSourceCompatible} onClick={reprocessExpressionBank}><Grid3X3 /> Extract 6 Expression Panels</button>
+                  <p className="sub">{fpaiSourceCompatible ? "For the single-page 5:6 FPAI Bible only. Creates a reviewable version and does not generate images, call a paid provider, or change the committed version." : "Unavailable for this source layout. Use custom crops or full-resolution individual expression portraits; no existing references are changed."}</p>
+                </>}
               </>}
             </>
           ) : (

@@ -2,16 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   CHARACTER_SHEET_SCHEMA,
+  FPAI_CONTACT_SHEET_PANEL_COUNT,
   buildCharacterSheetManifest,
   characterSheetCropPixels,
+  characterSheetSeparationPlan,
   createCustomCharacterSheetCell,
   defaultCharacterSheetCells,
   expressionBankNamesForSheets,
   fpaiCharacterBibleCells,
+  fpaiContactSheetCells,
   fpaiExpressionLabels,
   isFpaiCharacterBibleDimensions,
+  isFpaiContactSheetDimensions,
   isLowResolutionExpressionCrop,
   isLowResolutionReferenceCrop,
+  isUnseparableReferenceCrop,
   normalizeDrawnSheetBounds,
   normalizeCharacterSheetCells,
   pickCharacterSheetFile,
@@ -43,6 +48,24 @@ test("the authored FPAI Bible preset extracts exactly six character-aware expres
   assert.equal(isFpaiCharacterBibleDimensions(1200, 1200), false);
 });
 
+test("the FPAI v1.2 contact-sheet preset separates all 26 Marcus photos without headings or captions", () => {
+  const cells = fpaiContactSheetCells({ id: "marcus" });
+  assert.equal(isFpaiContactSheetDimensions(1024, 1536), true);
+  assert.equal(isFpaiContactSheetDimensions(1145, 1374), false);
+  assert.equal(cells.length, FPAI_CONTACT_SHEET_PANEL_COUNT);
+  assert.deepEqual(cells.slice(0, 5).map((cell) => cell.label), [
+    "identity_front", "profile_left", "full_body", "controlled_anger", "wardrobe",
+  ]);
+  assert.deepEqual(cells.slice(5, 14).map((cell) => cell.variant), [
+    "06-neutral", "07-thoughtful", "08-suspicious", "09-angry", "10-tired",
+    "11-pained", "12-confident", "13-on-phone", "14-focused",
+  ]);
+  assert.equal(cells[22].label, "three_quarter_right");
+  assert.deepEqual(characterSheetCropPixels({ width: 1024, height: 1536 }, cells[0]), { width: 195, height: 455 });
+  assert.deepEqual(characterSheetCropPixels({ width: 1024, height: 1536 }, cells[5]), { width: 107, height: 210 });
+  assert.equal(cells.every((cell) => cell.x >= 0 && cell.y >= 0 && cell.x + cell.width <= 1 && cell.y + cell.height <= 1), true);
+});
+
 test("expression crop quality uses the source sheet resolution without rejecting older unknown metadata", () => {
   const [expression] = defaultCharacterSheetCells().filter((cell) => cell.label === "neutral");
   assert.deepEqual(characterSheetCropPixels({ width: 1024, height: 1536 }, expression), { width: 341, height: 512 });
@@ -53,6 +76,18 @@ test("expression crop quality uses the source sheet resolution without rejecting
   assert.equal(isLowResolutionReferenceCrop({ width: 1024, height: 1536 }, { ...expression, label: "identity_front" }), true);
   assert.equal(isLowResolutionReferenceCrop({ width: 300, height: 300 }, { ...expression, label: "action_pose" }), true);
   assert.equal(isLowResolutionReferenceCrop({ width: 300, height: 300 }, { ...expression, label: "exclude" }), false);
+  assert.equal(isUnseparableReferenceCrop({ width: 1024, height: 1536 }, expression), false);
+  assert.equal(isUnseparableReferenceCrop({ width: 240, height: 240 }, expression), true);
+});
+
+test("local sheet separation raises source-limited contact-sheet panels above the provider minimum", () => {
+  const expression = fpaiContactSheetCells({ id: "marcus" })[5];
+  const plan = characterSheetSeparationPlan({ width: 1024, height: 1536 }, expression);
+  assert.deepEqual(plan.source, { width: 107, height: 210 });
+  assert.deepEqual(plan.output, { width: 856, height: 1680 });
+  assert.equal(plan.scale, 8);
+  assert.equal(plan.needsSeparation, true);
+  assert.equal(plan.canSeparate, true);
 });
 
 test("expression bank order follows only the current immutable sheet version", () => {

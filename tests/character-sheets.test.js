@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { Miniflare } from "miniflare";
 import worker from "../worker/index.js";
 import { makePng } from "./imageFixtures.js";
-import { defaultCharacterSheetCells, fpaiCharacterBibleCells } from "../src/characterSheets.js";
+import { defaultCharacterSheetCells, fpaiCharacterBibleCells, fpaiContactSheetCells } from "../src/characterSheets.js";
 import { characterBiblePatch } from "../src/characterBibleSync.js";
 import { characterReferenceCount } from "../src/domain.js";
 
@@ -78,10 +78,10 @@ test("all paid and live rendering controls remain disabled", () => {
   assert.equal(env.SEEDANCE_LIVE_ENABLED, "false");
 });
 
-async function draftFor(character, salt, cells = defaultCharacterSheetCells()) {
+async function draftFor(character, salt, cells = defaultCharacterSheetCells(), { width = 2400, height = 2400 } = {}) {
   const path = `/api/projects/enemies-closer-ep01/characters/${character}`;
   const form = new FormData();
-  form.set("file", new File([makePng(2400, 2400, { salt })], `${salt}.png`, { type: "image/png" }));
+  form.set("file", new File([makePng(width, height, { salt })], `${salt}.png`, { type: "image/png" }));
   form.set("cells", JSON.stringify(cells));
   const result = await call(`${path}/character-sheets`, { method: "POST", body: form });
   assert.equal(result.response.status, 201, result.data.error?.message);
@@ -156,6 +156,33 @@ test("FPAI Bible commit publishes Jasmine's exact six-picture Expression Bank wi
   assert.deepEqual(Object.keys(result.data.sheetExpressions), result.data.sheetExpressionOrder);
   assert.equal(result.data.references.filter((asset) => asset.category === "expression").length, 6);
   assert.equal(result.data.references.filter((asset) => asset.isIdentityAnchor).length, 3);
+  assert.equal(result.data.coverage.metCount, 9);
+  assert.deepEqual(result.data.coverage.missing, []);
+  for (const table of ["renders", "generation_jobs"]) {
+    assert.equal((await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()).count, 0);
+  }
+});
+
+test("FPAI v1.2 contact-sheet commit preserves one source and publishes 26 separated Marcus references", async () => {
+  const cells = fpaiContactSheetCells({ id: "marcus" });
+  const { path, sheet } = await draftFor(
+    "marcus-contact-sheet",
+    "marcus-contact-v1-2",
+    cells,
+    { width: 1024, height: 1536 },
+  );
+  assert.equal(sheet.cells.length, 26);
+  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, {
+    method: "POST",
+    body: cropForm(sheet, "marcus-contact-v1-2", { size: 640 }),
+  });
+  assert.equal(result.response.status, 200, result.data.error?.message);
+  assert.equal(result.data.references.length, 26);
+  assert.equal(result.data.sheet.manifest.panels.length, 26);
+  assert.deepEqual(Object.keys(result.data.canonicalSlots).sort(), ["expression", "fullBody", "identityFront", "profile", "wardrobe"]);
+  assert.equal(result.data.references.filter((asset) => asset.isIdentityAnchor).length, 3);
+  assert.equal(result.data.references.some((asset) => asset.tags.includes("sheet-view:06-neutral")), true);
+  assert.equal(result.data.references.some((asset) => asset.tags.includes("software-separated")), true);
   assert.equal(result.data.coverage.metCount, 9);
   assert.deepEqual(result.data.coverage.missing, []);
   for (const table of ["renders", "generation_jobs"]) {

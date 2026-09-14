@@ -70,6 +70,15 @@ test("Jasmine expands a committed six-panel sheet into eight visible production 
   assert.equal(defaultExpressionBankNames({ id: "marcus" }).length, 8);
 });
 
+test("Marcus contact-sheet expressions retain the standard eight-slot production order", () => {
+  const character = { id: "marcus", role: "Kingpin / protagonist", expressions: {} };
+  const sheetOrder = ["Controlled Anger", "Neutral", "Concerned", "Suspicious", "Exhausted", "Hurt"];
+  const patch = characterBiblePatch(character, { sheetExpressions: {}, sheetExpressionOrder: sheetOrder });
+  assert.deepEqual(patch.expressionBankOrder, [
+    "Neutral", "Suspicious", "Controlled Anger", "Hurt", "Paternal", "Exhausted", "Concerned", "Smiling",
+  ]);
+});
+
 test("tagged library expressions fill the expanded bank while newer manual replacements survive", () => {
   const character = {
     id: "jasmine",
