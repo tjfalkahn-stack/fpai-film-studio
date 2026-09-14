@@ -85,7 +85,7 @@ import FilmEngine from "./FilmEngine.jsx";
 import ReferenceLibrary from "./ReferenceLibrary.jsx";
 import ProductionCharacterSheet from "./ProductionCharacterSheet.jsx";
 import { LEGACY_SLOT_TO_LIBRARY } from "./characterReferences.js";
-import { characterBiblePatch, visibleExpressionNames } from "./characterBibleSync.js";
+import { characterBiblePatch, defaultExpressionBankNames, visibleExpressionNames } from "./characterBibleSync.js";
 import { assignCharacterCanonicalSlot, fetchCharacterLibrary, uploadCharacterReference } from "./characterReferenceClient.js";
 
 const STORAGE_KEY = "fpai-film-studio-v1.2";
@@ -1472,7 +1472,11 @@ function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addR
         />
         <h3>Expression Bank</h3>
         <div className="expressionGrid">
-          {visibleExpressionNames(character.expressions).map((name) => {
+          {visibleExpressionNames(
+            character.expressions,
+            character.expressionBankOrder || defaultExpressionBankNames(character),
+            Boolean(character.expressionBankOrder?.length),
+          ).map((name) => {
             const key = `expr:${name}`;
             return (
               <label

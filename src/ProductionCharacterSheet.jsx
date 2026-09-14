@@ -2,8 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Crop, Grid3X3, RotateCcw, Trash2, Upload } from "lucide-react";
 import {
   CHARACTER_SHEET_LABELS,
+  FPAI_EXPRESSION_BANK_SIZE,
+  SHEET_EXPRESSION_NAMES,
   createCustomCharacterSheetCell,
   defaultCharacterSheetCells,
+  fpaiCharacterBibleCells,
+  isFpaiCharacterBibleDimensions,
   normalizeDrawnSheetBounds,
   pickCharacterSheetFile,
 } from "./characterSheets.js";
@@ -48,6 +52,23 @@ async function cropPanel(source, cell, filename) {
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.94));
   if (!blob) throw new Error("A selected character sheet panel could not be prepared.");
   return new File([blob], `${filename.replace(/\.[^.]+$/, "")}-${cell.id}.jpg`, { type });
+}
+
+async function normalizedSheetVersion(source, filename) {
+  const image = await loadImage(source);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0);
+  const requestedType = source.type === "image/webp" ? "image/jpeg" : "image/webp";
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, requestedType, 1));
+  if (!blob) throw new Error("The stored Character Bible could not be prepared for a repair version.");
+  const type = blob.type || requestedType;
+  const extension = type === "image/webp" ? "webp" : type === "image/png" ? "png" : "jpg";
+  return new File([blob], `${filename.replace(/\.[^.]+$/, "")}-expression-bank.${extension}`, {
+    type,
+    lastModified: Date.now(),
+  });
 }
 
 export default function ProductionCharacterSheet({ projectId, character, onLibrarySync, notify }) {
@@ -107,11 +128,14 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     setStatus(`Uploading ${file.name}…`);
     setProgress(0);
     try {
+      const image = await loadImage(file);
+      const fpaiLayout = isFpaiCharacterBibleDimensions(image.naturalWidth, image.naturalHeight);
+      const proposedCells = fpaiLayout ? fpaiCharacterBibleCells(character) : defaultCharacterSheetCells();
       const payload = await ingestCharacterSheet(
         projectId,
         character.id,
         file,
-        defaultCharacterSheetCells(),
+        proposedCells,
         { onProgress: setProgress },
       );
       setSourceFile(file);
@@ -122,7 +146,9 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
       setRedrawCell(null);
       setStatus(payload.reused
         ? "This source sheet was already stored. Review its crops below."
-        : "Source sheet stored. Review every crop before committing.");
+        : fpaiLayout
+          ? "FPAI Bible layout detected. Six expression panels are ready for review; confirm the boxes, then commit."
+          : "Source sheet stored. Review every crop before committing.");
       notify?.("Character sheet uploaded. Review the crop boxes and labels before committing it.");
     } catch (err) {
       setError(err.message);
@@ -161,6 +187,14 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     setDrawing(null);
     setRedrawCell(null);
     setStatus(`${columns}×${rows} grid applied. Confirm every crop and label.`);
+  }
+
+  function applyFpaiLayout() {
+    setSheet((current) => ({ ...current, cells: fpaiCharacterBibleCells(character) }));
+    setCustomMode(false);
+    setDrawing(null);
+    setRedrawCell(null);
+    setStatus("FPAI Bible layout applied: six expression panels plus identity, profile, full body, wardrobe, and three-quarter references. Review, then commit.");
   }
 
   function startCustomLayout() {
@@ -312,6 +346,50 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     }
   }
 
+  async function reprocessExpressionBank() {
+    setBusy(true);
+    setError("");
+    setProgress(0);
+    setStatus("Preparing a new repair version from the stored Character Bible…");
+    try {
+      const response = await fetch(sheet.assetUrl);
+      if (!response.ok) throw new Error("The stored Character Bible could not be loaded.");
+      const source = await response.blob();
+      const file = await normalizedSheetVersion(source, sheet.filename);
+      const payload = await ingestCharacterSheet(
+        projectId,
+        character.id,
+        file,
+        fpaiCharacterBibleCells(character),
+        { onProgress: setProgress },
+      );
+      setSourceFile(file);
+      setSheet(payload.sheet);
+      setSheets(payload.sheets || [payload.sheet]);
+      setCustomMode(false);
+      setDrawing(null);
+      setRedrawCell(null);
+      if (payload.sheet.status === "draft") {
+        setStatus("Repair version ready. The six expression crops are outlined below; review them, then click Commit Character Sheet.");
+        notify?.("Six-expression repair draft created from the stored Bible. No images were generated and no paid service was called.");
+        return;
+      }
+      const expressionCount = new Set((payload.sheet.manifest?.panels || []).map((panel) => SHEET_EXPRESSION_NAMES[panel.label]).filter(Boolean)).size;
+      if (expressionCount !== FPAI_EXPRESSION_BANK_SIZE) {
+        throw new Error("A repair version could not be created from this source. The existing committed Bible was left unchanged.");
+      }
+      const synced = await applyCommittedSheetLabels(projectId, character.id, payload.sheet.id);
+      onLibrarySync?.(synced);
+      setStatus("The six-expression version already existed, so its Expression Bank labels were reapplied.");
+      notify?.("Six-expression bank synchronized from the stored Character Bible.");
+    } catch (err) {
+      setError(err.message);
+      setStatus("Expression extraction stopped. The committed Bible and every existing reference remain unchanged.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="productionSheet">
       <div className="sectionTitle"><Grid3X3 /><span>PRODUCTION CHARACTER SHEET</span></div>
@@ -361,6 +439,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(2, 3)}>2×3</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(3, 3)}>3×3</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => applyGrid(4, 3)}>4×3</button>
+              <button type="button" className="ghost compact" disabled={busy} onClick={applyFpaiLayout}><Grid3X3 /> FPAI Bible · 6 expressions</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={startCustomLayout}><Crop /> Custom layout</button>
             </div>
           )}
@@ -394,6 +473,8 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
               {sheet.status === "committed" && <>
                 <button type="button" className="ghost" disabled={busy} onClick={applyLabels}>Apply committed labels</button>
                 <p className="sub">Use this to repair an earlier import or explicitly reselect this sheet’s required slots and matching expression images. Other images are preserved.</p>
+                <button type="button" className="primary full sheetRepair" disabled={busy} onClick={reprocessExpressionBank}><Grid3X3 /> Extract 6 Expression Panels</button>
+                <p className="sub">Creates a reviewable new version from the stored FPAI Bible and cuts out the six finished expression portraits. It does not generate images, call a paid provider, or change the committed version.</p>
               </>}
             </>
           ) : (

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { Miniflare } from "miniflare";
 import worker from "../worker/index.js";
 import { makePng } from "./imageFixtures.js";
-import { defaultCharacterSheetCells } from "../src/characterSheets.js";
+import { defaultCharacterSheetCells, fpaiCharacterBibleCells } from "../src/characterSheets.js";
 import { characterBiblePatch } from "../src/characterBibleSync.js";
 import { characterReferenceCount } from "../src/domain.js";
 
@@ -145,6 +145,21 @@ test("multipart commit publishes all five required slots, labeled anchors, expre
   assert.equal(again.data.lock.status, "current");
   for (const table of ["renders", "generation_jobs"]) {
     assert.equal((await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()).count, 0, "commit/rebuild must never start training or rendering");
+  }
+});
+
+test("FPAI Bible commit publishes Jasmine's exact six-picture Expression Bank without starting generation", async () => {
+  const { path, sheet } = await draftFor("jasmine-expression-bank", "jasmine-six", fpaiCharacterBibleCells({ id: "jasmine" }));
+  const result = await call(`${path}/character-sheets/${sheet.id}/commit`, { method: "POST", body: cropForm(sheet, "jasmine-six", { size: 320 }) });
+  assert.equal(result.response.status, 200, result.data.error?.message);
+  assert.deepEqual(result.data.sheetExpressionOrder, ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Maternal", "Exhausted"]);
+  assert.deepEqual(Object.keys(result.data.sheetExpressions), result.data.sheetExpressionOrder);
+  assert.equal(result.data.references.filter((asset) => asset.category === "expression").length, 6);
+  assert.equal(result.data.references.filter((asset) => asset.isIdentityAnchor).length, 3);
+  assert.equal(result.data.coverage.metCount, 8, "the low-resolution fixture satisfies every rule except source resolution");
+  assert.deepEqual(result.data.coverage.missing, ["Sufficient image resolution"]);
+  for (const table of ["renders", "generation_jobs"]) {
+    assert.equal((await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()).count, 0);
   }
 });
 

@@ -5,6 +5,10 @@ import {
   buildCharacterSheetManifest,
   createCustomCharacterSheetCell,
   defaultCharacterSheetCells,
+  expressionBankNamesForSheets,
+  fpaiCharacterBibleCells,
+  fpaiExpressionLabels,
+  isFpaiCharacterBibleDimensions,
   normalizeDrawnSheetBounds,
   normalizeCharacterSheetCells,
   pickCharacterSheetFile,
@@ -18,6 +22,33 @@ test("a default production sheet proposes nine reviewable character variants", (
   assert.equal(cells[0].label, "identity_front");
   assert.equal(cells.some((cell) => cell.label === "crying"), true);
   assert.equal(cells.every((cell) => cell.width === 1 / 3 && cell.height === 1 / 3), true);
+});
+
+test("the authored FPAI Bible preset extracts exactly six character-aware expression panels", () => {
+  const jasmine = fpaiCharacterBibleCells({ id: "jasmine", role: "Marcus's woman / secret architect" });
+  const marcus = fpaiCharacterBibleCells({ id: "marcus", role: "Kingpin / protagonist" });
+  const expressions = jasmine.filter((cell) => cell.label === "neutral" || [
+    "suspicious", "controlled_anger", "hurt", "maternal", "paternal", "concerned", "exhausted",
+  ].includes(cell.label));
+  assert.equal(jasmine.length, 13);
+  assert.deepEqual(expressions.map((cell) => cell.label), ["neutral", "suspicious", "controlled_anger", "hurt", "maternal", "exhausted"]);
+  assert.deepEqual(fpaiExpressionLabels({ id: "marcus" }), ["neutral", "suspicious", "controlled_anger", "hurt", "paternal", "exhausted"]);
+  assert.equal(marcus.some((cell) => cell.label === "paternal"), true);
+  assert.equal(jasmine.filter((cell) => referenceFieldsForSheetCell(cell).isIdentityAnchor).length, 3);
+  assert.equal(jasmine.every((cell) => cell.x >= 0 && cell.y >= 0 && cell.x + cell.width <= 1 && cell.y + cell.height <= 1), true);
+  assert.equal(isFpaiCharacterBibleDimensions(1145, 1374), true);
+  assert.equal(isFpaiCharacterBibleDimensions(1200, 1200), false);
+});
+
+test("expression bank order follows only the current immutable sheet version", () => {
+  const names = expressionBankNamesForSheets([
+    { id: "old", version: 1, status: "archived", manifest: { panels: [{ label: "smiling" }] } },
+    { id: "new", version: 2, status: "committed", manifest: { panels: fpaiCharacterBibleCells({ id: "jasmine" }) } },
+  ]);
+  assert.deepEqual(names, ["Neutral", "Suspicious", "Controlled Anger", "Hurt", "Maternal", "Exhausted"]);
+  assert.deepEqual(expressionBankNamesForSheets([
+    { id: "partial", version: 3, status: "committed", manifest: { panels: [{ label: "neutral" }, { label: "smiling" }] } },
+  ]), [], "an incomplete sheet must not shrink the visible six-slot bank");
 });
 
 test("sheet review normalizes safe crop bounds and rejects duplicate panel ids", () => {
