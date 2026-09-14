@@ -163,7 +163,7 @@ export function characterBiblePatch(character, payload = {}) {
     const parental = parentalExpressionName(character);
     const incompatible = parental === "Maternal" ? "Paternal" : parental === "Paternal" ? "Maternal" : "";
     const sheetOrder = payload.sheetExpressionOrder.filter((name) => name !== incompatible);
-    next.expressionBankOrder = [...new Set([...sheetOrder, ...defaultExpressionBankNames(character)])];
+    next.expressionBankOrder = [...new Set([...defaultExpressionBankNames(character), ...sheetOrder])];
   }
   return next;
 }

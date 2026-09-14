@@ -24,6 +24,7 @@ import {
   MIN_CHARACTER_SHEET_REFERENCE_DIMENSION,
   buildCharacterSheetManifest,
   canonicalAssignmentsForSheet,
+  characterSheetCropPixels,
   defaultCharacterSheetCells,
   expressionBankNamesForSheets,
   expressionAssignmentsForSheets,
@@ -861,6 +862,15 @@ async function handleSheetCommit(request, env, projectId, characterId, sheetId, 
     const referenceFields = referenceFieldsForSheetCell(cell);
     const width = Number(asset.width);
     const height = Number(asset.height);
+    const sourcePixels = characterSheetCropPixels(sheet, cell);
+    cell.sourceWidth = sourcePixels.width;
+    cell.sourceHeight = sourcePixels.height;
+    cell.outputWidth = width;
+    cell.outputHeight = height;
+    cell.separationMethod = sourcePixels.width > 0 && sourcePixels.height > 0
+      && (width > sourcePixels.width || height > sourcePixels.height)
+      ? "browser-hq"
+      : "source-crop";
     if (referenceFields.category !== "other" && width > 0 && height > 0
       && Math.min(width, height) < MIN_CHARACTER_SHEET_REFERENCE_DIMENSION) {
       fail(

@@ -1,6 +1,7 @@
 export const CHARACTER_SHEET_SCHEMA = "fpai.production-character-sheet.v1";
 // Keep multipart commits comfortably below the Worker's request/memory limits.
 export const MAX_CHARACTER_SHEET_COMMIT_BYTES = 24 * 1024 * 1024;
+export const MAX_CHARACTER_SHEET_PANELS = 32;
 
 export const SHEET_EXPRESSION_NAMES = Object.freeze({
   neutral: "Neutral",
@@ -32,8 +33,10 @@ export const CHARACTER_SHEET_LABELS = Object.freeze([
   { key: "concerned", label: "Concerned", category: "expression", expression: "concerned", canonicalSlot: "expression" },
   { key: "exhausted", label: "Exhausted", category: "expression", expression: "exhausted", canonicalSlot: "expression" },
   { key: "smiling", label: "Smiling", category: "expression", expression: "smiling", canonicalSlot: "expression" },
+  { key: "custom_expression", label: "Other Expression", category: "expression", expression: "custom" },
   { key: "crying", label: "Crying (legacy)", category: "expression", expression: "crying", canonicalSlot: "expression" },
   { key: "angry", label: "Angry (legacy)", category: "expression", expression: "angry", canonicalSlot: "expression" },
+  { key: "face_closeup", label: "Face Close-up", category: "face_closeup" },
   { key: "wardrobe", label: "Wardrobe", category: "wardrobe", canonicalSlot: "wardrobe" },
   { key: "action_pose", label: "Action / Pose", category: "action_pose" },
   { key: "exclude", label: "Exclude", category: "other", excluded: true },
@@ -57,6 +60,11 @@ export const CUSTOM_CHARACTER_SHEET_LABELS = Object.freeze([
 
 export const FPAI_EXPRESSION_BANK_SIZE = 6;
 export const MIN_CHARACTER_SHEET_REFERENCE_DIMENSION = 512;
+export const CHARACTER_SHEET_SEPARATION_TARGET = 1024;
+export const MAX_CHARACTER_SHEET_SEPARATION_SCALE = 8;
+export const MAX_CHARACTER_SHEET_SEPARATION_DIMENSION = 2400;
+export const MIN_CHARACTER_SHEET_SEPARATION_SOURCE_DIMENSION = 96;
+export const FPAI_CONTACT_SHEET_PANEL_COUNT = 26;
 
 function parentalExpressionKey(character = {}) {
   const id = String(character.id || "").toLowerCase();
@@ -96,11 +104,97 @@ export function fpaiCharacterBibleCells(character = {}) {
   return normalizeCharacterSheetCells(cells);
 }
 
+const CONTACT_SHEET_WIDTH = 1024;
+const CONTACT_SHEET_HEIGHT = 1536;
+
+function contactSheetCell(id, label, [left, top, right, bottom], variant) {
+  return {
+    id: `cell-${id}`,
+    label,
+    x: left / CONTACT_SHEET_WIDTH,
+    y: top / CONTACT_SHEET_HEIGHT,
+    width: (right - left) / CONTACT_SHEET_WIDTH,
+    height: (bottom - top) / CONTACT_SHEET_HEIGHT,
+    variant,
+  };
+}
+
+// FPAI Character Bible v1.2 is a 1024x1536 contact sheet containing five main
+// references, nine expressions, and twelve supporting angles. Crop only the
+// photography inside each card so headings and captions never reach a model.
+export function fpaiContactSheetCells() {
+  const cells = [
+    contactSheetCell(1, "identity_front", [13, 109, 208, 564], "01-identity-front"),
+    contactSheetCell(2, "profile_left", [214, 109, 410, 564], "02-profile-left"),
+    contactSheetCell(3, "full_body", [415, 109, 612, 564], "03-full-body"),
+    contactSheetCell(4, "controlled_anger", [616, 109, 813, 564], "04-expression-intense"),
+    contactSheetCell(5, "wardrobe", [818, 109, 1012, 564], "05-wardrobe-tactical-masked"),
+  ];
+  const expressionBoxes = [
+    [13, 663, 120, 873],
+    [124, 663, 231, 873],
+    [235, 663, 342, 873],
+    [346, 663, 454, 873],
+    [458, 663, 565, 873],
+    [569, 663, 676, 873],
+    [680, 663, 788, 873],
+    [792, 663, 899, 873],
+    [903, 663, 1012, 873],
+  ];
+  const expressionLabels = [
+    ["neutral", "06-neutral"],
+    ["concerned", "07-thoughtful"],
+    ["suspicious", "08-suspicious"],
+    ["controlled_anger", "09-angry"],
+    ["exhausted", "10-tired"],
+    ["hurt", "11-pained"],
+    ["custom_expression", "12-confident"],
+    ["action_pose", "13-on-phone"],
+    ["custom_expression", "14-focused"],
+  ];
+  expressionBoxes.forEach((box, index) => {
+    const [label, variant] = expressionLabels[index];
+    cells.push(contactSheetCell(index + 6, label, box, variant));
+  });
+  const supportingBoxes = [];
+  for (const [top, bottom] of [[952, 1134], [1171, 1400]]) {
+    for (const [left, right] of [[13, 175], [181, 342], [348, 509], [515, 676], [682, 845], [850, 1012]]) {
+      supportingBoxes.push([left, top, right, bottom]);
+    }
+  }
+  const supportingLabels = [
+    ["action_pose", "15-armed"],
+    ["action_pose", "16-firing"],
+    ["wardrobe", "17-tactical"],
+    ["action_pose", "18-in-vehicle"],
+    ["wardrobe", "19-suit"],
+    ["wardrobe", "20-hoodie"],
+    ["wardrobe", "21-streetwear"],
+    ["action_pose", "22-looking-down"],
+    ["three_quarter_right", "23-looking-away"],
+    ["wardrobe", "24-alternate-look"],
+    ["action_pose", "25-back-view"],
+    ["face_closeup", "26-low-light"],
+  ];
+  supportingBoxes.forEach((box, index) => {
+    const [label, variant] = supportingLabels[index];
+    cells.push(contactSheetCell(index + 15, label, box, variant));
+  });
+  return normalizeCharacterSheetCells(cells);
+}
+
 export function isFpaiCharacterBibleDimensions(width, height) {
   const w = Number(width);
   const h = Number(height);
   if (!Number.isFinite(w) || !Number.isFinite(h) || w < 900 || h < 1000) return false;
   return Math.abs(w / h - 5 / 6) <= 0.015;
+}
+
+export function isFpaiContactSheetDimensions(width, height) {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 900 || h < 1350) return false;
+  return Math.abs(w / h - 2 / 3) <= 0.015;
 }
 
 export function characterSheetCropPixels(sheet = {}, cell = {}) {
@@ -112,6 +206,37 @@ export function characterSheetCropPixels(sheet = {}, cell = {}) {
     width: Math.max(1, Math.round(sourceWidth * Number(cell.width || 0))),
     height: Math.max(1, Math.round(sourceHeight * Number(cell.height || 0))),
   };
+}
+
+export function characterSheetSeparationPlan(sheet = {}, cell = {}) {
+  const source = characterSheetCropPixels(sheet, cell);
+  const shortest = Math.min(source.width, source.height);
+  const longest = Math.max(source.width, source.height);
+  if (!shortest || !longest) {
+    return { source, output: source, scale: 1, needsSeparation: false, canSeparate: true };
+  }
+  if (shortest >= MIN_CHARACTER_SHEET_REFERENCE_DIMENSION) {
+    return { source, output: source, scale: 1, needsSeparation: false, canSeparate: true };
+  }
+  const scale = Math.min(
+    MAX_CHARACTER_SHEET_SEPARATION_SCALE,
+    CHARACTER_SHEET_SEPARATION_TARGET / shortest,
+    MAX_CHARACTER_SHEET_SEPARATION_DIMENSION / longest,
+  );
+  const output = {
+    width: Math.max(1, Math.round(source.width * scale)),
+    height: Math.max(1, Math.round(source.height * scale)),
+  };
+  const canSeparate = shortest >= MIN_CHARACTER_SHEET_SEPARATION_SOURCE_DIMENSION
+    && Math.min(output.width, output.height) >= MIN_CHARACTER_SHEET_REFERENCE_DIMENSION;
+  return { source, output, scale, needsSeparation: scale > 1, canSeparate };
+}
+
+export function isUnseparableReferenceCrop(sheet = {}, cell = {}) {
+  const preset = labelByKey.get(cell.label);
+  if (!preset || preset.excluded || preset.category === "other" || cell.included === false) return false;
+  const plan = characterSheetSeparationPlan(sheet, cell);
+  return Boolean(plan.source.width && plan.source.height && !plan.canSeparate);
 }
 
 export function isLowResolutionExpressionCrop(sheet = {}, cell = {}) {
@@ -150,7 +275,7 @@ export function normalizeDrawnSheetBounds(start, end, minimumSize = 0.02) {
 
 export function createCustomCharacterSheetCell(cells, bounds, overrides = {}) {
   const current = Array.isArray(cells) ? cells : [];
-  if (current.length >= 20) throw new Error("A character sheet can contain at most 20 review panels.");
+  if (current.length >= MAX_CHARACTER_SHEET_PANELS) throw new Error(`A character sheet can contain at most ${MAX_CHARACTER_SHEET_PANELS} review panels.`);
   const used = new Set(current.map((cell) => cell.id));
   let number = 1;
   while (used.has(`cell-${number}`)) number += 1;
@@ -183,7 +308,7 @@ export function defaultCharacterSheetCells(columns = 3, rows = 3) {
 }
 
 export function normalizeCharacterSheetCells(cells) {
-  if (!Array.isArray(cells) || cells.length < 1 || cells.length > 20) throw new Error("A character sheet needs 1 to 20 review panels.");
+  if (!Array.isArray(cells) || cells.length < 1 || cells.length > MAX_CHARACTER_SHEET_PANELS) throw new Error(`A character sheet needs 1 to ${MAX_CHARACTER_SHEET_PANELS} review panels.`);
   const ids = new Set();
   return cells.map((cell, index) => {
     const id = String(cell?.id || `cell-${index + 1}`).slice(0, 80);
@@ -197,18 +322,28 @@ export function normalizeCharacterSheetCells(cells) {
     return {
       id,
       label,
+      variant: String(cell?.variant || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80),
       x,
       y,
       width,
       height,
       included: cell?.included !== false && label !== "exclude",
       assetId: cell?.assetId ? String(cell.assetId) : null,
+      sourceWidth: Math.max(0, Math.round(Number(cell?.sourceWidth) || 0)),
+      sourceHeight: Math.max(0, Math.round(Number(cell?.sourceHeight) || 0)),
+      outputWidth: Math.max(0, Math.round(Number(cell?.outputWidth) || 0)),
+      outputHeight: Math.max(0, Math.round(Number(cell?.outputHeight) || 0)),
+      separationMethod: cell?.separationMethod === "browser-hq" ? "browser-hq" : "source-crop",
     };
   });
 }
 
 export function referenceFieldsForSheetCell(cell, wardrobe = "") {
   const preset = labelByKey.get(cell.label) || labelByKey.get("action_pose");
+  const tags = ["production-character-sheet", `sheet-panel:${cell.id}`, `variant:${preset.key}`];
+  if (cell.variant && cell.variant !== preset.key) tags.push(`sheet-view:${cell.variant}`);
+  if (cell.separationMethod === "browser-hq") tags.push("software-separated");
+  if (cell.sourceWidth && cell.sourceHeight) tags.push(`source-crop:${cell.sourceWidth}x${cell.sourceHeight}`);
   return {
     category: preset.category,
     angle: preset.angle || "",
@@ -218,7 +353,7 @@ export function referenceFieldsForSheetCell(cell, wardrobe = "") {
     isPrimary: preset.key === "identity_front",
     isIdentityAnchor: ["identity_front", "three_quarter_left", "three_quarter_right", "profile_left", "profile_right"].includes(preset.key),
     approvalState: "approved",
-    tags: ["production-character-sheet", `sheet-panel:${cell.id}`, `variant:${preset.key}`],
+    tags,
   };
 }
 
