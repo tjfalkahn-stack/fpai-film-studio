@@ -4,6 +4,7 @@ import {
   SUFFICIENT_RESOLUTION,
   normalizeMimeType,
 } from "./imageMeta.js";
+import { characterRealismLockManifest } from "./characterRealismLock.js";
 
 const CANONICAL_REFERENCE_CATEGORIES = [
   { key: "identityFront", legacyKeys: ["masterFace"] },
@@ -553,6 +554,7 @@ export function buildCharacterLockManifest({
     projectId,
     characterId,
     lockVersion: Number(lockVersion) || 1,
+    realismLock: characterRealismLockManifest(),
     canonicalSlots: Object.fromEntries(CANONICAL_SLOT_KEYS.filter((slot) => {
       const value = canonicalSlots[slot];
       const id = typeof value === "string" ? value : value?.id;

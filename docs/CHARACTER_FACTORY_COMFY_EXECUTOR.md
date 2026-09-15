@@ -53,6 +53,6 @@ Do not put the Comfy URL, API key, or client ID in Vite variables, browser stora
 
 `runCharacterFactoryPlan` processes every job sequentially, polls Comfy history, downloads the resulting image through `/view`, passes it to an image-QC callback, automatically retries failures up to the configured attempt cap, and emits both `character.json` and `manifest.json` data structures.
 
-The QC callback is deliberately a dependency rather than a hard-coded model. It must return the five metrics Character Factory already scores: identity, anatomy, framing, wardrobe, and artifactFree.
+The QC callback is deliberately a dependency rather than a hard-coded model. It must return the six metrics Character Factory scores: identity, photographicRealism, anatomy, framing, wardrobe, and artifactFree.
 
 No live-render switch is enabled by this path. `CHARACTER_FACTORY_LIVE_ENABLED` stays independent of the video `LIVE_RENDERING_ENABLED` gate and remains `false` in the repo. The first controlled GPU test is a **single Jasmine still** (see the RunPod runbook), not the full Marcus matrix.

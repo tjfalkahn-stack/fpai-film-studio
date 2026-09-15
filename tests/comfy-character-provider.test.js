@@ -151,6 +151,8 @@ test("native FPAI workflow injects multiple Character Bible references into Load
   assert.equal(sampler.inputs.seed, 7);
   assert.equal(sampler.inputs.steps, 28);
   assert.equal(sampler.inputs.cfg, 5.5);
+  const negative = nodes.find((node) => node.class_type === "CLIPTextEncode" && /watermark/i.test(node.inputs.text));
+  assert.match(negative.inputs.text, /video game/i);
   assert.equal(nodes.find((node) => node.class_type === "SaveImage").inputs.filename_prefix, "jasmine-angle-identity-front-a1");
 });
 

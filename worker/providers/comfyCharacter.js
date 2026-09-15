@@ -22,6 +22,7 @@ import {
   selectIdentityReferences,
 } from "../../src/characterStillStack.js";
 import { buildCharacterStillWorkflow } from "../../src/characterStillWorkflow.js";
+import { mergeCharacterNegativePrompts } from "../../src/characterRealismLock.js";
 import { runComfyCharacterPreflight } from "./comfyPreflight.js";
 
 async function loadOverrideWorkflow(env) {
@@ -100,12 +101,16 @@ export function createComfyCharacterExecutor(env = {}, fetchImpl = fetch) {
         }),
       );
       const sampler = samplerSettings(env, { steps, cfg });
+      const lockedNegativePrompt = mergeCharacterNegativePrompts(
+        CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT,
+        negativePrompt,
+      );
       const override = await loadOverrideWorkflow(env);
       let workflow;
       if (override) {
         const replacements = {
           __FPAI_PROMPT__: prompt,
-          __FPAI_NEGATIVE_PROMPT__: negativePrompt || CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT,
+          __FPAI_NEGATIVE_PROMPT__: lockedNegativePrompt,
           __FPAI_WIDTH__: Number(width),
           __FPAI_HEIGHT__: Number(height),
           __FPAI_SEED__: Number(seed),
@@ -121,7 +126,7 @@ export function createComfyCharacterExecutor(env = {}, fetchImpl = fetch) {
         workflow = requireApiWorkflow(
           buildCharacterStillWorkflow({
             prompt,
-            negativePrompt: negativePrompt || CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT,
+            negativePrompt: lockedNegativePrompt,
             seed,
             width,
             height,
