@@ -24,7 +24,7 @@ Character Factory does **not** use the stock ComfyUI starter demo (`DreamShaper_
 
 Canonical filenames and URLs: `deploy/runpod-comfyui/models.manifest.json`. Film Studio graph: `src/characterStillWorkflow.js`. Example export: `deploy/runpod-comfyui/workflows/character-still-photoreal-api.json`.
 
-IPAdapter preset: `PLUS (high strength)`. Sampler: DPM++ 2M Karras, 30 steps, CFG 6, 1024×1024 unless overridden.
+IPAdapter preset: `PLUS (high strength)`, weight 0.90. Sampler: DPM++ 2M Karras, 50 steps, CFG 6, 1024×1024 unless overridden. The 50-step default follows the RealVisXL V5.0 model-card recommendation for DPM++ 2M Karras.
 
 ## What Film Studio calls
 
@@ -212,7 +212,7 @@ Optional:
 
 ```toml
 COMFYUI_CLIENT_ID = "fpai-film-studio"
-CHARACTER_FACTORY_STEPS = "30"
+CHARACTER_FACTORY_STEPS = "50"
 CHARACTER_FACTORY_CFG = "6"
 ```
 

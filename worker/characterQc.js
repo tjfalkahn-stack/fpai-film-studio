@@ -1,4 +1,5 @@
 import { ProviderError } from "./providers/contract.js";
+import { selectIdentityReferences } from "../src/characterStillStack.js";
 
 function fail(code, message, httpStatus = 500, extra = {}) {
   throw new ProviderError(code, message, { httpStatus, ...extra });
@@ -32,9 +33,10 @@ function rubric({ job, plan }) {
   return [
     "You are the visual quality-control judge for an automated film character factory.",
     "Evaluate only what is visible. Do not reward artistic appeal if identity or anatomy drifted.",
-    "Return strict JSON only with keys identity, anatomy, framing, wardrobe, artifactFree, notes.",
+    "Return strict JSON only with keys identity, photographicRealism, anatomy, framing, wardrobe, artifactFree, notes.",
     "Every score must be a number from 0.0 to 1.0.",
     "identity: same person and stable apparent age, face, skin tone, hairline, body proportions, and height impression.",
+    "photographicRealism: looks like an unretouched live-action camera photograph of a real human at 100% view, with natural skin microtexture, hair, fabric, optics, lighting, and color. Cartoon, illustration, CGI, 3D, video-game, plastic, waxy, airbrushed, over-smoothed, hyper-sharpened, or uncanny imagery must score below 0.50.",
     "anatomy: natural body/face/hands with no malformed or duplicated features.",
     "framing: requested angle/crop/pose is actually satisfied.",
     "wardrobe: requested clothing and protected wardrobe details are correct.",
@@ -47,8 +49,21 @@ function rubric({ job, plan }) {
     job.label ? `Requested task: ${job.label}.` : "",
     job.wardrobe ? `Requested wardrobe: ${job.wardrobe}.` : "",
     `Generation prompt: ${job.prompt}`,
+    "Use the supplied canonical reference images to judge exact identity. The final image part is the generated candidate being scored.",
     "Be conservative. If evidence is ambiguous, lower the score rather than guessing.",
   ].filter(Boolean).join("\n");
+}
+
+function referenceParts(job, plan) {
+  const references = job?.referenceImages?.length ? job.referenceImages : plan?.referenceImages || [];
+  const inlineImages = references.filter(
+    (reference) => reference?.data && /^image\/(png|jpeg|webp)$/i.test(reference.mimeType || ""),
+  );
+  return selectIdentityReferences(inlineImages, 3)
+    .flatMap((reference, index) => [
+      { text: `Canonical identity reference ${index + 1}${reference.category ? ` (${reference.category})` : ""}:` },
+      { inlineData: { mimeType: reference.mimeType, data: reference.data } },
+    ]);
 }
 
 function extractJson(payload) {
@@ -70,6 +85,8 @@ export function createGeminiCharacterEvaluator(env = {}, fetchImpl = fetch) {
       body: JSON.stringify({
         contents: [{ role: "user", parts: [
           { text: rubric({ job, plan }) },
+          ...referenceParts(job, plan),
+          { text: "Generated candidate image to score:" },
           { inlineData: { mimeType, data: encodeBase64(bytes) } },
         ] }],
         generationConfig: {
@@ -86,6 +103,7 @@ export function createGeminiCharacterEvaluator(env = {}, fetchImpl = fetch) {
     return {
       metrics: {
         identity: clamp(parsed.identity),
+        photographicRealism: clamp(parsed.photographicRealism),
         anatomy: clamp(parsed.anatomy),
         framing: clamp(parsed.framing),
         wardrobe: clamp(parsed.wardrobe),

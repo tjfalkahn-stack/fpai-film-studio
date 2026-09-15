@@ -15,6 +15,7 @@ import {
   roundLatentDimension,
   selectIdentityReferences,
 } from "./characterStillStack.js";
+import { mergeCharacterNegativePrompts } from "./characterRealismLock.js";
 
 function addNode(nodes, classType, inputs, title) {
   const id = String(Object.keys(nodes).length + 1);
@@ -64,6 +65,10 @@ export function buildCharacterStillWorkflow({
 } = {}) {
   const text = String(prompt || "").trim();
   if (!placeholders && !text) throw new Error("Character prompt is required.");
+  const lockedNegativePrompt = mergeCharacterNegativePrompts(
+    CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT,
+    negativePrompt,
+  );
 
   const nodes = {};
   const ckpt = addNode(
@@ -82,7 +87,7 @@ export function buildCharacterStillWorkflow({
     nodes,
     "CLIPTextEncode",
     {
-      text: placeholders ? "__FPAI_NEGATIVE_PROMPT__" : String(negativePrompt || CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT),
+      text: placeholders ? "__FPAI_NEGATIVE_PROMPT__" : lockedNegativePrompt,
       clip: [ckpt, 1],
     },
     "Negative prompt",

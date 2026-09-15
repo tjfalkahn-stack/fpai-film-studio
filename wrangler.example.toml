@@ -28,6 +28,7 @@ COMFYUI_COST_PER_SECOND_USD = "0"
 COMFYUI_CHARACTER_WORKFLOW_NAME = "fpai-character-still-photoreal-sdxl-v1"
 COMFYUI_CHARACTER_COST_PER_IMAGE_USD = "0"
 CHARACTER_FACTORY_LIVE_ENABLED = "false"
+CHARACTER_FACTORY_STEPS = "50"
 # Optional operator override only. Leave unset to use the owned Film Studio identity graph.
 # COMFYUI_CHARACTER_WORKFLOW_KEY = "comfy/workflows/character-still.json"
 
