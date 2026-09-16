@@ -83,7 +83,17 @@ export function applyPersistedCanonicalSlots(character = {}, canonicalSlots = {}
       delete refs[slot];
       continue;
     }
-    if (current.source === "library" || (String(current.key || "").startsWith("library:") && current.canonical !== true)) {
+    // A server payload containing canonicalSlots is authoritative. When a
+    // reference is removed, its slot disappears from that map; clear every
+    // server-backed form of the old assignment, including canonical refs.
+    // Browser-only legacy uploads have no asset id and remain untouched until
+    // they are explicitly replaced or migrated.
+    if (
+      current.assetId
+      || current.source === "library"
+      || current.source === "canonical"
+      || String(current.key || "").startsWith("library:")
+    ) {
       delete refs[slot];
     }
   }

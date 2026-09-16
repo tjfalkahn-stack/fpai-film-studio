@@ -335,6 +335,24 @@ test("inferred library keys are dropped when no persisted canonical assignment e
   assert.equal(refs.identityFront, undefined);
 });
 
+test("an authoritative empty slot map clears a deleted canonical reference", () => {
+  const character = {
+    id: "marcus",
+    refs: {
+      identityFront: {
+        key: "library:old-front",
+        source: "canonical",
+        canonical: true,
+        assetId: "old-front",
+      },
+      profile: { key: "char:marcus:profile:legacy", name: "local-profile.png" },
+    },
+  };
+  const refs = syncCanonicalRefsFromLibrary(character, [], {});
+  assert.equal(refs.identityFront, undefined);
+  assert.equal(refs.profile.key, "char:marcus:profile:legacy");
+});
+
 test("replacing one persisted slot leaves the other four canonical assignments intact", () => {
   const character = { id: "marcus", refs: {} };
   const slots = {

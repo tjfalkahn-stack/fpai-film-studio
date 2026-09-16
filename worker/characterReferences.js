@@ -572,7 +572,7 @@ async function handleDelete(env, projectId, characterId, id) {
   await clearCanonicalSlotsForAsset(env, projectId, characterId, id);
   await markLockStale(env, projectId, characterId);
   const payload = await libraryPayload(env, projectId, characterId);
-  return json({ ...payload, deleted: true, archived: true, id });
+  return json({ ...payload, deleted: true, archived: true, id, deletedId: id });
 }
 
 async function handleRebuildLock(env, projectId, characterId) {
