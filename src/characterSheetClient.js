@@ -18,6 +18,10 @@ export async function fetchCharacterSheets(projectId, characterId) {
   return readJson(await fetch(base(projectId, characterId)));
 }
 
+export async function clearActiveCharacterSheets(projectId, characterId) {
+  return readJson(await fetch(base(projectId, characterId), { method: "DELETE" }));
+}
+
 export function ingestCharacterSheet(projectId, characterId, file, cells, { onProgress } = {}) {
   const form = new FormData();
   form.set("file", file);

@@ -21,6 +21,7 @@ import {
 } from "./characterSheets.js";
 import {
   applyCommittedSheetLabels,
+  clearActiveCharacterSheets,
   commitCharacterSheet,
   fetchCharacterSheets,
   ingestCharacterSheet,
@@ -29,6 +30,9 @@ import {
 
 const ACCEPT = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
 const clamp = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+const activeSheet = (items = []) => items.find((item) => item.status === "draft")
+  || items.find((item) => item.status === "committed")
+  || null;
 
 function cropPreviewStyle(source, cell) {
   if (!source) return {};
@@ -118,6 +122,7 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
   const [drawing, setDrawing] = useState(null);
   const [redrawCell, setRedrawCell] = useState(null);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState(false);
   const cells = sheet?.cells || [];
   const previewUrl = useMemo(() => sourceFile ? URL.createObjectURL(sourceFile) : sheet?.assetUrl || "", [sourceFile, sheet?.assetUrl]);
   const committed = sheet?.status === "committed" || sheet?.status === "archived";
@@ -144,12 +149,13 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     setDrawing(null);
     setRedrawCell(null);
     setReviewConfirmed(false);
+    setRemoveConfirm(false);
     setError("");
     setStatus("Checking for a saved character sheet…");
     fetchCharacterSheets(projectId, character.id).then((payload) => {
       if (canceled) return;
       setSheets(payload.sheets || []);
-      setSheet((payload.sheets || []).find((item) => item.status === "draft") || (payload.sheets || [])[0] || null);
+      setSheet(activeSheet(payload.sheets));
       setStatus("");
     }).catch((err) => {
       if (canceled) return;
@@ -222,6 +228,33 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
     event.stopPropagation();
     setDropActive(false);
     if (!busy) receiveFiles(event.dataTransfer.files);
+  }
+
+  async function removeOldSheet() {
+    setBusy(true);
+    setError("");
+    setStatus("Removing the old active Character Sheet…");
+    try {
+      const payload = await clearActiveCharacterSheets(projectId, character.id);
+      const nextSheets = payload.sheets || [];
+      setSheets(nextSheets);
+      setSheet(activeSheet(nextSheets));
+      setSourceFile(null);
+      setCustomMode(false);
+      setDrawing(null);
+      setRedrawCell(null);
+      setReviewConfirmed(false);
+      setRemoveConfirm(false);
+      setProgress(0);
+      setStatus("Old Character Sheet removed. Your individual reference photos were preserved.");
+      onLibrarySync?.(payload);
+      notify?.("Old Production Character Sheet removed. Individual reference photos were preserved.");
+    } catch (err) {
+      setError(err.message);
+      setStatus("The old Character Sheet was not removed. Your photos were not changed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function changeCell(id, patch) {
@@ -546,7 +579,18 @@ export default function ProductionCharacterSheet({ projectId, character, onLibra
         <>
           <div className="sheetHead">
             <div><b>{sheet.filename}</b><small>Version {sheet.version} · {sheet.status}</small></div>
-            <button type="button" className="ghost compact" disabled={busy} onClick={() => input.current?.click()}>Upload new version</button>
+            <div className="sheetHeadActions">
+              <button type="button" className="ghost compact" disabled={busy} onClick={() => input.current?.click()}>Upload new version</button>
+              {!removeConfirm ? (
+                <button type="button" className="ghost compact danger" disabled={busy} onClick={() => setRemoveConfirm(true)}><Trash2 /> Remove old sheet</button>
+              ) : (
+                <span className="sheetRemoveConfirm">
+                  <b>Remove this old sheet?</b>
+                  <button type="button" className="ghost compact" disabled={busy} onClick={() => setRemoveConfirm(false)}>Cancel</button>
+                  <button type="button" className="danger compact" disabled={busy} onClick={removeOldSheet}>Remove</button>
+                </span>
+              )}
+            </div>
           </div>
           <div className="sheetPreview">
             <div

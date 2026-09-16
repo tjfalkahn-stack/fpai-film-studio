@@ -330,6 +330,35 @@ test("commit rejects cross-character asset ids, repeated crop images, and oversi
   assert.equal((await call(`${path}/references`)).data.references.length, 0);
 });
 
+test("clearing the active Production Character Sheet discards drafts, retires the committed sheet, and preserves individual references", async () => {
+  const { path, sheet: first } = await draftFor("marcus-clear", "marcus-old-sheet", defaultCharacterSheetCells().slice(0, 1));
+  const committed = await call(`${path}/character-sheets/${first.id}/commit`, { method: "POST", body: cropForm(first, "marcus-clear") });
+  assert.equal(committed.response.status, 200, committed.data.error?.message);
+  const referenceIds = committed.data.references.map((reference) => reference.id);
+  await call(`${path}/lock`, { method: "POST", body: {} });
+
+  const { sheet: draft } = await draftFor("marcus-clear", "marcus-replacement-draft", defaultCharacterSheetCells().slice(0, 1));
+  const draftKey = `character-sheets/enemies-closer-ep01/marcus-clear/${draft.id}/marcus-replacement-draft.png`;
+  const committedKey = `character-sheets/enemies-closer-ep01/marcus-clear/${first.id}/marcus-old-sheet.png`;
+  assert.ok(await env.GENERATION_MEDIA.get(draftKey));
+  assert.ok(await env.GENERATION_MEDIA.get(committedKey));
+
+  const cleared = await call(`${path}/character-sheets`, { method: "DELETE" });
+  assert.equal(cleared.response.status, 200, cleared.data.error?.message);
+  assert.equal(cleared.data.discardedDrafts, 1);
+  assert.equal(cleared.data.archivedCommitted, 1);
+  assert.equal(cleared.data.sheets.some((item) => item.status === "draft" || item.status === "committed"), false);
+  assert.deepEqual(cleared.data.references.map((reference) => reference.id), referenceIds);
+  assert.equal(cleared.data.lock.status, "stale");
+  assert.equal(await env.GENERATION_MEDIA.get(draftKey), null);
+  assert.ok(await env.GENERATION_MEDIA.get(committedKey), "historical committed source must remain available to old manifests");
+
+  const repeated = await call(`${path}/character-sheets`, { method: "DELETE" });
+  assert.equal(repeated.response.status, 200);
+  assert.equal(repeated.data.discardedDrafts, 0);
+  assert.equal(repeated.data.archivedCommitted, 0);
+});
+
 test("an ambiguous response after D1 commit never deletes published R2 crops, and retry reads the committed manifest", async () => {
   const { path, sheet } = await draftFor("ambiguous-test", "ambiguous-response", defaultCharacterSheetCells().slice(0, 1));
   env.GENERATION_DB = { prepare: db.prepare.bind(db), batch: async (statements) => {
