@@ -294,14 +294,15 @@ export default function ReferenceLibrary({
 
   async function confirmDelete() {
     const asset = pendingDelete;
-    if (!asset) return;
+    if (!asset || busy) return;
     setBusy(true);
+    setError("");
     try {
-      await deleteCharacterReference(projectId, character.id, asset.id);
+      const payload = await deleteCharacterReference(projectId, character.id, asset.id);
+      applyPayload(payload);
       setPendingDelete(null);
       setSelected((current) => current.filter((id) => id !== asset.id));
-      await refresh();
-      notify?.("Reference removed. Character assignments and existing shots were not changed.");
+      notify?.("Image removed from the library. Earlier locks and takes retain their original image.");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -469,7 +470,7 @@ export default function ReferenceLibrary({
               <button type="button" className="iconButton" title="Preview" onClick={() => setPreview(asset)}><Eye /></button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => move(asset, -1)}>Up</button>
               <button type="button" className="ghost compact" disabled={busy} onClick={() => move(asset, 1)}>Down</button>
-              <button type="button" className="iconButton" title="Delete" onClick={() => setPendingDelete(asset)}><Trash2 /></button>
+              <button type="button" className="iconButton" title="Delete" aria-label={`Delete ${asset.filename}`} disabled={busy} onClick={() => { setError(""); setPendingDelete(asset); }}><Trash2 /></button>
             </div>
             <div className="formGrid two compactForm">
               <label>Category
@@ -505,13 +506,14 @@ export default function ReferenceLibrary({
       )}
       {pendingDelete && createPortal(
         <div className="overlay previewOverlay">
-          <div className="confirmCard">
+          <div className="confirmCard" role="dialog" aria-modal="true" aria-labelledby="delete-reference-title" aria-busy={busy}>
             <CheckCircle2 />
-            <h3>Delete this reference?</h3>
-            <p>Remove {pendingDelete.filename} from {character.name}. Existing shots and character assignments stay intact.</p>
+            <h3 id="delete-reference-title">Remove this image?</h3>
+            <p>Remove {pendingDelete.filename} from {character.name}’s active library and any assigned reference slot. Earlier locks and takes keep their original image. You can upload a replacement afterward.</p>
+            {error && <div className="validation" role="alert"><AlertTriangle /> {error}</div>}
             <div className="buttonRow">
-              <button type="button" className="ghost" onClick={() => setPendingDelete(null)}>Cancel</button>
-              <button type="button" className="primary" disabled={busy} onClick={confirmDelete}><Trash2 /> Delete image</button>
+              <button type="button" className="ghost" disabled={busy} onClick={() => setPendingDelete(null)}>Cancel</button>
+              <button type="button" className="primary" disabled={busy} onClick={confirmDelete}><Trash2 /> {busy ? "Removing…" : "Delete image"}</button>
             </div>
           </div>
         </div>,

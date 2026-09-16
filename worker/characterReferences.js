@@ -227,6 +227,31 @@ async function clearCanonicalSlotsForAsset(env, projectId, characterId, assetId)
   }
 }
 
+// Removed references remain addressable by historical locks and takes, but are
+// absent from the active library, capacity count, and generation selection.
+const REFERENCE_ARCHIVE_SCHEMA = `CREATE TABLE IF NOT EXISTS character_reference_archive (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  character_id TEXT NOT NULL,
+  row_json TEXT NOT NULL,
+  removed_at TEXT NOT NULL
+)`;
+
+async function getHistoricalAssetRow(env, projectId, characterId, id) {
+  const active = await getAssetRow(env, projectId, characterId, id);
+  if (active) return active;
+  try {
+    const archived = await dbOf(env).prepare(
+      "SELECT row_json FROM character_reference_archive WHERE id=? AND project_id=? AND character_id=?",
+    ).bind(id, projectId, characterId).first();
+    return archived ? JSON.parse(archived.row_json) : null;
+  } catch (error) {
+    // Existing installations acquire this additive table on first removal.
+    if (/no such table: character_reference_archive/i.test(String(error?.message))) return null;
+    throw error;
+  }
+}
+
 async function getAssetRow(env, projectId, characterId, id) {
   return dbOf(env)
     .prepare("SELECT * FROM character_references WHERE id=? AND project_id=? AND character_id=?")
@@ -533,23 +558,21 @@ async function handleReorder(env, projectId, characterId, orderedIds) {
 async function handleDelete(env, projectId, characterId, id) {
   const row = await getAssetRow(env, projectId, characterId, id);
   if (!row) fail("NOT_FOUND", "Reference image not found.", 404);
-  const preserved = await dbOf(env).prepare(
-    "SELECT id FROM character_locks WHERE project_id=? AND character_id=? AND manifest_json LIKE ? LIMIT 1",
-  ).bind(projectId, characterId, `%\"${id}\"%`).first();
-  if (preserved) fail("REFERENCE_PRESERVED", "This image belongs to a saved Character Lock. Exclude it from future generation to preserve earlier takes and versions.", 409);
-  await dbOf(env)
-    .prepare("DELETE FROM character_references WHERE id=? AND project_id=? AND character_id=?")
-    .bind(id, projectId, characterId)
-    .run();
+  const db = dbOf(env);
+  await db.prepare(REFERENCE_ARCHIVE_SCHEMA).run();
+  // D1 batch is atomic: never remove active metadata without retaining the
+  // original row required to resolve immutable manifests and old asset URLs.
+  await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO character_reference_archive
+      (id, project_id, character_id, row_json, removed_at) VALUES (?, ?, ?, ?, ?)`)
+      .bind(id, projectId, characterId, JSON.stringify(row), stamp()),
+    db.prepare("DELETE FROM character_references WHERE id=? AND project_id=? AND character_id=?")
+      .bind(id, projectId, characterId),
+  ]);
   await clearCanonicalSlotsForAsset(env, projectId, characterId, id);
-  try {
-    await mediaOf(env).delete(row.r2_key);
-  } catch {
-    // Metadata is already gone; leftover R2 objects are orphaned and must not resurrect the row.
-  }
   await markLockStale(env, projectId, characterId);
   const payload = await libraryPayload(env, projectId, characterId);
-  return json({ ...payload, deleted: true, id });
+  return json({ ...payload, deleted: true, archived: true, id });
 }
 
 async function handleRebuildLock(env, projectId, characterId) {
@@ -1015,7 +1038,7 @@ export async function resolveProviderReferenceImages(env, projectId, selection, 
   }
   const images = [];
   for (const item of limited) {
-    const row = await getAssetRow(env, projectId, item.characterId, item.assetId);
+    const row = await getHistoricalAssetRow(env, projectId, item.characterId, item.assetId);
     if (!row) continue;
     const object = await mediaOf(env).get(row.r2_key);
     if (!object) continue;
@@ -1065,7 +1088,7 @@ export async function characterReferenceRoutes(request, env) {
 
     if (matched.assetId && matched.asset) {
       if (request.method !== "GET") fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
-      const row = await getAssetRow(env, projectId, characterId, matched.assetId);
+      const row = await getHistoricalAssetRow(env, projectId, characterId, matched.assetId);
       if (!row) fail("NOT_FOUND", "Reference image not found.", 404);
       return await handleAsset(request, env, row);
     }

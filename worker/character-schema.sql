@@ -84,3 +84,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_character_sheets_hash
   ON character_sheets(project_id, character_id, content_hash);
 CREATE INDEX IF NOT EXISTS idx_character_sheets_character
   ON character_sheets(project_id, character_id, version DESC);
+
+-- Retains image bytes and metadata used by historical locks after library removal.
+CREATE TABLE IF NOT EXISTS character_reference_archive (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  character_id TEXT NOT NULL,
+  row_json TEXT NOT NULL,
+  removed_at TEXT NOT NULL
+);

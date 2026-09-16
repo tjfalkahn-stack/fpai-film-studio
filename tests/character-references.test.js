@@ -191,17 +191,24 @@ test("only one Primary Identity image can exist and metadata updates persist", a
   assert.deepEqual(reordered.data.references.map((item) => item.id), ordered);
 });
 
-test("deleting a supplemental reference removes R2 bytes without touching other characters or shots", async () => {
+test("removing a supplemental reference archives bytes without touching other characters or shots", async () => {
   const keep = await upload("marcus", pngFile("keep.png", { salt: "keep-marcus" }), { category: "front" });
   const drop = await upload("marcus", pngFile("drop.png", { salt: "drop-marcus" }), { category: "other" });
   const jasmineBefore = await call(libraryPath("jasmine"));
+  // Simulate an existing deployment before the additive archive migration.
+  await db.prepare("DROP TABLE IF EXISTS character_reference_archive").run();
   const deleted = await call(libraryPath("marcus", `/${drop.data.reference.id}`), { method: "DELETE" });
   assert.equal(deleted.response.status, 200);
   assert.equal(deleted.data.deleted, true);
   const gone = await env.GENERATION_MEDIA.get(
     `character-refs/enemies-closer-ep01/marcus/${drop.data.reference.id}/${drop.data.reference.filename}`,
   );
-  assert.equal(gone, null);
+  assert.ok(gone, "historical asset bytes must remain available");
+  assert.equal(deleted.data.archived, true);
+  assert.equal(deleted.data.references.some((item) => item.id === drop.data.reference.id), false);
+  assert.equal((await call(libraryPath("marcus", `/${drop.data.reference.id}`))).response.status, 404);
+  assert.equal((await call(libraryPath("marcus", `/${drop.data.reference.id}/asset`))).response.status, 200);
+  assert.equal((await call(libraryPath("jasmine", `/${drop.data.reference.id}/asset`))).response.status, 404);
   const still = await call(libraryPath("marcus", `/${keep.data.reference.id}`));
   assert.equal(still.response.status, 200);
   const jasmineAfter = await call(libraryPath("jasmine"));
@@ -501,4 +508,42 @@ test("D-H canonical replacements persist for every character without touching th
     const stillThere = await call(libraryPath(characterId, `/${secondPass.wardrobe}`));
     assert.equal(stillThere.response.status, 200);
   }
+});
+
+
+
+test("a locked image can be removed and replaced while its saved manifest and bytes survive", async () => {
+  const characterId = "delete-locked-test";
+  const base = `/api/projects/enemies-closer-ep01/characters/${characterId}`;
+  const file = pngFile("locked.png", { salt: "locked-remove" });
+  const created = await upload(characterId, file, {
+    category: "identity_anchor", angle: "front", approvalState: "approved",
+    isPrimary: "true", isIdentityAnchor: "true",
+  });
+  assert.equal(created.response.status, 201);
+  const id = created.data.reference.id;
+  await call(`${base}/canonical-slots`, { method: "PUT", body: { slot: "identityFront", assetId: id } });
+  const rebuilt = await call(`${base}/lock`, { method: "POST" });
+  assert.equal(rebuilt.response.status, 201);
+  const before = await db.prepare("SELECT manifest_json FROM character_locks WHERE character_id=?").bind(characterId).first();
+  assert.ok(before.manifest_json.includes(id));
+  const removed = await call(libraryPath(characterId, `/${id}`), { method: "DELETE" });
+  assert.equal(removed.response.status, 200);
+  assert.equal(removed.data.references.length, 0);
+  assert.equal(removed.data.canonicalSlots.identityFront, undefined);
+  assert.equal(removed.data.lock.status, "stale");
+  const after = await db.prepare("SELECT manifest_json FROM character_locks WHERE character_id=?").bind(characterId).first();
+  assert.equal(after.manifest_json, before.manifest_json);
+  assert.equal((await call(libraryPath(characterId, `/${id}/asset`))).response.status, 200);
+  assert.equal((await call(libraryPath(characterId, `/${id}`), { method: "PATCH", body: { isPrimary: true } })).response.status, 404);
+  const { loadCharacterLibraries, resolveProviderReferenceImages } = await import("../worker/characterReferences.js");
+  const active = await loadCharacterLibraries(env, "enemies-closer-ep01", [characterId]);
+  assert.deepEqual(active.libraries[characterId], []);
+  const historical = await resolveProviderReferenceImages(env, "enemies-closer-ep01", {
+    selected: [{ assetId: id, characterId, mimeType: "image/png" }],
+  }, { id: "test-provider", maxReferences: 1 });
+  assert.equal(historical.length, 1);
+  const replacement = await upload(characterId, file, { category: "identity_anchor" });
+  assert.equal(replacement.response.status, 201);
+  assert.notEqual(replacement.data.reference.id, id);
 });

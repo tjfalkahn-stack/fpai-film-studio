@@ -210,11 +210,6 @@ test("actual D1/R2: source → script → cast locks → mock take → cut → d
       { method: "POST", headers },
     );
     assert.equal(lock.status, 201);
-    const preservedReference = await mf.dispatchFetch(
-      `http://localhost/api/projects/enemies-closer-ep01/characters/jasmine/references/${primary.id}`,
-      { method: "DELETE", headers },
-    );
-    assert.equal(preservedReference.status, 409);
     await command({
       type: "save-cue",
       sceneId,
@@ -296,12 +291,33 @@ test("actual D1/R2: source → script → cast locks → mock take → cut → d
       ).status,
       400,
     );
+    // Removal frees the active library while this already-created job keeps
+    // its original selection and saved lock version.
+    const removedReference = await mf.dispatchFetch(
+      `http://localhost/api/projects/enemies-closer-ep01/characters/jasmine/references/${primary.id}`,
+      { method: "DELETE", headers },
+    );
+    assert.equal(removedReference.status, 200);
+    const removed = await removedReference.json();
+    assert.equal(removed.archived, true);
+    assert.equal(removed.references.some((reference) => reference.id === primary.id), false);
+    assert.equal(removed.lock.status, "stale");
+    assert.ok(state.jobs[0].selection.selected.some((reference) => reference.assetId === primary.id));
+    assert.equal(state.jobs[0].characterLocks.jasmine, 1);
     await command({ type: "advance-job", id: jobId });
     assert.equal(state.jobs[0].status, "processing");
     await mf.dispose();
     mf = new Miniflare(options);
     state = (await call()).body.state;
     assert.equal(state.jobs[0].status, "processing");
+    const historicalImage = await mf.dispatchFetch(
+      `http://localhost/api/projects/enemies-closer-ep01/characters/jasmine/references/${primary.id}/asset`,
+      { headers },
+    );
+    assert.equal(historicalImage.status, 200);
+    assert.equal(historicalImage.headers.get("content-type"), "image/png");
+    assert.ok((await historicalImage.arrayBuffer()).byteLength > 0);
+
     await command({ type: "advance-job", id: jobId });
     assert.equal(state.jobs[0].status, "completed");
     assert.equal(state.jobs[0].actualCost, 0);
@@ -367,6 +383,23 @@ test("actual D1/R2: source → script → cast locks → mock take → cut → d
     assert.equal(pack.body.renderManifest.duration, 4);
     assert.deepEqual(state.importedProduction, production);
     assert.equal(state.shots.find((s) => s.id === "027").status, "locked");
+    // New jobs must use a rebuilt lock after removal, while the old job above
+    // remains reproducible. Upload a replacement for the next job.
+    const staleLockJob = await call("/commands", "POST", {
+      requestKey: crypto.randomUUID(),
+      expectedRevision: state.revision,
+      command: { type: "create-job", shotId: shot.id, capability: "video", approvedCostCeiling: 0 },
+    });
+    assert.equal(staleLockJob.status, 400);
+    assert.match(staleLockJob.body.error, /Rebuild.*reference lock/);
+    await ref("jasmine", "replacement-primary", {
+      isPrimary: true, category: "identity_anchor", angle: "front", approvalState: "approved",
+    });
+    const replacementLock = await mf.dispatchFetch(
+      "http://localhost/api/projects/enemies-closer-ep01/characters/jasmine/lock",
+      { method: "POST", headers },
+    );
+    assert.equal(replacementLock.status, 201);
     await command({
       type: "create-job",
       shotId: shot.id,
