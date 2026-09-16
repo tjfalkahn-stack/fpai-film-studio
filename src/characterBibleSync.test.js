@@ -97,6 +97,32 @@ test("tagged library expressions fill the expanded bank while newer manual repla
   assert.equal(patch.expressions.Neutral, undefined);
 });
 
+test("deleted server-backed expressions leave the visible bank immediately", () => {
+  const character = {
+    id: "marcus",
+    expressions: {
+      Neutral: { key: "library:new-neutral", assetId: "new-neutral", source: "reference-library" },
+      Suspicious: { key: "library:old-suspicious", assetId: "old-suspicious", source: "reference-library" },
+      Hurt: { key: "library:old-hurt", assetId: "old-hurt", source: "character-sheet", sheetId: "old-sheet" },
+      Smiling: { key: "char:marcus:expr:Smiling:1", name: "browser-only.png" },
+    },
+    sheetExpressionSources: { Hurt: "old-sheet:old-hurt" },
+  };
+  const patch = characterBiblePatch(character, {
+    references: [{
+      ...image("new-neutral"), category: "expression", expression: "neutral",
+      approvalState: "approved", includeInGeneration: true,
+    }],
+    canonicalSlots: {},
+    sheetExpressions: {},
+  });
+  assert.equal(patch.expressions.Neutral.assetId, "new-neutral");
+  assert.equal(patch.expressions.Suspicious, undefined);
+  assert.equal(patch.expressions.Hurt, undefined);
+  assert.equal(patch.sheetExpressionSources.Hurt, undefined);
+  assert.equal(patch.expressions.Smiling.key, "char:marcus:expr:Smiling:1");
+});
+
 test("later manual expression replacements survive refresh and old payload replay until explicitly reselected", () => {
   const payload = { sheetExpressions: { Neutral: binding("neutral") } };
   let character = { id: "jasmine", ...characterBiblePatch({}, payload) };

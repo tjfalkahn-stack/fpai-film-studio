@@ -81,6 +81,20 @@ function syncLibraryExpressions(expressions, references, sheetExpressions = {}, 
   }
 }
 
+function pruneRemovedLibraryExpressions(expressions, sources, references) {
+  const activeIds = new Set((references || []).map((asset) => asset?.id).filter(Boolean));
+  for (const [name, current] of Object.entries(expressions)) {
+    const assetId = current?.assetId || current?.referenceId;
+    const serverBacked = Boolean(assetId)
+      || current?.source === "reference-library"
+      || current?.source === "character-sheet"
+      || String(current?.key || "").startsWith("library:");
+    if (!serverBacked || (assetId && activeIds.has(assetId))) continue;
+    delete expressions[name];
+    delete sources[name];
+  }
+}
+
 function migrateJasmineLegacyExpressions(character, expressions) {
   if (parentalExpressionName(character) !== "Maternal") return;
   // The old seed exposed Paternal for Jasmine. Preserve its media key while
@@ -125,6 +139,10 @@ export function characterBiblePatch(character, payload = {}) {
   if (payload.sheetExpressions || payload.references || payload.reference || payload.deletedId) {
     const expressions = { ...(character.expressions || {}) };
     const sources = { ...(character.sheetExpressionSources || {}) };
+    // A full references response is the source of truth. Removed library or
+    // sheet-backed portraits must disappear from the visible Expression Bank
+    // instead of lingering as the previous version of the character.
+    if (payload.references) pruneRemovedLibraryExpressions(expressions, sources, references || []);
     const explicitNames = new Set();
     for (const [name, binding] of Object.entries(payload.sheetExpressions || {})) {
       if (!binding.asset?.id || !binding.sheetId) continue;
