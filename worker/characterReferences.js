@@ -762,6 +762,40 @@ async function listSheets(env, projectId, characterId, { allowMissing = false } 
   }
 }
 
+async function handleSheetClearActive(env, projectId, characterId) {
+  const db = dbOf(env);
+  const result = await db.prepare(
+    "SELECT id, status, r2_key FROM character_sheets WHERE project_id=? AND character_id=? AND status IN ('draft','committed')",
+  ).bind(projectId, characterId).all();
+  const active = result.results || [];
+  const drafts = active.filter((row) => row.status === "draft");
+  const committed = active.filter((row) => row.status === "committed");
+  if (active.length) {
+    const now = stamp();
+    const statements = [
+      db.prepare("DELETE FROM character_sheets WHERE project_id=? AND character_id=? AND status='draft'")
+        .bind(projectId, characterId),
+      db.prepare("UPDATE character_sheets SET status='archived', updated_at=? WHERE project_id=? AND character_id=? AND status='committed'")
+        .bind(now, projectId, characterId),
+    ];
+    if (committed.length) {
+      statements.push(
+        db.prepare("UPDATE character_locks SET status='stale' WHERE project_id=? AND character_id=? AND status='current'")
+          .bind(projectId, characterId),
+      );
+    }
+    await db.batch(statements);
+    await Promise.allSettled(drafts.map((row) => mediaOf(env).delete(row.r2_key)));
+  }
+  return json({
+    cleared: true,
+    discardedDrafts: drafts.length,
+    archivedCommitted: committed.length,
+    sheets: await listSheets(env, projectId, characterId),
+    ...(await libraryPayload(env, projectId, characterId)),
+  });
+}
+
 async function handleSheetIngest(request, env, projectId, characterId) {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) fail("INVALID_INPUT", "multipart/form-data is required for character sheets.", 415);
@@ -995,6 +1029,7 @@ async function handleSheetRoute(request, env, projectId, characterId, matched) {
   }
   if (request.method === "GET") return json({ sheets: await listSheets(env, projectId, characterId) });
   if (request.method === "POST") return handleSheetIngest(request, env, projectId, characterId);
+  if (request.method === "DELETE") return handleSheetClearActive(env, projectId, characterId);
   fail("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
 }
 
