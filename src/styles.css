@@ -531,3 +531,8 @@ svg{display:block}
 .renderStatus { padding:10px 0; border-bottom:1px solid #332c3c; }
 .renderStatus small { display:block; overflow-wrap:anywhere; margin:4px 0; }
 .renderPanel button:disabled { opacity:.5; cursor:not-allowed; }
+.manualProviderCard{margin:12px 0;padding:13px;border:1px solid #5d4284;border-radius:11px;background:linear-gradient(180deg,#191126,#0e0b13)}
+.manualProviderCard>b{display:block;color:#d9c6fb;font-size:10px;letter-spacing:.04em}
+.manualProviderCard ol{margin:9px 0 12px;padding-left:18px;color:#aaa0b4;font-size:8px;line-height:1.65}
+.manualProviderCard small{display:block;margin-top:10px;color:#817789;font-size:7px;line-height:1.5}
+.manualProviderCard .manualNotice{margin:9px 0 0;color:#8edbb7;font-size:8px}

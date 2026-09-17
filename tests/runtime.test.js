@@ -44,6 +44,7 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
     const catalog = await catalogResponse.json();
     assert.deepEqual(catalog.providers.map(p => p.id), [
       "mock",
+      "vibes-manual",
       "comfy-video",
       "seedance-fast",
       "seedance-standard",
