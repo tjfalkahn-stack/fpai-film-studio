@@ -73,6 +73,7 @@ export function config(env) {
 }
 export function providerLiveEnabled(provider, env) {
   if (provider === "mock") return true;
+  if (provider === "vibes-manual") return false;
   if (isSeedanceProvider(provider)) return seedanceLiveEnabled(env);
   return config(env).liveEnabled;
 }
@@ -179,6 +180,12 @@ async function attachCharacterReferences(body, input, provider, env) {
     providerMaxReferences: provider.capabilities.maxReferences,
   });
   input.characterReferenceSelection = selection;
+  if (provider.capabilities.manual) {
+    selection.transmitted = [];
+    selection.limitation =
+      "Manual browser handoff: Film Studio selected the Primary Identity reference, but no image bytes were transmitted by the adapter.";
+    return input;
+  }
   const hasInlineBytes = (input.referenceImages || []).some((ref) => ref?.data);
   if (!hasInlineBytes && selection.transmitted.length) {
     input.referenceImages = await resolveProviderReferenceImages(
@@ -239,8 +246,14 @@ async function inputFrom(body, env) {
   validateInput(input, provider.capabilities);
   return { input, provider };
 }
-function liveGate(input, env) {
+function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
+  if (provider.capabilities.manual)
+    fail(
+      "MANUAL_PROVIDER",
+      "This renderer uses a manual browser handoff and cannot be submitted to the render queue.",
+      409,
+    );
   if (!providerLiveEnabled(input.provider, env))
     fail(
       "LIVE_DISABLED",
@@ -324,7 +337,9 @@ async function create(request, env) {
         providerMaxReferences: provider.capabilities.maxReferences,
         fallbackApplied: Boolean(input.characterReferenceSelection?.fallbackApplied),
         limitation: input.characterReferenceSelection?.limitation || null,
-        referenceImagesTransmitted: input.referenceImages.length,
+        referenceImagesTransmitted: provider.capabilities.manual
+          ? 0
+          : input.referenceImages.length,
         generateAudio: input.generateAudio !== false,
         rationale: quote.rationale || null,
       },
@@ -334,7 +349,7 @@ async function create(request, env) {
     !/^[\w-]{8,100}$/.test(body.requestKey)
   )
     fail("INVALID_INPUT", "A stable requestKey is required.");
-  liveGate(input, env);
+  liveGate(input, provider, env);
   if (body.acceptedCost !== quote.estimatedCost)
     fail(
       "QUOTE_CHANGED",

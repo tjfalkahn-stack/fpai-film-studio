@@ -1,6 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { renderIdentity, renderRequestKey, renderRequest } from "./renderClient.js";
 import { isSeedanceProvider } from "./seedanceRequest.js";
+import {
+  buildVibesHandoff,
+  VIBES_MANUAL_PROVIDER_ID,
+  VIBES_URL,
+  vibesHandoffFilename,
+} from "./vibesWorkflow.js";
 
 async function encodeImage(file) {
   if (
@@ -38,16 +44,20 @@ export default function RenderPanel({
   const [selected, setSelected] = useState([]),
     [quote, setQuote] = useState(null),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [manualNotice, setManualNotice] = useState("");
   const pending = useRef(null),
     submitting = useRef(false);
   const refs = characters.flatMap((c) =>
     Object.entries(c.refs || {}).map(([slot, ref]) => ({
       key: ref.key,
+      assetId: ref.assetId,
+      assetUrl: ref.assetUrl,
       label: `${c.name} · ${slot}`,
     })),
   );
   const capabilities = catalog?.providers.find((p) => p.id === provider);
+  const isVibesManual = provider === VIBES_MANUAL_PROVIDER_ID;
   const active = renders.filter(
     (r) => r.shotId === shot.id && r.sceneId === shot.scene,
   );
@@ -69,9 +79,11 @@ export default function RenderPanel({
         }
     }
     const inline = [];
-    for (const key of selected) {
-      const file = await getMedia(key);
-      if (file) inline.push(await encodeImage(file));
+    if (!isVibesManual) {
+      for (const key of selected) {
+        const file = await getMedia(key);
+        if (file) inline.push(await encodeImage(file));
+      }
     }
     return {
       projectId: project.id,
@@ -216,6 +228,80 @@ export default function RenderPanel({
       setError(e.message);
     }
   }
+  function vibesHandoff() {
+    return buildVibesHandoff({
+      project,
+      scene,
+      shot,
+      plan,
+      characters,
+      duration,
+      resolution,
+      aspectRatio,
+      referenceSelection: quote?.debug?.characterReferenceSelection,
+      localReferences: refs.filter((ref) => selected.includes(ref.key)),
+    });
+  }
+  async function copyVibesPrompt() {
+    try {
+      await navigator.clipboard.writeText(vibesHandoff().prompt);
+      setManualNotice("Vibes prompt copied. Paste it into the Vibes prompt box.");
+      setError("");
+    } catch {
+      setError("The prompt could not be copied. Download the handoff file instead.");
+    }
+  }
+  function openVibes() {
+    window.open(capabilities?.externalUrl || VIBES_URL, "_blank", "noopener,noreferrer");
+    copyVibesPrompt();
+  }
+  function vibesReference() {
+    const explicit = refs.find((ref) => selected.includes(ref.key));
+    if (explicit) return explicit;
+    const selectedAssetId = quote?.debug?.selectedAssetIds?.[0];
+    return refs.find((ref) => ref.assetId === selectedAssetId) || null;
+  }
+  async function downloadVibesReference() {
+    const reference = vibesReference();
+    if (!reference) {
+      setError("No Primary Identity image is available for this shot.");
+      return;
+    }
+    let url = reference.assetUrl || "";
+    let revoke = false;
+    const file = reference.key ? await getMedia(reference.key).catch(() => null) : null;
+    if (file) {
+      url = URL.createObjectURL(file);
+      revoke = true;
+    }
+    if (!url) {
+      setError("The selected reference image is unavailable. Open the Character Bible and restore it first.");
+      return;
+    }
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${project.id}-shot-${shot.id}-vibes-reference`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    if (revoke) URL.revokeObjectURL(url);
+    setManualNotice("Primary Identity reference downloaded. Upload it to Vibes before pasting the prompt.");
+    setError("");
+  }
+  function downloadVibesHandoff() {
+    const blob = new Blob([JSON.stringify(vibesHandoff(), null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = vibesHandoffFilename(project.id, shot.id);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setManualNotice("Vibes handoff downloaded. It contains the shot prompt and selected reference manifest.");
+  }
   return (
     <section className="renderPanel">
       <h3>Generate Take</h3>
@@ -284,7 +370,9 @@ export default function RenderPanel({
         Final edit: {shot.sec}s. Source clip: {duration}s. The worker selects
         the Primary Identity image plus up to five supporting library photos
         for this shot. Manual PNG/JPEG boxes remain for older Bible uploads.
-        {provider === "veo-fast"
+        {isVibesManual
+          ? " Vibes uses one primary reference image. Film Studio preserves the full Character Bible and prepares a manual handoff; no Vibes credentials or production secrets are stored."
+          : provider === "veo-fast"
           ? " Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
           : provider?.startsWith("seedance-")
             ? " Seedance consumes the Character Bible selection automatically (Marcus, Jasmine, Turner, Mikey) plus optional scene references. Audio is available at the same quoted video rate. Up to 9 images."
@@ -340,9 +428,9 @@ export default function RenderPanel({
         </p>
       )}
       <p aria-live="polite">
-        Estimated render cost:{" "}
+        {isVibesManual ? "Film Studio charge: " : "Estimated render cost: "}
         <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : "Checking…"}</b>
-        {quote &&
+        {quote && !isVibesManual &&
           ` · Session ceiling $${quote.policy.sessionCeiling.toFixed(2)} · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`}
       </p>
       {liveBlock && <div className="validation">{liveBlock}</div>}
@@ -351,15 +439,44 @@ export default function RenderPanel({
           {error}
         </div>
       )}
-      <button
-        className="primary full"
-        disabled={busy || !quote || Boolean(liveBlock)}
-        onClick={generate}
-      >
-        {busy
-          ? "Submitting…"
-          : `Generate Take${quote ? ` · $${quote.estimatedCost.toFixed(2)}` : ""}`}
-      </button>
+      {isVibesManual ? (
+        <div className="manualProviderCard">
+          <b>Vibes browser handoff</b>
+          <ol>
+            <li>Open Vibes and upload the Primary Identity image shown above.</li>
+            <li>Paste the Film Studio prompt and generate the clip in Vibes.</li>
+            <li>Download the MP4, then use Upload completed take below.</li>
+          </ol>
+          <div className="buttonRow">
+            <button className="primary" disabled={!quote} onClick={openVibes}>
+              Open Vibes + copy prompt
+            </button>
+            <button className="ghost" disabled={!quote} onClick={copyVibesPrompt}>
+              Copy prompt
+            </button>
+            <button className="ghost" disabled={!quote || !vibesReference()} onClick={downloadVibesReference}>
+              Download reference
+            </button>
+            <button className="ghost" disabled={!quote} onClick={downloadVibesHandoff}>
+              Download handoff
+            </button>
+          </div>
+          <small>
+            Vibes runs outside Film Studio. Its availability, moderation, and service limits are controlled by Meta.
+          </small>
+          {manualNotice && <p className="manualNotice" aria-live="polite">{manualNotice}</p>}
+        </div>
+      ) : (
+        <button
+          className="primary full"
+          disabled={busy || !quote || Boolean(liveBlock)}
+          onClick={generate}
+        >
+          {busy
+            ? "Submitting…"
+            : `Generate Take${quote ? ` · $${quote.estimatedCost.toFixed(2)}` : ""}`}
+        </button>
+      )}
       <div aria-live="polite">
         {active.map((r) => (
           <div className="renderStatus" key={r.id}>

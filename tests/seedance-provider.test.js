@@ -234,7 +234,14 @@ test("render API quotes Seedance, rejects live submit, and rejects over-ceiling 
   const catalogBody = await catalog.json();
   assert.deepEqual(
     catalogBody.providers.map((item) => item.id),
-    ["mock", "comfy-video", "seedance-fast", "seedance-standard", "veo-fast"],
+    [
+      "mock",
+      "vibes-manual",
+      "comfy-video",
+      "seedance-fast",
+      "seedance-standard",
+      "veo-fast",
+    ],
   );
   assert.equal(JSON.stringify(catalogBody).includes("must-not-leak"), false);
 
