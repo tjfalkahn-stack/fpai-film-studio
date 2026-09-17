@@ -21,12 +21,15 @@ CHARACTER_QC_MODEL=<supported multimodal Gemini model>
 The evaluator returns the exact metrics expected by `scoreCharacterResult`:
 
 - identity
+- photographicRealism
 - anatomy
 - framing
 - wardrobe
 - artifactFree
 
 Scores are clamped to 0..1. The existing Character Factory pass gate remains authoritative.
+
+QC receives up to three canonical Character Bible references before the candidate image. This lets it compare the face instead of guessing identity from a text description. The current gate requires identity and photographic realism of at least 0.90; obvious cartoon, CGI, 3D, video-game, plastic, waxy, airbrushed, or uncanny results are rejected.
 
 ## Live gate
 

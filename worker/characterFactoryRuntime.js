@@ -1,5 +1,12 @@
 import { runCharacterFactoryPlan } from "../src/characterFactoryRunner.js";
-import { CHARACTER_STILL_MAX_REFERENCES } from "../src/characterStillStack.js";
+import {
+  hasCurrentCharacterRealismLock,
+  isCharacterRealismLockedMedium,
+} from "../src/characterRealismLock.js";
+import {
+  CHARACTER_STILL_DEFAULT_STEPS,
+  CHARACTER_STILL_MAX_REFERENCES,
+} from "../src/characterStillStack.js";
 import { createComfyCharacterExecutor } from "./providers/comfyCharacter.js";
 import { assertComfyCharacterReady, runComfyCharacterPreflight } from "./providers/comfyPreflight.js";
 import { createGeminiCharacterEvaluator } from "./characterQc.js";
@@ -25,6 +32,29 @@ function safeSegment(value) {
 function planHasReferences(plan) {
   if (plan?.referenceImages?.length) return true;
   return (plan?.jobs || []).some((job) => job.referenceImages?.length);
+}
+
+function requireCurrentRealismLock(plan) {
+  if (!isCharacterRealismLockedMedium(plan?.medium)) return;
+  if (!hasCurrentCharacterRealismLock(plan?.realismLock)) {
+    throw new Error(
+      "Photoreal Character Factory runs require the current Jasmine realism lock. Rebuild this legacy plan before generation.",
+    );
+  }
+}
+
+function hasPrimaryIdentityReference(plan) {
+  const references = [
+    ...(Array.isArray(plan?.referenceImages) ? plan.referenceImages : []),
+    ...(plan?.jobs || []).flatMap((job) => Array.isArray(job.referenceImages) ? job.referenceImages : []),
+  ];
+  return references.some((reference) =>
+    reference?.isPrimary === true ||
+    reference?.isIdentityAnchor === true ||
+    reference?.category === "identity_anchor" ||
+    reference?.reasons?.includes?.("primary-identity") ||
+    reference?.reasons?.includes?.("approved-identity-anchor"),
+  );
 }
 
 async function resolvePlanReferences(env, plan) {
@@ -86,12 +116,18 @@ export function createCharacterFactoryRuntime(env = {}, fetchImpl = fetch) {
     },
     async run(plan, options = {}) {
       requireEnabled(env);
+      requireCurrentRealismLock(plan);
       const preflight = await runComfyCharacterPreflight(env, fetchImpl);
       assertComfyCharacterReady(preflight);
       const prepared = await resolvePlanReferences(env, plan);
       if (!planHasReferences(prepared)) {
         throw new Error(
           "Character Factory requires Character Bible reference images before live generation. Upload identity/front, profile, full-body, expression, and wardrobe stills, then retry.",
+        );
+      }
+      if (prepared.realismLock?.applied && !hasPrimaryIdentityReference(prepared)) {
+        throw new Error(
+          "Photoreal Character Factory requires an approved primary identity anchor before generation.",
         );
       }
 
@@ -105,7 +141,7 @@ export function createCharacterFactoryRuntime(env = {}, fetchImpl = fetch) {
         pollIntervalMs: Number(options.pollIntervalMs ?? env.CHARACTER_FACTORY_POLL_MS ?? 1500),
         width: Number(options.width ?? env.CHARACTER_FACTORY_WIDTH ?? 1024),
         height: Number(options.height ?? env.CHARACTER_FACTORY_HEIGHT ?? 1024),
-        steps: Number(options.steps ?? env.CHARACTER_FACTORY_STEPS ?? 30),
+        steps: Number(options.steps ?? env.CHARACTER_FACTORY_STEPS ?? CHARACTER_STILL_DEFAULT_STEPS),
         cfg: Number(options.cfg ?? env.CHARACTER_FACTORY_CFG ?? 6),
       });
 

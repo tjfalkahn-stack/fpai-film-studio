@@ -28,8 +28,8 @@ test("runner retries failed QC and emits character + benchmark manifests", async
       const n = (seen.get(job.id) || 0) + 1;
       seen.set(job.id, n);
       return n === 1
-        ? { identity: 0.7, anatomy: 0.9, framing: 0.9, wardrobe: 0.9, artifactFree: 0.9 }
-        : { identity: 0.95, anatomy: 0.95, framing: 0.95, wardrobe: 0.95, artifactFree: 0.95 };
+        ? { identity: 0.7, photographicRealism: 0.95, anatomy: 0.9, framing: 0.9, wardrobe: 0.9, artifactFree: 0.9 }
+        : { identity: 0.95, photographicRealism: 0.95, anatomy: 0.95, framing: 0.95, wardrobe: 0.95, artifactFree: 0.95 };
     },
     persistAccepted: async ({ job, attemptNumber }) => ({ key: `accepted/${job.taskId}-${attemptNumber}.png` }),
     persistRejected: async ({ job, attemptNumber }) => ({ key: `rejected/${job.taskId}-${attemptNumber}.png` }),
@@ -39,5 +39,18 @@ test("runner retries failed QC and emits character + benchmark manifests", async
   assert.equal(result.manifest.totalAttempts, 4);
   assert.equal(result.manifest.rejectCount, 2);
   assert.equal(result.character.acceptedAssets.length, 2);
+  assert.equal(result.character.realismLock.benchmark, "Jasmine");
+  assert.equal(result.manifest.realismLock.applied, true);
   assert.equal(result.attempts.filter((a) => !a.accepted).length, 2);
+});
+
+test("runner refuses a legacy live-action plan that bypasses the runtime", async () => {
+  await assert.rejects(
+    runCharacterFactoryPlan({
+      plan: { medium: "cinematic", character: { id: "legacy" }, jobs: [{ id: "legacy/front" }] },
+      executor: { start() {}, status() {}, asset() {} },
+      evaluateImage() {},
+    }),
+    /current Jasmine realism lock/i,
+  );
 });
