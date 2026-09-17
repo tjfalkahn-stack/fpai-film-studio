@@ -77,13 +77,13 @@ jobs:
         run: npx wrangler deploy --config wrangler.deploy.toml --keep-vars
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
 
       - name: Deploy frontend
         run: npx wrangler deploy --config wrangler.frontend.deploy.toml --keep-vars
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
 
       - name: Smoke test adapter
         run: |
