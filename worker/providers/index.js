@@ -6,11 +6,13 @@ import {
   createSeedanceStandardProvider,
 } from "./seedance.js";
 import { createVibesManualProvider } from "./vibes.js";
+import { createDrawThingsLocalProvider } from "./drawThings.js";
 import { fail } from "./contract.js";
 
 export function providers(env) {
   return [
     createMockProvider(),
+    createDrawThingsLocalProvider(),
     createVibesManualProvider(),
     createComfyProvider(env),
     createSeedanceFastProvider(env),

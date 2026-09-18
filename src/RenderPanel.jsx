@@ -7,6 +7,11 @@ import {
   VIBES_URL,
   vibesHandoffFilename,
 } from "./vibesWorkflow.js";
+import {
+  buildDrawThingsHandoff,
+  DRAW_THINGS_LOCAL_PROVIDER_ID,
+  drawThingsHandoffFilename,
+} from "./drawThingsWorkflow.js";
 
 async function encodeImage(file) {
   if (
@@ -58,6 +63,8 @@ export default function RenderPanel({
   );
   const capabilities = catalog?.providers.find((p) => p.id === provider);
   const isVibesManual = provider === VIBES_MANUAL_PROVIDER_ID;
+  const isDrawThingsLocal = provider === DRAW_THINGS_LOCAL_PROVIDER_ID;
+  const isManualProvider = Boolean(capabilities?.manual);
   const active = renders.filter(
     (r) => r.shotId === shot.id && r.sceneId === shot.scene,
   );
@@ -79,7 +86,7 @@ export default function RenderPanel({
         }
     }
     const inline = [];
-    if (!isVibesManual) {
+    if (!isManualProvider) {
       for (const key of selected) {
         const file = await getMedia(key);
         if (file) inline.push(await encodeImage(file));
@@ -242,6 +249,19 @@ export default function RenderPanel({
       localReferences: refs.filter((ref) => selected.includes(ref.key)),
     });
   }
+  function drawThingsHandoff() {
+    return buildDrawThingsHandoff({
+      project,
+      scene,
+      shot,
+      plan,
+      characters,
+      resolution,
+      aspectRatio,
+      referenceSelection: quote?.debug?.characterReferenceSelection,
+      localReferences: refs.filter((ref) => selected.includes(ref.key)),
+    });
+  }
   async function copyVibesPrompt() {
     try {
       await navigator.clipboard.writeText(vibesHandoff().prompt);
@@ -261,10 +281,19 @@ export default function RenderPanel({
     const selectedAssetId = quote?.debug?.selectedAssetIds?.[0];
     return refs.find((ref) => ref.assetId === selectedAssetId) || null;
   }
-  async function downloadVibesReference() {
-    const reference = vibesReference();
+  function drawThingsReferences() {
+    const explicit = refs.filter((ref) => selected.includes(ref.key));
+    const chosen = quote?.debug?.selectedAssetIds || [];
+    const automatic = chosen
+      .map((assetId) => refs.find((ref) => ref.assetId === assetId))
+      .filter(Boolean);
+    return [...explicit, ...automatic].filter(
+      (ref, index, all) => all.findIndex((item) => item.key === ref.key) === index,
+    );
+  }
+  async function downloadReference(reference, suffix, notice) {
     if (!reference) {
-      setError("No Primary Identity image is available for this shot.");
+      setError("The selected reference image is unavailable. Open the Character Bible and restore it first.");
       return;
     }
     let url = reference.assetUrl || "";
@@ -280,13 +309,25 @@ export default function RenderPanel({
     }
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${project.id}-shot-${shot.id}-vibes-reference`;
+    anchor.download = `${project.id}-shot-${shot.id}-${suffix}`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     if (revoke) URL.revokeObjectURL(url);
-    setManualNotice("Primary Identity reference downloaded. Upload it to Vibes before pasting the prompt.");
+    setManualNotice(notice);
     setError("");
+  }
+  async function downloadVibesReference() {
+    const reference = vibesReference();
+    if (!reference) {
+      setError("No Primary Identity image is available for this shot.");
+      return;
+    }
+    await downloadReference(
+      reference,
+      "vibes-reference",
+      "Primary Identity reference downloaded. Upload it to Vibes before pasting the prompt.",
+    );
   }
   function downloadVibesHandoff() {
     const blob = new Blob([JSON.stringify(vibesHandoff(), null, 2)], {
@@ -302,6 +343,29 @@ export default function RenderPanel({
     URL.revokeObjectURL(url);
     setManualNotice("Vibes handoff downloaded. It contains the shot prompt and selected reference manifest.");
   }
+  async function copyDrawThingsText(field, label) {
+    try {
+      await navigator.clipboard.writeText(drawThingsHandoff()[field]);
+      setManualNotice(`${label} copied. Paste it into Draw Things.`);
+      setError("");
+    } catch {
+      setError("The text could not be copied. Download the handoff file instead.");
+    }
+  }
+  function downloadDrawThingsHandoff() {
+    const blob = new Blob([JSON.stringify(drawThingsHandoff(), null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = drawThingsHandoffFilename(project.id, shot.id);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setManualNotice("Draw Things handoff downloaded with prompt, negative prompt, settings, and reference manifest.");
+  }
   return (
     <section className="renderPanel">
       <h3>Generate Take</h3>
@@ -312,10 +376,12 @@ export default function RenderPanel({
             aria-label="Renderer"
             value={provider}
             onChange={(e) => {
+              const next = catalog?.providers.find((item) => item.id === e.target.value);
               setProvider(e.target.value);
-              setDuration(8);
-              setResolution("720p");
-              setAspect("16:9");
+              setDuration(next?.durations?.[0] ?? 8);
+              setResolution(next?.resolutions?.[0] ?? "720p");
+              setAspect(next?.aspectRatios?.[0] ?? "16:9");
+              setManualNotice("");
             }}
           >
             {(catalog?.providers || [{ id: "mock", label: "Mock · $0" }]).map(
@@ -327,20 +393,22 @@ export default function RenderPanel({
             )}
           </select>
         </label>
-        <label>
-          Source duration
-          <select
-            aria-label="Source duration"
-            value={duration}
-            onChange={(e) => setDuration(Number(e.target.value))}
-          >
-            {(capabilities?.durations || [8]).map((v) => (
-              <option key={v} value={v}>
-                {v} seconds
-              </option>
-            ))}
-          </select>
-        </label>
+        {!isDrawThingsLocal && (
+          <label>
+            Source duration
+            <select
+              aria-label="Source duration"
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+            >
+              {(capabilities?.durations || [8]).map((v) => (
+                <option key={v} value={v}>
+                  {v} seconds
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Resolution
           <select
@@ -367,10 +435,12 @@ export default function RenderPanel({
         </label>
       </div>
       <p>
-        Final edit: {shot.sec}s. Source clip: {duration}s. The worker selects
+        Final edit: {shot.sec}s. {isDrawThingsLocal ? "Still-image source. " : `Source clip: ${duration}s. `}The worker selects
         the Primary Identity image plus up to five supporting library photos
         for this shot. Manual PNG/JPEG boxes remain for older Bible uploads.
-        {isVibesManual
+        {isDrawThingsLocal
+          ? " Draw Things can use up to three identity and wardrobe references. The files are downloaded to this Mac and never transmitted by the adapter."
+          : isVibesManual
           ? " Vibes uses one primary reference image. Film Studio preserves the full Character Bible and prepares a manual handoff; no Vibes credentials or production secrets are stored."
           : provider === "veo-fast"
           ? " Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
@@ -428,9 +498,9 @@ export default function RenderPanel({
         </p>
       )}
       <p aria-live="polite">
-        {isVibesManual ? "Film Studio charge: " : "Estimated render cost: "}
+        {isManualProvider ? "Film Studio charge: " : "Estimated render cost: "}
         <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : "Checking…"}</b>
-        {quote && !isVibesManual &&
+        {quote && !isManualProvider &&
           ` · Session ceiling $${quote.policy.sessionCeiling.toFixed(2)} · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`}
       </p>
       {liveBlock && <div className="validation">{liveBlock}</div>}
@@ -439,7 +509,46 @@ export default function RenderPanel({
           {error}
         </div>
       )}
-      {isVibesManual ? (
+      {isDrawThingsLocal ? (
+        <div className="manualProviderCard">
+          <b>Draw Things local handoff</b>
+          <ol>
+            <li>Download the selected identity and wardrobe references below.</li>
+            <li>In Draw Things, select Realistic Vision v5.1 (8-bit) and keep Cloud Compute off.</li>
+            <li>Import the references, paste both prompts, and generate one still locally.</li>
+            <li>Save the approved PNG or JPEG, then use Upload completed take below.</li>
+          </ol>
+          <div className="buttonRow">
+            <button className="primary" disabled={!quote} onClick={() => copyDrawThingsText("prompt", "Prompt")}>
+              Copy Draw Things prompt
+            </button>
+            <button className="ghost" disabled={!quote} onClick={() => copyDrawThingsText("negativePrompt", "Negative prompt")}>
+              Copy negative prompt
+            </button>
+            {drawThingsReferences().map((reference, index) => (
+              <button
+                className="ghost"
+                key={reference.key}
+                disabled={!quote}
+                onClick={() => downloadReference(
+                  reference,
+                  `draw-things-reference-${index + 1}`,
+                  `${reference.label} downloaded for Draw Things.`,
+                )}
+              >
+                Download ref {index + 1}
+              </button>
+            ))}
+            <button className="ghost" disabled={!quote} onClick={downloadDrawThingsHandoff}>
+              Download handoff
+            </button>
+          </div>
+          <small>
+            Runs in the installed Mac app. Film Studio sends no image bytes, uses no cloud credits, and charges $0.
+          </small>
+          {manualNotice && <p className="manualNotice" aria-live="polite">{manualNotice}</p>}
+        </div>
+      ) : isVibesManual ? (
         <div className="manualProviderCard">
           <b>Vibes browser handoff</b>
           <ol>

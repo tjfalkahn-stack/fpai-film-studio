@@ -73,7 +73,7 @@ export function config(env) {
 }
 export function providerLiveEnabled(provider, env) {
   if (provider === "mock") return true;
-  if (provider === "vibes-manual") return false;
+  if (providerFor(provider, env).capabilities.manual) return false;
   if (isSeedanceProvider(provider)) return seedanceLiveEnabled(env);
   return config(env).liveEnabled;
 }
@@ -183,7 +183,7 @@ async function attachCharacterReferences(body, input, provider, env) {
   if (provider.capabilities.manual) {
     selection.transmitted = [];
     selection.limitation =
-      "Manual browser handoff: Film Studio selected the Primary Identity reference, but no image bytes were transmitted by the adapter.";
+      "Manual handoff: Film Studio selected the references, but no image bytes were transmitted by the adapter.";
     return input;
   }
   const hasInlineBytes = (input.referenceImages || []).some((ref) => ref?.data);
@@ -251,7 +251,7 @@ function liveGate(input, provider, env) {
   if (provider.capabilities.manual)
     fail(
       "MANUAL_PROVIDER",
-      "This renderer uses a manual browser handoff and cannot be submitted to the render queue.",
+      "This renderer uses a manual handoff and cannot be submitted to the render queue.",
       409,
     );
   if (!providerLiveEnabled(input.provider, env))

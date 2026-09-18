@@ -156,6 +156,39 @@ test("Vibes quotes a zero-dollar manual handoff and can never enter the render q
   );
   assert.equal(network.mock.callCount(), 0);
 });
+test("Draw Things quotes a zero-dollar local handoff and can never enter the render queue", async (t) => {
+  const network = noNetwork(t);
+  const quote = await call(
+    "/api/renders",
+    body(undefined, {
+      provider: "draw-things-local",
+      duration: 1,
+      resolution: "1024x576",
+      estimateOnly: true,
+    }),
+  );
+  assert.equal(quote.response.status, 200);
+  assert.equal(quote.data.estimatedCost, 0);
+  assert.equal(quote.data.capabilities.manual, true);
+  assert.equal(quote.data.capabilities.local, true);
+  assert.equal(quote.data.debug.referenceImagesTransmitted, 0);
+  const blocked = await call(
+    "/api/renders",
+    body(undefined, {
+      provider: "draw-things-local",
+      duration: 1,
+      resolution: "1024x576",
+      acceptedCost: 0,
+    }),
+  );
+  assert.equal(blocked.response.status, 409);
+  assert.equal(blocked.data.error.code, "MANUAL_PROVIDER");
+  assert.equal(
+    (await db.prepare("SELECT COUNT(*) AS n FROM renders WHERE provider='draw-things-local'").first()).n,
+    0,
+  );
+  assert.equal(network.mock.callCount(), 0);
+});
 test("auth fail closed, project scope, validation, and changed-payload idempotency", async (t) => {
   noNetwork(t);
   assert.equal(

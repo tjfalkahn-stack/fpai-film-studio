@@ -2,6 +2,8 @@ name: Deploy Film Studio production
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read

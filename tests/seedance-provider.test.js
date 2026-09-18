@@ -236,6 +236,7 @@ test("render API quotes Seedance, rejects live submit, and rejects over-ceiling 
     catalogBody.providers.map((item) => item.id),
     [
       "mock",
+      "draw-things-local",
       "vibes-manual",
       "comfy-video",
       "seedance-fast",
