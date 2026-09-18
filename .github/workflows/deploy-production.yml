@@ -2,6 +2,7 @@ name: Deploy Film Studio production
 
 on:
   workflow_dispatch:
+  # Keep production synchronized after a verified merge.
   push:
     branches: [main]
     paths-ignore:
