@@ -180,7 +180,7 @@ npm run seedance:first-test
 
 ## LTX 2.5 API (prepared, not enabled)
 
-Film Studio exposes `ltx-2.5-fast` and `ltx-2.5-pro` as first-class providers using the official `https://api.ltx.video` API. Both remain closed unless `LTX_LIVE_ENABLED=true`. The API key is server-only:
+Film Studio exposes `ltx-2.5-fast` and `ltx-2.5-pro` as first-class providers using the official `https://api.ltx.io` API. Both remain closed unless `LTX_LIVE_ENABLED=true`. The API key is server-only:
 
 ```bash
 npx wrangler secret put LTX_API_KEY --config wrangler.toml
@@ -190,11 +190,13 @@ Before requesting a quote, copy the current rates shown in the LTX console into 
 
 ```toml
 LTX_LIVE_ENABLED = "false"
-LTX_FAST_RATE_PER_SECOND_USD = "CURRENT_CONSOLE_RATE"
-LTX_PRO_RATE_PER_SECOND_USD = "CURRENT_CONSOLE_RATE"
+LTX_FAST_720P_RATE_PER_SECOND_USD = "CURRENT_CONSOLE_RATE"
+LTX_FAST_1080P_RATE_PER_SECOND_USD = "CURRENT_CONSOLE_RATE"
+LTX_PRO_720P_RATE_PER_SECOND_USD = "CURRENT_CONSOLE_RATE"
+LTX_PRO_1080P_RATE_PER_SECOND_USD = "CURRENT_CONSOLE_RATE"
 ```
 
-LTX accepts text-to-video or one opening-frame image. For a multi-character shot, upload one approved composed frame containing every required character rather than separate headshots. Film Studio uploads that image through LTX's signed-upload endpoint, submits 24 fps generation, and stores returned MP4 bytes in private R2. The current synchronous LTX API cannot be canceled after submission begins.
+LTX accepts text-to-video or one opening-frame image. For a multi-character shot, upload one approved composed frame containing every required character rather than separate headshots. Film Studio uploads that image through LTX's signed-upload endpoint, submits an asynchronous 24 fps generation, polls the LTX job, and stores returned MP4 bytes in private R2. LTX jobs cannot be canceled through this adapter after submission begins.
 
 ## API contract
 
