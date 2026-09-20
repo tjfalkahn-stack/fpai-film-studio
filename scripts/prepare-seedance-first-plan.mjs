@@ -3,12 +3,15 @@ import path from "node:path";
 import { buildSeedanceRequest, CHARACTER_BIBLE } from "../src/seedanceRequest.js";
 import { DEFAULT_SEEDANCE_RATES, SEEDANCE_PRICING_UPDATED_AT } from "../src/seedancePricing.js";
 import { SEEDANCE_CONTROLLED_TEST } from "../src/seedanceControlledTest.js";
+import { TARMAC_CHARACTER_LOCKS, withTarmacCharacterLocks } from "../src/tarmacContinuity.js";
 
 const outDir = "benchmarks";
 const outFile = path.join(outDir, "enemies-closer.scene-001.seedance.plan.json");
 
-const prompt =
-  "CONTROL mode · Jasmine moving with young Mikey through a tense nighttime tarmac · Handheld coverage · final edit 6 seconds · identity drift STRICT · Use generated production sound only as reference audio. Night, heavy rain, private East Houston airfield. Jasmine keeps Mikey close as they move across wet tarmac under sparse sodium lights, rain hammering metal and pavement. Cinematic, grounded, no identity drift.";
+const prompt = withTarmacCharacterLocks(
+  "CONTROL mode · Jasmine moving with Mikey through a tense nighttime tarmac · Handheld coverage · final edit 6 seconds · identity drift STRICT · Use generated production sound only as reference audio. Night, heavy rain, private East Houston airfield. Jasmine keeps Mikey close as they move across wet tarmac under sparse sodium lights, rain hammering metal and pavement. Cinematic, grounded. No substitute faces, age drift, hairstyle changes, wardrobe changes, leather jacket, cable-knit sweater, pajamas, or tactical clothing.",
+  { sceneId: "001", characterIds: ["jasmine", "mikey"] },
+);
 
 const jasmine = {
   mimeType: "image/png",
@@ -64,8 +67,20 @@ const packet = {
   concept:
     "Jasmine moving with young Mikey through a tense nighttime tarmac environment, using Character Bible references plus a tarmac/environment reference.",
   characters: [
-    { id: "jasmine", name: CHARACTER_BIBLE.jasmine.name, role: CHARACTER_BIBLE.jasmine.role },
-    { id: "mikey", name: CHARACTER_BIBLE.mikey.name, role: CHARACTER_BIBLE.mikey.role },
+    {
+      id: "jasmine",
+      name: CHARACTER_BIBLE.jasmine.name,
+      role: CHARACTER_BIBLE.jasmine.role,
+      appearanceLock: TARMAC_CHARACTER_LOCKS.jasmine.appearanceLock,
+      wardrobeLock: TARMAC_CHARACTER_LOCKS.jasmine.wardrobe,
+    },
+    {
+      id: "mikey",
+      name: CHARACTER_BIBLE.mikey.name,
+      role: "Marcus & Jasmine's exactly six-year-old son",
+      appearanceLock: TARMAC_CHARACTER_LOCKS.mikey.appearanceLock,
+      wardrobeLock: TARMAC_CHARACTER_LOCKS.mikey.wardrobe,
+    },
   ],
   environmentReference: { id: "a1", name: "Tarmac Master 01", type: "Location" },
   liveFlagsRequired: {

@@ -2,6 +2,7 @@ import { providers, providerFor } from "./providers/index.js";
 import { fail, validateInput, ProviderError } from "./providers/contract.js";
 import { seedanceLiveEnabled } from "./providers/seedance.js";
 import { isSeedanceProvider } from "../src/seedanceRequest.js";
+import { isLtxProvider, ltxLiveEnabled } from "./providers/ltx.js";
 import {
   SEEDANCE_CONTROLLED_TEST,
   seedanceEstimatedCostAllowed,
@@ -56,6 +57,8 @@ export function config(env) {
     projectId: env.RENDER_PROJECT_ID || "enemies-closer-ep01",
     liveEnabled: liveMaster && (Boolean(env.GEMINI_API_KEY) || comfyConfigured),
     seedanceLiveEnabled: seedanceLiveEnabled(env),
+    ltxLiveEnabled: ltxLiveEnabled(env),
+    ltxConfigured: Boolean(String(env.LTX_API_KEY || "").trim()),
     falConfigured: Boolean(String(env.FAL_KEY || "").trim()),
     seedanceControlledTest: {
       projectId: SEEDANCE_CONTROLLED_TEST.projectId,
@@ -75,6 +78,7 @@ export function providerLiveEnabled(provider, env) {
   if (provider === "mock") return true;
   if (providerFor(provider, env).capabilities.manual) return false;
   if (isSeedanceProvider(provider)) return seedanceLiveEnabled(env);
+  if (isLtxProvider(provider)) return ltxLiveEnabled(env);
   return config(env).liveEnabled;
 }
 export function publicRender(row) {
@@ -259,6 +263,8 @@ function liveGate(input, provider, env) {
       "LIVE_DISABLED",
       isSeedanceProvider(input.provider)
         ? "Seedance live rendering is disabled. Mock mode is available."
+        : isLtxProvider(input.provider)
+          ? "LTX live rendering is disabled. Mock mode is available."
         : "Live rendering is disabled. Mock mode is available.",
       403,
     );
@@ -315,6 +321,7 @@ async function create(request, env) {
       ...quote,
       liveEnabled: policy.liveEnabled,
       seedanceLiveEnabled: policy.seedanceLiveEnabled,
+      ltxLiveEnabled: policy.ltxLiveEnabled,
       policy,
       capabilities: provider.capabilities,
       characterReferenceSelection: input.characterReferenceSelection || null,
@@ -557,6 +564,26 @@ export async function advance(env, row) {
         }
       }
       const started = await provider.start(input);
+      if (started.completedResponse) {
+        const key = `renders/${row.project_id}/${row.id}.mp4`;
+        await env.GENERATION_MEDIA.put(key, started.completedResponse.body, {
+          httpMetadata: { contentType: "video/mp4" },
+        });
+        await db
+          .prepare(
+            "UPDATE renders SET status='completed',operation_id=?,output_key=?,actual_cost=estimated_cost,reserved_cost=0,cost_basis=?,error_json=NULL,updated_at=? WHERE id=? AND status='starting'",
+          )
+          .bind(
+            started.operationId,
+            key,
+            started.costBasis || "completed-usage-at-quoted-rate",
+            stamp(),
+            row.id,
+          )
+          .run();
+        await env.GENERATION_MEDIA.delete(`render-inputs/${row.id}.json`);
+        return get(env, row.id);
+      }
       await db
         .prepare(
           "UPDATE renders SET status='running',operation_id=?,updated_at=? WHERE id=? AND status='starting'",

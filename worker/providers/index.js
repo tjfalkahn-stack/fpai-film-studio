@@ -7,6 +7,7 @@ import {
 } from "./seedance.js";
 import { createVibesManualProvider } from "./vibes.js";
 import { createDrawThingsLocalProvider } from "./drawThings.js";
+import { createLtxFastProvider, createLtxProProvider } from "./ltx.js";
 import { fail } from "./contract.js";
 
 export function providers(env) {
@@ -17,6 +18,8 @@ export function providers(env) {
     createComfyProvider(env),
     createSeedanceFastProvider(env),
     createSeedanceStandardProvider(env),
+    createLtxFastProvider(env),
+    createLtxProProvider(env),
     createVeoProvider(env),
   ];
 }

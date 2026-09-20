@@ -332,12 +332,17 @@ export default {
         adapter: "fpai-google-video-v1",
         geminiKeyConfigured: Boolean(env.GEMINI_API_KEY),
         falKeyConfigured: Boolean(env.FAL_KEY),
+        ltxKeyConfigured: Boolean(env.LTX_API_KEY),
         controlTokenConfigured: Boolean(env.FPAI_CONTROL_TOKEN),
         d1Configured: Boolean(env.GENERATION_DB),
         r2Configured: Boolean(env.GENERATION_MEDIA),
         liveExecutionReady: renderConfig(env).liveEnabled && Boolean(env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA),
         liveRenderingEnabled: renderConfig(env).liveEnabled,
         seedanceLiveEnabled: renderConfig(env).seedanceLiveEnabled,
+        ltxLiveEnabled: renderConfig(env).ltxLiveEnabled,
+        ltxExecutionReady:
+          renderConfig(env).ltxLiveEnabled &&
+          Boolean(env.LTX_API_KEY && env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA),
       }, 200, cors);
     }
 

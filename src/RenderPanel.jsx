@@ -12,23 +12,46 @@ import {
   DRAW_THINGS_LOCAL_PROVIDER_ID,
   drawThingsHandoffFilename,
 } from "./drawThingsWorkflow.js";
+import { withTarmacCharacterLocks } from "./tarmacContinuity.js";
+import {
+  START_FRAME_PROVIDER_LIMIT,
+  isLtxProviderId,
+  renderReferenceKeys,
+} from "./shotStartFrame.js";
 
-async function encodeImage(file) {
-  if (
-    !file ||
-    !["image/png", "image/jpeg"].includes(file.type) ||
-    file.size > 2 * 1024 * 1024
-  )
-    throw new Error(
-      "Selected references must be stored PNG/JPEG images no larger than 2 MB.",
-    );
-  const data = await new Promise((resolve, reject) => {
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result.split(",")[1]);
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-  return { mimeType: file.type, data };
+}
+
+async function compressImage(file) {
+  if (file.size <= START_FRAME_PROVIDER_LIMIT) return file;
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1920 / bitmap.width, 1080 / bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d", { alpha: false });
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  for (const quality of [0.92, 0.86, 0.8, 0.72]) {
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (blob && blob.size <= START_FRAME_PROVIDER_LIMIT) return blob;
+  }
+  throw new Error("Shot Start Frame could not be prepared under the provider's 2 MB limit.");
+}
+
+async function encodeImage(file) {
+  if (!file || !["image/png", "image/jpeg"].includes(file.type))
+    throw new Error(
+      "Selected references must be stored PNG/JPEG images.",
+    );
+  const prepared = await compressImage(file);
+  return { mimeType: prepared.type, data: await fileToBase64(prepared) };
 }
 export default function RenderPanel({
   shot,
@@ -53,7 +76,7 @@ export default function RenderPanel({
     [manualNotice, setManualNotice] = useState("");
   const pending = useRef(null),
     submitting = useRef(false);
-  const refs = characters.flatMap((c) =>
+  const characterRefs = characters.flatMap((c) =>
     Object.entries(c.refs || {}).map(([slot, ref]) => ({
       key: ref.key,
       assetId: ref.assetId,
@@ -61,9 +84,24 @@ export default function RenderPanel({
       label: `${c.name} · ${slot}`,
     })),
   );
+  const refs = shot.startFrame?.key
+    ? [
+        {
+          key: shot.startFrame.key,
+          label: `Shot ${shot.id} · Start Frame`,
+          startFrame: true,
+        },
+        ...characterRefs,
+      ]
+    : characterRefs;
   const capabilities = catalog?.providers.find((p) => p.id === provider);
+  const generationPrompt = withTarmacCharacterLocks(plan.prompt, {
+    sceneId: shot.scene,
+    characterIds: characters.map((character) => character.id),
+  });
   const isVibesManual = provider === VIBES_MANUAL_PROVIDER_ID;
   const isDrawThingsLocal = provider === DRAW_THINGS_LOCAL_PROVIDER_ID;
+  const isLtx = isLtxProviderId(provider);
   const isManualProvider = Boolean(capabilities?.manual);
   const active = renders.filter(
     (r) => r.shotId === shot.id && r.sceneId === shot.scene,
@@ -73,6 +111,9 @@ export default function RenderPanel({
       .then(setCatalog)
       .catch((e) => setError(e.message));
   }, []);
+  useEffect(() => {
+    if (isLtx && shot.startFrame?.key) setSelected([shot.startFrame.key]);
+  }, [isLtx, shot.startFrame?.key]);
   async function input() {
     // Fail closed when local metadata points to missing blobs before any paid submission.
     if (capabilities?.paid) {
@@ -87,7 +128,12 @@ export default function RenderPanel({
     }
     const inline = [];
     if (!isManualProvider) {
-      for (const key of selected) {
+      const referenceKeys = renderReferenceKeys({
+        provider,
+        startFrameKey: shot.startFrame?.key,
+        selected,
+      });
+      for (const key of referenceKeys) {
         const file = await getMedia(key);
         if (file) inline.push(await encodeImage(file));
       }
@@ -97,7 +143,7 @@ export default function RenderPanel({
       sceneId: shot.scene,
       shotId: shot.id,
       provider,
-      prompt: plan.prompt,
+      prompt: generationPrompt,
       duration,
       resolution,
       aspectRatio,
@@ -111,10 +157,17 @@ export default function RenderPanel({
       })),
       shotSubject: shot.subject,
       shotMove: shot.move,
+      startFrame: shot.startFrame
+        ? {
+            name: shot.startFrame.name,
+            key: shot.startFrame.key,
+            role: "opening-frame",
+          }
+        : null,
       shotContext: {
         subject: shot.subject,
         move: shot.move,
-        prompt: plan.prompt,
+        prompt: generationPrompt,
       },
       continuity: {
         ready: continuity.ready,
@@ -147,7 +200,7 @@ export default function RenderPanel({
     resolution,
     aspectRatio,
     selected,
-    plan.prompt,
+    generationPrompt,
     characters.map((c) => JSON.stringify(c.refs)).join("|"),
     continuity.ready,
     scene?.animaticLocked,
@@ -164,17 +217,23 @@ export default function RenderPanel({
     .reduce((s, r) => s + (r.actualCost || 0) + (r.reservedCost || 0), 0);
   const providerLiveReady = isSeedanceProvider(provider)
     ? Boolean(catalog?.policy?.seedanceLiveEnabled)
+    : String(provider).startsWith("ltx-2.5-")
+      ? Boolean(catalog?.policy?.ltxLiveEnabled)
     : Boolean(catalog?.policy?.liveEnabled);
   const liveBlock = !capabilities?.paid
     ? ""
     : !providerLiveReady
       ? isSeedanceProvider(provider)
         ? "Seedance live rendering is disabled on the server."
+        : String(provider).startsWith("ltx-2.5-")
+          ? "LTX live rendering is disabled on the server."
         : "Live rendering is disabled on the server."
       : !continuity.ready
         ? "Complete and lock the Character Bible first."
         : !scene?.animaticLocked || !shot.economy?.animaticApproved
           ? "Approve shot timing and lock the scene animatic first."
+          : isLtx && !shot.startFrame?.key
+            ? "Upload a composed Shot Start Frame before submitting LTX image-to-video."
           : characters.length &&
               !selected.length &&
               !quote?.debug?.selectedAssetIds?.length
@@ -240,7 +299,7 @@ export default function RenderPanel({
       project,
       scene,
       shot,
-      plan,
+      plan: { ...plan, prompt: generationPrompt },
       characters,
       duration,
       resolution,
@@ -254,7 +313,7 @@ export default function RenderPanel({
       project,
       scene,
       shot,
-      plan,
+      plan: { ...plan, prompt: generationPrompt },
       characters,
       resolution,
       aspectRatio,
@@ -444,6 +503,8 @@ export default function RenderPanel({
           ? " Vibes uses one primary reference image. Film Studio preserves the full Character Bible and prepares a manual handoff; no Vibes credentials or production secrets are stored."
           : provider === "veo-fast"
           ? " Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
+          : isLtx
+            ? " LTX uses the dedicated composed Shot Start Frame as frame one. Character Bible portraits remain continuity references and are not substituted for the opening frame."
           : provider?.startsWith("seedance-")
             ? " Seedance consumes the Character Bible selection automatically (Marcus, Jasmine, Turner, Mikey) plus optional scene references. Audio is available at the same quoted video rate. Up to 9 images."
             : " Mock records the full selected set in debug output. Live providers still honor their own reference limits."}
@@ -452,10 +513,11 @@ export default function RenderPanel({
         <label key={ref.key} className="checkLabel">
           <input
             type="checkbox"
-            checked={selected.includes(ref.key)}
+            checked={isLtx && ref.startFrame ? true : selected.includes(ref.key)}
             disabled={
-              !selected.includes(ref.key) &&
-              selected.length >= (capabilities?.maxReferences || 3)
+              (isLtx && ref.startFrame) ||
+              (!selected.includes(ref.key) &&
+                selected.length >= (capabilities?.maxReferences || 3))
             }
             onChange={(e) =>
               setSelected(
@@ -468,6 +530,11 @@ export default function RenderPanel({
           <span>{ref.label}</span>
         </label>
       ))}
+      {isLtx && !shot.startFrame?.key && (
+        <div className="validation">
+          Upload a composed Shot Start Frame above. LTX will not use a Character Bible portrait as this shot's opening frame.
+        </div>
+      )}
       {quote?.debug?.characterReferenceSelection && (
         <div className="mockDebug">
           <b>Selected generation references</b>

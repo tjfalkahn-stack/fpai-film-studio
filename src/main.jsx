@@ -87,6 +87,8 @@ import ProductionCharacterSheet from "./ProductionCharacterSheet.jsx";
 import { LEGACY_SLOT_TO_LIBRARY } from "./characterReferences.js";
 import { characterBiblePatch, defaultExpressionBankNames, visibleExpressionNames } from "./characterBibleSync.js";
 import { assignCharacterCanonicalSlot, fetchCharacterLibrary, uploadCharacterReference } from "./characterReferenceClient.js";
+import { applyTarmacCharacterLocks, TARMAC_CHARACTER_LOCKS } from "./tarmacContinuity.js";
+import { validateShotStartFrame } from "./shotStartFrame.js";
 
 const STORAGE_KEY = "fpai-film-studio-v1.2";
 const MEDIA_DB = "fpai-film-studio-media";
@@ -101,7 +103,7 @@ const seedShots = [
   ["012", 3, "CHAOS", "Turner wounded", "Find through foreground", ["turner"], ["a1"], "Hero", { identityRisk: 2, shotCap: 1.2 }],
   ["020", 3, "CHAOS", "Convoy aerial", "Top-down pursuit", [], ["a1", "a2"], "Hero", { complexity: 3, reusePotential: "high", shotCap: 1.6 }],
   ["027", 4.5, "CONTROL", "Marcus hero reveal", "Stabilized push-in", ["marcus"], ["a1"], "Hero", { hero: true, identityRisk: 3, shotCap: 3 }],
-  ["031", 2, "CONTROL", "MIKEY: Daddy!", "Child-height close-up", ["mikey"], ["a1"], "Planned", { lipVisible: true, identityRisk: 3, localAudio: true, shotCap: 1 }],
+  ["031", 2, "CONTROL", "MIKEY: Daddy! Jasmine holds him close", "Child-height close-up", ["jasmine", "mikey"], ["a1"], "Planned", { lipVisible: true, identityRisk: 3, localAudio: true, shotCap: 1 }],
 ];
 
 const seed = {
@@ -137,8 +139,10 @@ const seed = {
       refs: {},
       expressions: {},
       voice: "Soft, intelligent, guarded",
-      wardrobe: "Tarmac Look 01",
-      notes: "Never telegraph the betrayal.",
+      wardrobe: TARMAC_CHARACTER_LOCKS.jasmine.wardrobe,
+      appearanceLock: TARMAC_CHARACTER_LOCKS.jasmine.appearanceLock,
+      continuityNote: TARMAC_CHARACTER_LOCKS.jasmine.continuityNote,
+      notes: "Never telegraph the betrayal. Exact identity and airport wardrobe are locked to the approved mother-and-son tarmac reference.",
     },
     {
       id: "turner",
@@ -158,9 +162,11 @@ const seed = {
       locked: false,
       refs: {},
       expressions: {},
-      voice: "Natural four-year-old",
-      wardrobe: "Pajamas 01",
-      notes: "Emotional POV anchor for the opening.",
+      voice: TARMAC_CHARACTER_LOCKS.mikey.voice,
+      wardrobe: TARMAC_CHARACTER_LOCKS.mikey.wardrobe,
+      appearanceLock: TARMAC_CHARACTER_LOCKS.mikey.appearanceLock,
+      continuityNote: TARMAC_CHARACTER_LOCKS.mikey.continuityNote,
+      notes: "Exactly six years old. Emotional POV anchor for the opening. Exact identity and airport wardrobe are locked to the approved mother-and-son tarmac reference.",
     },
   ],
   scenes: [
@@ -276,13 +282,18 @@ function migrateData() {
     ...seed,
     ...old,
     project,
-    characters: mergeSavedCharacters(old.characters, seed.characters),
+    characters: applyTarmacCharacterLocks(
+      mergeSavedCharacters(old.characters, seed.characters),
+    ),
     scenes: (old.scenes || seed.scenes).map((scene) => ({ ...scene, animaticLocked: Boolean(scene.animaticLocked) })),
     assets: old.assets || seed.assets,
     providers: old.providers || seed.providers,
     shots: (old.shots || seed.shots).map((shot) => ({
       ...shot,
-      characters: shot.characters || [],
+      characters:
+        shot.scene === "001" && shot.id === "031"
+          ? ["jasmine", "mikey"]
+          : shot.characters || [],
       assets: shot.assets || [],
       takes: shot.takes || [],
       provider: shot.provider || "auto",
@@ -624,6 +635,27 @@ function App() {
     updateShot(targetShot.id, { takes: [...(targetShot.takes || []), take] });
   }
 
+  async function setShotStartFrame(targetShot, file) {
+    if (!file) return;
+    const metadata = validateShotStartFrame(file);
+    const key = `shot:${targetShot.id}:start-frame:${Date.now()}`;
+    await putMedia(key, file);
+    const previousKey = targetShot.startFrame?.key;
+    updateShot(targetShot.id, {
+      startFrame: {
+        key,
+        ...metadata,
+        uploadedAt: new Date().toISOString(),
+      },
+    });
+    if (previousKey && previousKey !== key) await deleteMedia(previousKey);
+  }
+
+  async function clearShotStartFrame(targetShot) {
+    if (targetShot.startFrame?.key) await deleteMedia(targetShot.startFrame.key);
+    updateShot(targetShot.id, { startFrame: null });
+  }
+
   function updateTake(targetShot, takeId, patch) {
     setData(current => updateTakeState(current, targetShot.id, takeId, patch));
   }
@@ -951,6 +983,8 @@ function App() {
           packet={packageForShot(shot)}
           setPackageShotId={setPackageShotId}
           addTake={addTake}
+          setShotStartFrame={setShotStartFrame}
+          clearShotStartFrame={clearShotStartFrame}
           updateTake={updateTake}
           approveTake={approveTake}
           reusableTakes={data.shots.flatMap((sourceShot) => (sourceShot.takes || [])
@@ -1512,7 +1546,7 @@ function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addR
   );
 }
 
-function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy, plan, packet, setPackageShotId, addTake, updateTake, approveTake, reusableTakes, close }) {
+function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy, plan, packet, setPackageShotId, addTake, setShotStartFrame, clearShotStartFrame, updateTake, approveTake, reusableTakes, close }) {
   const economy = normalizeShotEconomy(shot, project);
   return (
     <div className="overlay">
@@ -1527,6 +1561,26 @@ function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy,
         </div>
         <label>Camera<input value={shot.move} onChange={(event) => updateShot(shot.id, { move: event.target.value })} /></label>
         <label>Prompt<textarea value={shot.prompt} onChange={(event) => updateShot(shot.id, { prompt: event.target.value })} /></label>
+
+        <div className="shotStartFrame">
+          <div className="sectionTitle"><ImageIcon /><span>SHOT START FRAME</span></div>
+          <p className="sub">The approved composed still that becomes frame one for image-to-video. It is separate from Character Bible portraits and completed takes.</p>
+          {shot.startFrame?.key ? (
+            <div className="shotStartFrameCard">
+              <div className="takeMedia"><Media mediaKey={shot.startFrame.key} /></div>
+              <div>
+                <b>{shot.startFrame.name}</b>
+                <small>{(Number(shot.startFrame.size || 0) / 1024 / 1024).toFixed(2)} MB · opening frame</small>
+                <div className="buttonRow">
+                  <label className="primary uploadButton">Replace Start Frame<input type="file" accept="image/png,image/jpeg" onChange={(event) => setShotStartFrame(shot, event.target.files?.[0])} /></label>
+                  <button className="ghost" onClick={() => clearShotStartFrame(shot)}>Remove</button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <label className="primary uploadButton">Upload Shot Start Frame<input type="file" accept="image/png,image/jpeg" onChange={(event) => setShotStartFrame(shot, event.target.files?.[0])} /></label>
+          )}
+        </div>
 
         <div className="sectionTitle"><SlidersHorizontal /><span>GENERATION ECONOMY CONTROLS</span></div>
         <div className="animaticApproval">

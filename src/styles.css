@@ -527,6 +527,11 @@ svg{display:block}
 
 /* Render controls extend the existing shot drawer; production layout is unchanged. */
 .renderPanel { border-block:1px solid var(--border,#332c3c); padding:16px 0; margin:18px 0; }
+.shotStartFrame { border:1px solid var(--border,#332c3c); border-radius:14px; padding:14px; margin:18px 0; background:rgba(255,255,255,.018); }
+.shotStartFrameCard { display:grid; grid-template-columns:minmax(220px,360px) 1fr; gap:16px; align-items:center; }
+.shotStartFrameCard .takeMedia { min-height:140px; }
+.shotStartFrameCard small { display:block; margin:6px 0 14px; color:var(--muted,#9d94a5); }
+@media (max-width:760px) { .shotStartFrameCard { grid-template-columns:1fr; } }
 .renderPanel p,.renderPanel label,.renderStatus { font-size:14px; }
 .renderStatus { padding:10px 0; border-bottom:1px solid #332c3c; }
 .renderStatus small { display:block; overflow-wrap:anywhere; margin:4px 0; }

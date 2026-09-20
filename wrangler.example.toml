@@ -6,6 +6,7 @@ compatibility_date = "2026-09-04"
 LIVE_RENDERING_ENABLED = "false"
 MOCK_E2E_VERIFIED = "false"
 SEEDANCE_LIVE_ENABLED = "false"
+LTX_LIVE_ENABLED = "false"
 RENDER_PROJECT_ID = "enemies-closer-ep01"
 RENDER_PROJECT_CEILING_USD = "20"
 RENDER_SESSION_CEILING_USD = "10"
@@ -44,6 +45,11 @@ SEEDANCE_STANDARD_1080P_PER_SECOND_USD = "0.682"
 # SEEDANCE_STANDARD_REFERENCE_VIDEO_1080P_PER_SECOND_USD = "0.682"
 # Optional async completion callback. Leave unset; polling remains the default.
 # SEEDANCE_WEBHOOK_URL = "https://YOUR-ADAPTER/api/webhooks/fal?token=YOUR_WEBHOOK_SECRET"
+
+# LTX 2.5 API. LTX_API_KEY is a Worker secret, never a browser variable.
+# Copy the current per-second rates from the LTX console before quoting.
+LTX_FAST_RATE_PER_SECOND_USD = "REPLACE_WITH_CURRENT_RATE"
+LTX_PRO_RATE_PER_SECOND_USD = "REPLACE_WITH_CURRENT_RATE"
 
 [[d1_databases]]
 binding = "GENERATION_DB"

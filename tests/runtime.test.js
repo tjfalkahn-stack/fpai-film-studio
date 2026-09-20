@@ -49,10 +49,13 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
       "comfy-video",
       "seedance-fast",
       "seedance-standard",
+      "ltx-2.5-fast",
+      "ltx-2.5-pro",
       "veo-fast",
     ]);
     assert.equal(catalog.policy.liveEnabled, false);
     assert.equal(catalog.policy.seedanceLiveEnabled, false);
+    assert.equal(catalog.policy.ltxLiveEnabled, false);
     assert.equal(catalog.policy.sessionCeiling, 10);
     assert.equal(catalog.policy.projectCeiling, 20);
     let db = await mf.getD1Database("GENERATION_DB");

@@ -1,4 +1,5 @@
 import { estimateSeedanceCost } from "./seedancePricing.js";
+import { TARMAC_CHARACTER_LOCKS } from "./tarmacContinuity.js";
 
 export const SEEDANCE_QUEUE_ORIGIN = "https://queue.fal.run";
 
@@ -39,7 +40,8 @@ export const CHARACTER_BIBLE = Object.freeze({
     name: "Jasmine",
     shortName: "Jasmine",
     role: "Marcus's woman / secret architect",
-    wardrobe: "Tarmac Look 01",
+    wardrobe: TARMAC_CHARACTER_LOCKS.jasmine.wardrobe,
+    appearanceLock: TARMAC_CHARACTER_LOCKS.jasmine.appearanceLock,
   },
   turner: {
     id: "turner",
@@ -53,7 +55,8 @@ export const CHARACTER_BIBLE = Object.freeze({
     name: "Mikey",
     shortName: "Mikey",
     role: "Marcus & Jasmine's young son",
-    wardrobe: "Pajamas 01",
+    wardrobe: TARMAC_CHARACTER_LOCKS.mikey.wardrobe,
+    appearanceLock: TARMAC_CHARACTER_LOCKS.mikey.appearanceLock,
   },
 });
 

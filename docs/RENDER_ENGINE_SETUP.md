@@ -178,6 +178,24 @@ The first controlled Enemies Closer Scene 001 plan is `benchmarks/enemies-closer
 npm run seedance:first-test
 ```
 
+## LTX 2.5 API (prepared, not enabled)
+
+Film Studio exposes `ltx-2.5-fast` and `ltx-2.5-pro` as first-class providers using the official `https://api.ltx.video` API. Both remain closed unless `LTX_LIVE_ENABLED=true`. The API key is server-only:
+
+```bash
+npx wrangler secret put LTX_API_KEY --config wrangler.toml
+```
+
+Before requesting a quote, copy the current rates shown in the LTX console into `LTX_FAST_RATE_PER_SECOND_USD` and `LTX_PRO_RATE_PER_SECOND_USD`. No fallback price is embedded because an outdated rate could defeat the spend gate. Keep the live flag false during review:
+
+```toml
+LTX_LIVE_ENABLED = "false"
+LTX_FAST_RATE_PER_SECOND_USD = "CURRENT_CONSOLE_RATE"
+LTX_PRO_RATE_PER_SECOND_USD = "CURRENT_CONSOLE_RATE"
+```
+
+LTX accepts text-to-video or one opening-frame image. For a multi-character shot, upload one approved composed frame containing every required character rather than separate headshots. Film Studio uploads that image through LTX's signed-upload endpoint, submits 24 fps generation, and stores returned MP4 bytes in private R2. The current synchronous LTX API cannot be canceled after submission begins.
+
 ## API contract
 
 | Route | Purpose |
@@ -195,7 +213,7 @@ npm run seedance:first-test
 | `GET/POST /api/projects/:projectId/characters/:characterId/lock` | Read or rebuild a versioned Character Lock manifest. Rebuild does not train a model or start a paid render. |
 | `POST .../reference-selection` | Deterministic shot reference selection preview. |
 
-Request inputs: `projectId`, `sceneId`, `shotId`, `provider` (`mock` / `vibes-manual` / `comfy-video` / `seedance-fast` / `seedance-standard` / `veo-fast`), `prompt`, `referenceImages:[{mimeType,data}]` (legacy inline), optional `characterIds` / `shotSubject` / `shotContext` for library selection, optional Seedance `generateAudio`, `seed`, `endFrameImage`, `environmentReferences`, `referenceVideos`, `aspectRatio`, `duration`, `resolution`; submissions also require `requestKey` and `acceptedCost`. Live requests require an owner-attested `continuity` snapshot.
+Request inputs: `projectId`, `sceneId`, `shotId`, `provider` (`mock` / `vibes-manual` / `comfy-video` / `seedance-fast` / `seedance-standard` / `ltx-2.5-fast` / `ltx-2.5-pro` / `veo-fast`), `prompt`, `referenceImages:[{mimeType,data}]` (legacy inline), optional `characterIds` / `shotSubject` / `shotContext` for library selection, optional provider audio controls, `seed`, `endFrameImage`, `environmentReferences`, `referenceVideos`, `aspectRatio`, `duration`, `resolution`; submissions also require `requestKey` and `acceptedCost`. Live requests require an owner-attested `continuity` snapshot.
 
 ## Vibes manual browser handoff
 

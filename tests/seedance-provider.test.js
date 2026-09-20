@@ -241,6 +241,8 @@ test("render API quotes Seedance, rejects live submit, and rejects over-ceiling 
       "comfy-video",
       "seedance-fast",
       "seedance-standard",
+      "ltx-2.5-fast",
+      "ltx-2.5-pro",
       "veo-fast",
     ],
   );

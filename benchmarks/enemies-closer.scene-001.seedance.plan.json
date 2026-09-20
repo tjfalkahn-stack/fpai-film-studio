@@ -14,12 +14,16 @@
     {
       "id": "jasmine",
       "name": "Jasmine",
-      "role": "Marcus's woman / secret architect"
+      "role": "Marcus's woman / secret architect",
+      "appearanceLock": "Adult light-complexioned, fair-skinned Black woman, lean athletic build, long oval face, high cheekbones, defined jawline, dark-brown almond-shaped eyes, sharply defined arched brows, straight narrow nose, full lips, and very long dense black wavy-curly hair worn loose with a deep side part and laid edges, falling below her waist",
+      "wardrobeLock": "Scene 001 Tarmac: matte-black zip-front bomber jacket with ribbed cuffs, fitted black scoop-neck tank top, high-waisted black cargo pants with large flap thigh pockets, thin large gold hoop earrings, black shoulder bag strap over her left shoulder"
     },
     {
       "id": "mikey",
       "name": "Mikey",
-      "role": "Marcus & Jasmine's young son"
+      "role": "Marcus & Jasmine's exactly six-year-old son",
+      "appearanceLock": "Exactly six-year-old light-complexioned, fair-skinned Black boy with small slim child proportions, softly rounded oval face, smooth rounded cheeks, dark-brown almond-shaped eyes, softly curved brows, small rounded nose, full childlike lips, and short dense black corkscrew curls with neatly tapered sides",
+      "wardrobeLock": "Scene 001 Tarmac: black Nike pullover hoodie with a small white Nike wordmark and Swoosh on the left chest, matching black Nike jogger pants with a small white Nike wordmark and Swoosh on the upper left thigh, black backpack with a subtle checkerboard weave and two padded shoulder straps"
     }
   ],
   "environmentReference": {
@@ -80,7 +84,7 @@
     "aspectRatio": "16:9",
     "generateAudio": true,
     "referenceCount": 3,
-    "prompt": "@Image1 is Jasmine · (Marcus's woman / secret architect) · identity front. Keep identity locked to this reference. @Image2 is Mikey · (Marcus & Jasmine's young son) · identity front. Keep identity locked to this reference. @Image3 is Tarmac Master 01 (scene / environment reference). Keep identity locked to this reference. CONTROL mode · Jasmine moving with young Mikey through a tense nighttime tarmac · Handheld coverage · final edit 6 seconds · identity drift STRICT · Use generated production sound only as reference audio. Night, heavy rain, private East Houston airfield. Jasmine keeps Mikey close as they move across wet tarmac under sparse sodium lights, rain hammering metal and pavement. Cinematic, grounded, no identity drift.",
+    "prompt": "@Image1 is Jasmine · (Marcus's woman / secret architect) · identity front. Keep identity locked to this reference. @Image2 is Mikey · (Marcus & Jasmine's young son) · identity front. Keep identity locked to this reference. @Image3 is Tarmac Master 01 (scene / environment reference). Keep identity locked to this reference. JASMINE EXACT LIKENESS LOCK: Adult light-complexioned, fair-skinned Black woman, lean athletic build, long oval face, high cheekbones, defined jawline, dark-brown almond-shaped eyes, sharply defined arched brows, straight narrow nose, full lips, and very long dense black wavy-curly hair worn loose with a deep side part and laid edges, falling below her waist. EXACT AIRPORT WARDROBE: Scene 001 Tarmac: matte-black zip-front bomber jacket with ribbed cuffs, fitted black scoop-neck tank top, high-waisted black cargo pants with large flap thigh pockets, thin large gold hoop earrings, black shoulder bag strap over her left shoulder. Match Jasmine's exact facial identity, hairline, hair length, skin tone, build, and proportions to the approved airport reference. Do not substitute a similar-looking woman. MIKEY EXACT LIKENESS LOCK: Exactly six-year-old light-complexioned, fair-skinned Black boy with small slim child proportions, softly rounded oval face, smooth rounded cheeks, dark-brown almond-shaped eyes, softly curved brows, small rounded nose, full childlike lips, and short dense black corkscrew curls with neatly tapered sides. EXACT AIRPORT WARDROBE: Scene 001 Tarmac: black Nike pullover hoodie with a small white Nike wordmark and Swoosh on the left chest, matching black Nike jogger pants with a small white Nike wordmark and Swoosh on the upper left thigh, black backpack with a subtle checkerboard weave and two padded shoulder straps. Match Mikey's exact facial identity, curl pattern, hair silhouette, skin tone, age, and child proportions to the approved airport reference. He must remain exactly six years old and must not look like a toddler, teenager, or small adult. SHOT PROMPT: CONTROL mode · Jasmine moving with Mikey through a tense nighttime tarmac · Handheld coverage · final edit 6 seconds · identity drift STRICT · Use generated production sound only as reference audio. Night, heavy rain, private East Houston airfield. Jasmine keeps Mikey close as they move across wet tarmac under sparse sodium lights, rain hammering metal and pavement. Cinematic, grounded. No substitute faces, age drift, hairstyle changes, wardrobe changes, leather jacket, cable-knit sweater, pajamas, or tactical clothing.",
     "imageRoles": [
       "jasmine-identity",
       "mikey-identity",
