@@ -1,18 +1,24 @@
 import { ProviderError, fail } from "./contract.js";
 
-const API_ORIGIN = "https://api.ltx.video";
+const API_ORIGIN = "https://api.ltx.io";
 const TIERS = {
   fast: {
     id: "ltx-2.5-fast",
     label: "LTX 2.5 Fast (API)",
     model: "ltx-2-5-fast",
-    rateKey: "LTX_FAST_RATE_PER_SECOND_USD",
+    rateKeys: {
+      "720p": "LTX_FAST_720P_RATE_PER_SECOND_USD",
+      "1080p": "LTX_FAST_1080P_RATE_PER_SECOND_USD",
+    },
   },
   pro: {
     id: "ltx-2.5-pro",
     label: "LTX 2.5 Pro (API)",
     model: "ltx-2-5-pro",
-    rateKey: "LTX_PRO_RATE_PER_SECOND_USD",
+    rateKeys: {
+      "720p": "LTX_PRO_720P_RATE_PER_SECOND_USD",
+      "1080p": "LTX_PRO_1080P_RATE_PER_SECOND_USD",
+    },
   },
 };
 
@@ -40,12 +46,15 @@ function apiBase(env) {
   return url.origin;
 }
 
-function rateFor(env, meta) {
-  const rate = Number(env[meta.rateKey]);
+function rateFor(env, meta, resolution) {
+  const rateKey = meta.rateKeys[resolution];
+  if (!rateKey)
+    fail("PROVIDER_CONFIG", `LTX ${resolution} pricing is not configured.`, 503);
+  const rate = Number(env[rateKey]);
   if (!Number.isFinite(rate) || rate <= 0)
     fail(
       "PROVIDER_CONFIG",
-      `${meta.rateKey} must be set to the current LTX console rate before quoting or submitting.`,
+      `${rateKey} must be set to the current LTX console rate before quoting or submitting.`,
       503,
     );
   return rate;
@@ -125,6 +134,21 @@ async function videoResponse(env, fetchImpl, response) {
   return downloaded;
 }
 
+function outputResolution(input) {
+  const portrait = input.aspectRatio === "9:16";
+  if (input.resolution === "1080p") return portrait ? "1080x1920" : "1920x1080";
+  return portrait ? "720x1280" : "1280x720";
+}
+
+function operation(value) {
+  const match = String(value || "").match(
+    /^ltx:v2:(text-to-video|image-to-video):([A-Za-z0-9_-]{8,128})$/,
+  );
+  if (!match)
+    fail("LTX_INVALID_OPERATION", "Stored LTX job identifier is invalid.", 502);
+  return { endpoint: match[1], id: match[2] };
+}
+
 function capabilities(meta, tier) {
   return {
     id: meta.id,
@@ -132,7 +156,7 @@ function capabilities(meta, tier) {
     paid: true,
     ledgerRoutes: { "720p": meta.id, "1080p": meta.id },
     model: meta.model,
-    durations: [4, 6, 8],
+    durations: [6, 8, 10],
     resolutions: ["720p", "1080p"],
     aspectRatios: ["16:9", "9:16"],
     maxReferences: 1,
@@ -153,7 +177,7 @@ export function createLtxProvider(env = {}, fetchImpl = fetch, options = {}) {
   return {
     capabilities: capabilities(meta, tier),
     estimate(input) {
-      const ratePerSecond = rateFor(env, meta);
+      const ratePerSecond = rateFor(env, meta, input.resolution);
       return {
         estimatedCost: Number((ratePerSecond * input.duration).toFixed(4)),
         currency: "USD",
@@ -167,11 +191,11 @@ export function createLtxProvider(env = {}, fetchImpl = fetch, options = {}) {
       const imageUri = references[0]
         ? await uploadReference(env, fetchImpl, references[0])
         : null;
-      const endpoint = imageUri ? "/v1/image-to-video" : "/v1/text-to-video";
+      const endpoint = imageUri ? "image-to-video" : "text-to-video";
       const body = {
         prompt: input.prompt,
         model: meta.model,
-        resolution: input.resolution === "1080p" ? "1920x1080" : "1280x720",
+        resolution: outputResolution(input),
         duration: input.duration,
         fps: 24,
         generate_audio: input.generateAudio !== false,
@@ -179,7 +203,7 @@ export function createLtxProvider(env = {}, fetchImpl = fetch, options = {}) {
       };
       let response;
       try {
-        response = await fetchImpl(`${apiBase(env)}${endpoint}`, {
+        response = await fetchImpl(`${apiBase(env)}/v2/${endpoint}`, {
           method: "POST",
           headers: { ...auth(env), "content-type": "application/json" },
           body: JSON.stringify(body),
@@ -191,20 +215,56 @@ export function createLtxProvider(env = {}, fetchImpl = fetch, options = {}) {
           { uncertain: true, retryable: false, httpStatus: 502 },
         );
       }
+      if (!response.ok) await providerError(response, "generation submission");
+      const payload = await response.json().catch(() => null);
+      if (!payload || typeof payload.id !== "string")
+        fail("LTX_INVALID_RESPONSE", "LTX returned an invalid async job response.", 502);
       return {
-        operationId: `ltx-sync:${crypto.randomUUID()}`,
-        completedResponse: await videoResponse(env, fetchImpl, response),
-        costBasis: "completed-usage-at-quoted-operator-rate",
+        operationId: `ltx:v2:${endpoint}:${payload.id}`,
+        costBasis: "ltx-output-seconds-at-configured-rate",
       };
     },
-    async status() {
-      fail("LTX_SYNC_ONLY", "LTX synchronous generations do not expose a pollable job.", 409);
+    async status(row) {
+      requireLive(env);
+      const job = operation(row.operation_id);
+      const response = await fetchImpl(
+        `${apiBase(env)}/v2/${job.endpoint}/${job.id}`,
+        { method: "GET", headers: auth(env) },
+      );
+      if (!response.ok) await providerError(response, "job status");
+      const payload = await response.json().catch(() => null);
+      if (!payload || typeof payload.status !== "string")
+        fail("LTX_INVALID_RESPONSE", "LTX returned an invalid job status.", 502);
+      if (["pending", "processing"].includes(payload.status))
+        return { status: "running" };
+      if (payload.status === "failed")
+        return {
+          status: "failed",
+          actualCost: 0,
+          costBasis: "provider-failed-no-video",
+          error: {
+            code: payload.error?.type || "LTX_GENERATION_FAILED",
+            message: payload.error?.message || "LTX generation failed.",
+          },
+        };
+      if (payload.status !== "completed" || !payload.result?.video_url)
+        fail("LTX_INVALID_RESPONSE", "LTX completed without a video URL.", 502);
+      return {
+        status: "completed",
+        actualCost: Number(row.estimated_cost),
+        costBasis: "ltx-output-seconds-at-configured-rate",
+        asset: { url: safeDownloadUrl(payload.result.video_url) },
+      };
     },
     async cancel() {
       fail("CANCEL_UNSUPPORTED", "LTX cannot be canceled after submission begins.", 409);
     },
-    async asset() {
-      fail("LTX_ASSET_STORED", "LTX output is stored directly when generation completes.", 409);
+    async asset(row) {
+      const asset = JSON.parse(row.asset_json || "null");
+      const url = safeDownloadUrl(asset?.url);
+      const response = await fetchImpl(url, { method: "GET" });
+      if (!response.ok) await providerError(response, "video download");
+      return response;
     },
   };
 }
