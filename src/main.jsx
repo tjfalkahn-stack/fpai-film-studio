@@ -817,7 +817,7 @@ function App() {
           </div>
         </header>
 
-        {tab !== "Economy" && (
+        {tab !== "Economy" && tab !== "Overview" && (
           <section className="metrics">
             <Metric label="CAST LOCKED" value={`${lockedCast}/4`} detail="Principal cast" />
             <Metric label="GENERATION FORECAST" value={formatMoney(economySummary.forecast.forecast)} detail={`${economySummary.forecast.savingsPercent}% below naive`} tone="economy" />
@@ -1017,51 +1017,93 @@ function App() {
 }
 
 function OverviewPage({ data, economySummary, lockedCast, approvedAnimaticShots, sceneShots, selectedScene, setTab }) {
+  const activeShot = data.shots.find((item) => item.id === "027") || data.shots[0];
+  const completedStages = [lockedCast === 4, Boolean(selectedScene?.animaticLocked), economySummary.forecast.forecast <= data.project.openingBudget].filter(Boolean).length;
+  const nextMove = lockedCast < 4
+    ? { label: "Lock principal cast", detail: `${4 - lockedCast} character${4 - lockedCast === 1 ? "" : "s"} still need final identity approval.`, tab: "Characters", icon: LockKeyhole }
+    : !selectedScene?.animaticLocked
+      ? { label: "Lock Scene 001 timing", detail: `${approvedAnimaticShots} of ${sceneShots.length} shot timings are approved.`, tab: "Economy", icon: Clock3 }
+      : { label: "Prepare the next shot", detail: `Shot ${activeShot?.id || "001"} is ready for a controlled test plan.`, tab: "Shots", icon: Camera };
+  const NextIcon = nextMove.icon;
+
   return (
-    <>
-      <section className="twoColumn">
-        <div className="panel economyHero">
-          <span className="eyebrow">GENERATION ECONOMY ENGINE</span>
-          <h2>Build the movie, not the bill.</h2>
-          <p className="lead">The 27-minute forecast is now governed by local-first routing, shortest-permitted paid clips, attempt caps, duplicate protection, and clip salvage.</p>
-          <div className="forecastNumbers">
-            <div><span>CONTROLLED FORECAST</span><b>{formatMoney(economySummary.forecast.forecast)}</b></div>
-            <div><span>NAIVE WORKFLOW</span><b>{formatMoney(economySummary.forecast.naiveCost)}</b></div>
-            <div><span>PROJECTED SAVINGS</span><b>{formatMoney(economySummary.forecast.savings)}</b></div>
+    <div className="commandDashboard">
+      <section className="dashboardHero">
+        <div className="dashboardHeroCopy">
+          <div className="dashboardKicker"><span>EP01</span><i /> PRODUCTION COMMAND</div>
+          <h2>Turn Scene 001 into a locked proof of concept.</h2>
+          <p>Tarmac. Night. Rain. Build the opening around character continuity, approved timing, and one controlled generation at a time.</p>
+          <div className="dashboardActions">
+            <button className="primary dashboardPrimary" onClick={() => setTab("Film Engine")}><Film /> Open Film Engine</button>
+            <button className="ghost" onClick={() => setTab("Shots")}><Camera /> View shot board</button>
           </div>
-          <button className="primary" onClick={() => setTab("Economy")}><Gauge /> Open Economy Control</button>
         </div>
-        <div className="panel">
-          <span className="eyebrow">PIPELINE STATUS</span>
-          <h2>Production Readiness</h2>
-          <div className="intelList">
-            <p><CheckCircle2 /> Cost compiler and duplicate hashing installed</p>
-            <p className={lockedCast === 4 ? "good" : "warn"}><AlertTriangle /> {4 - lockedCast} principal characters still unlocked</p>
-            <p className={selectedScene?.animaticLocked ? "good" : "warn"}><Clock3 /> {approvedAnimaticShots}/{sceneShots.length} mapped timings approved</p>
-            <p className="good"><ShieldCheck /> Provider execution remains off; dry-run queue only</p>
+
+        <div className="dashboardNextMove">
+          <span className="dashboardCardLabel">YOUR NEXT MOVE</span>
+          <div className="nextMoveIcon"><NextIcon /></div>
+          <h3>{nextMove.label}</h3>
+          <p>{nextMove.detail}</p>
+          <button onClick={() => setTab(nextMove.tab)}>Continue <ChevronRight /></button>
+          <small>Paid rendering is off. Planning and review do not spend credits.</small>
+        </div>
+      </section>
+
+      <section className="productionPulse" aria-label="Production readiness">
+        <button onClick={() => setTab("Characters")} className={lockedCast === 4 ? "complete" : "attention"}>
+          <Users /><span><small>CAST</small><b>{lockedCast}/4 locked</b></span><ChevronRight />
+        </button>
+        <button onClick={() => setTab("Economy")} className={selectedScene?.animaticLocked ? "complete" : "attention"}>
+          <Clock3 /><span><small>ANIMATIC</small><b>{approvedAnimaticShots}/{sceneShots.length} approved</b></span><ChevronRight />
+        </button>
+        <button onClick={() => setTab("Economy")} className="safe">
+          <PiggyBank /><span><small>TEST FORECAST</small><b>{formatMoney(economySummary.forecast.forecast)}</b></span><ChevronRight />
+        </button>
+        <button onClick={() => setTab("Budget")} className="safe">
+          <ShieldCheck /><span><small>RENDER SAFETY</small><b>Credits protected</b></span><ChevronRight />
+        </button>
+      </section>
+
+      <section className="dashboardGrid">
+        <div className="dashboardSceneCard">
+          <div className="sceneCardTop">
+            <div><span className="dashboardCardLabel">ACTIVE SCENE</span><h3>001 · Tarmac / Night / Rain</h3></div>
+            <Pill tone={selectedScene?.animaticLocked ? "good" : "warn"}>{selectedScene?.animaticLocked ? "LOCKED" : "IN PREP"}</Pill>
+          </div>
+          <div className="sceneTimeline">
+            <span className="active">AFTERMATH</span><i /><span>THE THREE</span><i /><span>CONVOY</span><i /><span>THE KING</span>
+          </div>
+          <div className="sceneStats">
+            <div><b>{data.shots.length}</b><small>KEY SHOTS</small></div>
+            <div><b>{formatTime(data.shots.reduce((sum, item) => sum + item.sec, 0))}</b><small>MAPPED</small></div>
+            <div><b>{economySummary.localShotCount}</b><small>LOCAL-FIRST</small></div>
+            <div><b>{completedStages}/3</b><small>GATES CLEARED</small></div>
+          </div>
+          <button className="sceneOpen" onClick={() => setTab("Scenes")}>Open scene command <ChevronRight /></button>
+        </div>
+
+        <div className="dashboardShotCard">
+          <div className="shotSlate">
+            <span>SCENE {activeShot?.scene || "001"}</span>
+            <b>SHOT {activeShot?.id || "027"}</b>
+            <small>{activeShot?.sec || 0} SEC · {activeShot?.mode || "CONTROL"}</small>
+          </div>
+          <div className="shotCardBody">
+            <span className="dashboardCardLabel">NEXT HERO SHOT</span>
+            <h3>{activeShot?.subject}</h3>
+            <p>{activeShot?.move}</p>
+            <div className="shotRoute"><Route /><span>Controlled route</span><b>{formatMoney(economySummary.mappedExpectedCost)} mapped</b></div>
+            <button className="ghost full" onClick={() => setTab("Shots")}><Play /> Prepare this shot</button>
           </div>
         </div>
       </section>
-      <section className="panel">
-        <div className="panelHead">
-          <div><span className="eyebrow">SCENE 001</span><h2>Tarmac / Night / Rain</h2></div>
-          <Pill tone={selectedScene?.animaticLocked ? "good" : "warn"}>{selectedScene?.animaticLocked ? "ANIMATIC LOCKED" : "ANIMATIC OPEN"}</Pill>
-        </div>
-        <div className="heroInside">
-          <div>
-            <h3>Opening Proof of Concept</h3>
-            <p>Aftermath → The Three → They're Coming → Convoy → The King.</p>
-            <div className="numbers">
-              <b>{data.shots.length}<small>KEY SHOTS</small></b>
-              <b>{formatTime(data.shots.reduce((sum, item) => sum + item.sec, 0))}<small>MAPPED</small></b>
-              <b>{economySummary.localShotCount}<small>LOCAL-FIRST</small></b>
-              <b>{formatMoney(economySummary.mappedExpectedCost)}<small>EXPECTED API</small></b>
-            </div>
-          </div>
-          <div className="modeStack"><Mode value="CHAOS" /><Mode value="SUSPICION" /><Mode value="CONTROL" /></div>
-        </div>
+
+      <section className="dashboardFooterRail">
+        <div><span className="dashboardCardLabel">PRODUCTION ECONOMY</span><b>{formatMoney(economySummary.forecast.savings)} projected savings</b></div>
+        <div className="dashboardSavingsTrack"><i style={{ width: `${Math.min(100, economySummary.forecast.savingsPercent)}%` }} /></div>
+        <button onClick={() => setTab("Economy")}>Review controls <ChevronRight /></button>
       </section>
-    </>
+    </div>
   );
 }
 
