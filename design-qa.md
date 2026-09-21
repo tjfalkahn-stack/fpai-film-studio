@@ -24,3 +24,13 @@ Reference: production Economy screenshot from September 20, 2026.
 - Production deployment flags keep Veo, LTX, and Seedance execution closed.
 
 Final result: passed
+
+## Overview dashboard redesign
+
+- Desktop, 1440 x 1000: passed. Production command hero, next action, readiness pulse, active scene, hero shot, and economy rail are visible without horizontal overflow.
+- Mobile, 390 x 844: passed. Hero and action cards stack cleanly, controls remain touch-sized, navigation labels remain visible, and the page has no horizontal overflow.
+- Primary actions: passed. Dashboard navigation routes into Film Engine, Shots, Characters, Economy, Scenes, and Budget through the existing application state.
+- Browser console: passed with no errors during desktop and mobile rendering.
+- Spend safety: passed. The dashboard states that paid rendering is off, and repository production flags remain disabled.
+
+Final result: passed
