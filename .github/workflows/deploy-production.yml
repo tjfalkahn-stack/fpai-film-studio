@@ -41,9 +41,9 @@ jobs:
           compatibility_date = "2026-09-04"
 
           [vars]
-          LIVE_RENDERING_ENABLED = "true"
+          LIVE_RENDERING_ENABLED = "false"
           SEEDANCE_LIVE_ENABLED = "false"
-          LTX_LIVE_ENABLED = "true"
+          LTX_LIVE_ENABLED = "false"
           CHARACTER_FACTORY_LIVE_ENABLED = "false"
           MOCK_E2E_VERIFIED = "true"
           RENDER_PROJECT_ID = "enemies-closer-ep01"
