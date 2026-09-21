@@ -338,11 +338,10 @@ export default {
         r2Configured: Boolean(env.GENERATION_MEDIA),
         liveExecutionReady: renderConfig(env).liveEnabled && Boolean(env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA),
         liveRenderingEnabled: renderConfig(env).liveEnabled,
+        veoExecutionReady: renderConfig(env).veoExecutionReady,
         seedanceLiveEnabled: renderConfig(env).seedanceLiveEnabled,
         ltxLiveEnabled: renderConfig(env).ltxLiveEnabled,
-        ltxExecutionReady:
-          renderConfig(env).ltxLiveEnabled &&
-          Boolean(env.LTX_API_KEY && env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA),
+        ltxExecutionReady: renderConfig(env).ltxExecutionReady,
       }, 200, cors);
     }
 

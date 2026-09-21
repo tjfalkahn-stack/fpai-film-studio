@@ -59,17 +59,29 @@ export function config(env) {
   );
   const liveMaster =
     env.LIVE_RENDERING_ENABLED === "true" && env.MOCK_E2E_VERIFIED === "true";
+  const executionStorageReady = Boolean(
+    env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA,
+  );
+  const geminiConfigured = Boolean(String(env.GEMINI_API_KEY || "").trim());
+  const ltxConfigured = Boolean(String(env.LTX_API_KEY || "").trim());
+  const falConfigured = Boolean(String(env.FAL_KEY || "").trim());
   return {
     projectCeiling: amount("RENDER_PROJECT_CEILING_USD", 20),
     sessionCeiling: amount("RENDER_SESSION_CEILING_USD", 10),
     singleCeiling: amount("MAX_SINGLE_JOB_USD", 4),
     sessionId: env.RENDER_SESSION_ID || "foundation-01",
     projectId: env.RENDER_PROJECT_ID || "enemies-closer-ep01",
-    liveEnabled: liveMaster && (Boolean(env.GEMINI_API_KEY) || comfyConfigured),
+    liveEnabled: liveMaster && (geminiConfigured || comfyConfigured),
+    liveMasterEnabled: liveMaster,
+    executionStorageReady,
+    geminiConfigured,
+    veoExecutionReady: liveMaster && geminiConfigured && executionStorageReady,
     seedanceLiveEnabled: seedanceLiveEnabled(env),
     ltxLiveEnabled: ltxLiveEnabled(env),
-    ltxConfigured: Boolean(String(env.LTX_API_KEY || "").trim()),
-    falConfigured: Boolean(String(env.FAL_KEY || "").trim()),
+    ltxConfigured,
+    ltxExecutionReady:
+      ltxLiveEnabled(env) && ltxConfigured && executionStorageReady,
+    falConfigured,
     seedanceControlledTest: {
       projectId: SEEDANCE_CONTROLLED_TEST.projectId,
       sceneId: SEEDANCE_CONTROLLED_TEST.sceneId,
@@ -83,6 +95,58 @@ export function config(env) {
       maxJobs: SEEDANCE_CONTROLLED_TEST.maxJobs,
     },
   };
+}
+
+function providerAvailability(provider, policy, env) {
+  const id = provider.capabilities.id;
+  if (id === "mock")
+    return { state: "ready", label: "READY", detail: "$0 test renderer" };
+  if (provider.capabilities.manual)
+    return {
+      state: "manual",
+      label: provider.capabilities.local ? "LOCAL" : "MANUAL",
+      detail: provider.capabilities.local
+        ? "Runs outside the cloud adapter"
+        : "Handoff workflow, no API submission",
+    };
+  if (id === "veo-fast") {
+    if (!policy.geminiConfigured)
+      return { state: "key-needed", label: "KEY NEEDED", detail: "Gemini API key is missing" };
+    if (!policy.liveMasterEnabled)
+      return { state: "configured", label: "CONFIGURED", detail: "Production master gate is off" };
+    if (!policy.executionStorageReady)
+      return { state: "blocked", label: "BLOCKED", detail: "Render storage or control token is missing" };
+    return { state: "ready", label: "READY", detail: "Veo API and protected render queue are ready" };
+  }
+  if (isLtxProvider(id)) {
+    if (!policy.ltxConfigured)
+      return { state: "key-needed", label: "KEY NEEDED", detail: "LTX API key is missing" };
+    if (!policy.ltxLiveEnabled)
+      return { state: "configured", label: "CONFIGURED", detail: "LTX live gate is off" };
+    if (!policy.executionStorageReady)
+      return { state: "blocked", label: "BLOCKED", detail: "Render storage or control token is missing" };
+    return {
+      state: "ready",
+      label: "READY",
+      detail: id === "ltx-2.5-fast" ? "Authorized for the controlled Shot 027 render" : "API connected; first render remains restricted to Fast",
+    };
+  }
+  if (isSeedanceProvider(id)) {
+    if (!policy.falConfigured)
+      return { state: "key-needed", label: "KEY NEEDED", detail: "fal.ai key is missing" };
+    return policy.seedanceLiveEnabled
+      ? { state: "ready", label: "READY", detail: "Controlled Seedance queue is ready" }
+      : { state: "configured", label: "CONFIGURED", detail: "Seedance live gate is off" };
+  }
+  if (id === "comfy-video") {
+    const configured = Boolean(
+      env.COMFYUI_BASE_URL && (env.COMFYUI_WORKFLOW_KEY || env.COMFYUI_WORKFLOW_JSON),
+    );
+    return configured
+      ? { state: policy.liveMasterEnabled ? "ready" : "configured", label: policy.liveMasterEnabled ? "READY" : "CONFIGURED", detail: policy.liveMasterEnabled ? "ComfyUI endpoint is ready" : "Production master gate is off" }
+      : { state: "not-configured", label: "NOT CONFIGURED", detail: "ComfyUI endpoint is missing" };
+  }
+  return { state: "not-configured", label: "NOT CONFIGURED", detail: "Provider setup is incomplete" };
 }
 export function providerLiveEnabled(provider, env) {
   if (provider === "mock") return true;
@@ -785,11 +849,16 @@ async function asset(request, env, row) {
 export async function renderRoutes(request, env) {
   try {
     const url = new URL(request.url);
-    if (url.pathname === "/api/renderers" && request.method === "GET")
+    if (url.pathname === "/api/renderers" && request.method === "GET") {
+      const policy = config(env);
       return json({
-        providers: providers(env).map((p) => p.capabilities),
-        policy: config(env),
+        providers: providers(env).map((p) => ({
+          ...p.capabilities,
+          availability: providerAvailability(p, policy, env),
+        })),
+        policy,
       });
+    }
     if (url.pathname === "/api/renders" && request.method === "POST")
       return await create(request, env);
     if (url.pathname === "/api/renders" && request.method === "GET") {

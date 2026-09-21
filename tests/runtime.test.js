@@ -56,6 +56,9 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
     assert.equal(catalog.policy.liveEnabled, false);
     assert.equal(catalog.policy.seedanceLiveEnabled, false);
     assert.equal(catalog.policy.ltxLiveEnabled, false);
+    assert.equal(catalog.policy.geminiConfigured, false);
+    assert.equal(catalog.policy.veoExecutionReady, false);
+    assert.equal(catalog.providers.find(p => p.id === "veo-fast").availability.label, "KEY NEEDED");
     assert.equal(catalog.policy.sessionCeiling, 10);
     assert.equal(catalog.policy.projectCeiling, 20);
     let db = await mf.getD1Database("GENERATION_DB");

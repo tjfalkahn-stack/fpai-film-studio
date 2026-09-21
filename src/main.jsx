@@ -1353,11 +1353,51 @@ function SeedanceVisibility({ compact = false }) {
 
 function RouterPage({ data, performance }) {
   const settings = normalizeEconomySettings(data.project);
+  const [catalog, setCatalog] = useState(null);
+  const [catalogError, setCatalogError] = useState("");
+  useEffect(() => {
+    let canceled = false;
+    renderRequest("/api/renderers")
+      .then((result) => {
+        if (!canceled) setCatalog(result);
+      })
+      .catch((error) => {
+        if (!canceled) setCatalogError(error.message);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+  const productionProviders = (catalog?.providers || []).filter((provider) =>
+    ["ltx-2.5-fast", "ltx-2.5-pro", "veo-fast"].includes(provider.id),
+  );
   return (
     <>
       <section className="panel routerHero">
         <div><span className="eyebrow">EXPECTED-COST ROUTER</span><h2>Cheapest accepted footage, not cheapest sticker price.</h2><p className="lead">Every route is scored by shot class, requested seconds, expected attempts, actual usable seconds, and owner-defined caps.</p></div>
-        <div className="adapterStatus"><Server /><b>SERVER ADAPTER</b><Pill tone={settings.serverAdapterConnected ? "good" : "bad"}>{settings.serverAdapterConnected ? "CONNECTED" : "NOT CONNECTED"}</Pill></div>
+        <div className="adapterStatus"><Server /><b>SERVER ADAPTER</b><Pill tone={catalog ? "good" : "warn"}>{catalog ? "CONNECTED" : "CHECKING"}</Pill></div>
+      </section>
+      <section className="panel providerStatusPanel">
+        <div className="panelHead">
+          <div><span className="eyebrow">LIVE PROVIDERS</span><h2>Production connection status</h2></div>
+          <span className="pricingStamp">No render starts from this status check</span>
+        </div>
+        {catalogError ? <div className="validation">{catalogError}</div> : null}
+        <div className="providerStatusGrid">
+          {productionProviders.length ? productionProviders.map((provider) => {
+            const status = provider.availability || { state: "checking", label: "CHECKING", detail: "Reading server state" };
+            return (
+              <article className={`providerStatusCard ${status.state}`} key={provider.id}>
+                <div>
+                  <b>{provider.label}</b>
+                  <small>{provider.model}</small>
+                </div>
+                <Pill tone={status.state === "ready" ? "good" : status.state === "blocked" || status.state === "key-needed" ? "bad" : "warn"}>{status.label}</Pill>
+                <p>{status.detail}</p>
+              </article>
+            );
+          }) : !catalogError ? <p className="sub">Checking LTX and Veo…</p> : null}
+        </div>
       </section>
       <section className="panel">
         <div className="panelHead"><div><span className="eyebrow">ROUTES</span><h2>Local, ComfyUI, Seedance, Gemini Omni, and Veo Methods</h2></div><span className="pricingStamp">Paid rates as of {settings.pricingUpdatedAt} · Seedance {SEEDANCE_PRICING_UPDATED_AT}</span></div>

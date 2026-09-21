@@ -41,7 +41,7 @@ jobs:
           compatibility_date = "2026-09-04"
 
           [vars]
-          LIVE_RENDERING_ENABLED = "false"
+          LIVE_RENDERING_ENABLED = "true"
           SEEDANCE_LIVE_ENABLED = "false"
           LTX_LIVE_ENABLED = "true"
           CHARACTER_FACTORY_LIVE_ENABLED = "false"
