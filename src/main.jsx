@@ -793,7 +793,7 @@ function App() {
         </div>
         <nav>
           {tabs.map((item) => (
-            <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>
+            <button key={item} aria-label={item} title={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>
               {navIcon(item)}<span>{item}</span><ChevronRight />
             </button>
           ))}
@@ -817,12 +817,14 @@ function App() {
           </div>
         </header>
 
-        <section className="metrics">
-          <Metric label="CAST LOCKED" value={`${lockedCast}/4`} detail="Principal cast" />
-          <Metric label="GENERATION FORECAST" value={formatMoney(economySummary.forecast.forecast)} detail={`${economySummary.forecast.savingsPercent}% below naive`} tone="economy" />
-          <Metric label="GENERATION COMMITTED" value={formatMoney(economySummary.actual + economySummary.committed)} detail={`${formatMoney(economySummary.availableToWorking)} to working ceiling`} />
-          <Metric label="PRODUCTION SPEND" value={formatMoney(productionBudget.spent)} detail={`${productionBudget.percentageUsed.toFixed(1)}% of ${formatMoney(productionBudget.currentBudget)}`} tone={productionBudget.warningState} />
-        </section>
+        {tab !== "Economy" && (
+          <section className="metrics">
+            <Metric label="CAST LOCKED" value={`${lockedCast}/4`} detail="Principal cast" />
+            <Metric label="GENERATION FORECAST" value={formatMoney(economySummary.forecast.forecast)} detail={`${economySummary.forecast.savingsPercent}% below naive`} tone="economy" />
+            <Metric label="GENERATION COMMITTED" value={formatMoney(economySummary.actual + economySummary.committed)} detail={`${formatMoney(economySummary.availableToWorking)} to working ceiling`} />
+            <Metric label="PRODUCTION SPEND" value={formatMoney(productionBudget.spent)} detail={`${productionBudget.percentageUsed.toFixed(1)}% of ${formatMoney(productionBudget.currentBudget)}`} tone={productionBudget.warningState} />
+          </section>
+        )}
 
         {tab === "Film Engine" && <FilmEngine production={data} onCast={() => setTab('Characters')} />}
         {tab === "Overview" && (
@@ -848,6 +850,7 @@ function App() {
             approveAllMappedTiming={approveAllMappedTiming}
             toggleAnimaticLock={toggleAnimaticLock}
             updateGenerationSettings={updateGenerationSettings}
+            updateShotEconomy={updateShotEconomy}
             planForShot={planForShot}
             packageForShot={packageForShot}
             setPackageShotId={setPackageShotId}
@@ -1072,14 +1075,95 @@ function EconomyPage({
   approveAllMappedTiming,
   toggleAnimaticLock,
   updateGenerationSettings,
+  updateShotEconomy,
   planForShot,
   packageForShot,
   setPackageShotId,
   performance,
 }) {
   const settings = normalizeEconomySettings(data.project);
+  const [selectedShotId, setSelectedShotId] = useState(data.shots[0]?.id || "");
+  const [soundMode, setSoundMode] = useState("dialogue");
+  const [spendCap, setSpendCap] = useState(1);
+  const selectedShot = data.shots.find((item) => item.id === selectedShotId) || data.shots[0];
+  const recommendedRouteId = soundMode === "dialogue" ? "veo-fast-720" : soundMode === "sound" ? "veo-lite-720" : "still-motion";
+  const recommendedRoute = ROUTES.find((route) => route.id === recommendedRouteId);
+  const testSeconds = recommendedRoute?.fixedDuration || Math.max(4, Math.min(8, Number(selectedShot?.sec || 4)));
+  const estimatedTestCost = (recommendedRoute?.ratePerSecond || 0) * testSeconds;
+  const canReviewTest = selectedShot && estimatedTestCost <= Number(spendCap || 0);
+
+  function reviewTestPlan() {
+    if (!selectedShot || !canReviewTest) return;
+    updateShotEconomy(selectedShot.id, {
+      manualRouteId: recommendedRouteId,
+      localAudio: soundMode === "silent",
+      lipVisible: soundMode === "dialogue",
+      maxAttempts: 1,
+      shotCap: Number(spendCap),
+    });
+    setPackageShotId(selectedShot.id);
+  }
+
   return (
     <>
+      <section className="panel generationWorkbench">
+        <div className="workbenchIntro">
+          <div>
+            <span className="eyebrow">CREATE A CONTROLLED TEST</span>
+            <h2>Build the next shot</h2>
+            <p>Choose the shot and the result you need. FPAI recommends the safest route, shows the maximum cost, and asks for approval before any paid generation.</p>
+          </div>
+          <Pill tone={settings.providerExecutionEnabled ? "warn" : "good"}>{settings.providerExecutionEnabled ? "PAID MODE" : "DRY RUN · NO CHARGE"}</Pill>
+        </div>
+
+        <div className="workbenchGrid">
+          <div className="workbenchStep">
+            <span className="stepNumber">1</span>
+            <label>Shot to make
+              <select value={selectedShotId} onChange={(event) => setSelectedShotId(event.target.value)}>
+                {data.shots.map((item) => <option key={item.id} value={item.id}>#{item.id} · {item.subject}</option>)}
+              </select>
+            </label>
+            <small>{selectedShot?.sec || 0}s final shot · {selectedShot?.mode || "production"} scene</small>
+          </div>
+
+          <div className="workbenchStep resultStep">
+            <span className="stepNumber">2</span>
+            <div>
+              <b>What should this take include?</b>
+              <div className="resultChoices" role="group" aria-label="Choose audio result">
+                <button className={soundMode === "dialogue" ? "selected" : ""} onClick={() => setSoundMode("dialogue")}><Brain /><span>Dialogue + sound<small>Speech, ambience and effects</small></span></button>
+                <button className={soundMode === "sound" ? "selected" : ""} onClick={() => setSoundMode("sound")}><Zap /><span>Sound only<small>Ambience and effects, no lines</small></span></button>
+                <button className={soundMode === "silent" ? "selected" : ""} onClick={() => setSoundMode("silent")}><Film /><span>Silent visual<small>Add voice and music later</small></span></button>
+              </div>
+            </div>
+          </div>
+
+          <div className="workbenchStep recommendationStep">
+            <span className="stepNumber">3</span>
+            <div className="recommendedRoute">
+              <span>FPAI RECOMMENDS</span>
+              <h3>{recommendedRoute?.label}</h3>
+              <p>{soundMode === "dialogue" ? "Best value for a short cinematic take with synchronized dialogue and sound." : soundMode === "sound" ? "Lowest-cost Veo route for a visual test with synchronized ambience and effects." : "Use the approved frame with local camera motion and finish audio separately."}</p>
+              <div className="routeQuote">
+                <span><b>{testSeconds}s</b><small>test length</small></span>
+                <span><b>{recommendedRoute?.resolution || "source"}</b><small>resolution</small></span>
+                <span><b>{formatMoney(estimatedTestCost)}</b><small>estimated maximum</small></span>
+              </div>
+            </div>
+          </div>
+
+          <div className="workbenchAction">
+            <label>Maximum spend for this attempt
+              <div className="moneyInput"><span>$</span><input type="number" min="0" step="0.1" value={spendCap} onChange={(event) => setSpendCap(event.target.value)} /></div>
+            </label>
+            {!canReviewTest && <p className="capWarning">Raise the cap to at least {formatMoney(estimatedTestCost)} to review this route.</p>}
+            <button className="primary workbenchCta" disabled={!canReviewTest} onClick={reviewTestPlan}><Play /> Review test plan</button>
+            <small>Review opens the shot package. It does not send a paid request.</small>
+          </div>
+        </div>
+      </section>
+
       <section className="economyMetrics">
         <Metric label="GENERATION TARGET" value={formatMoney(settings.generationTarget)} detail="Normal production target" tone="economy" />
         <Metric label="WORKING CEILING" value={formatMoney(settings.workingCeiling)} detail="Owner override above this" />
@@ -1126,6 +1210,9 @@ function EconomyPage({
           <p className="sub">Paid requests cannot pass while the scene animatic is open. Changing shot duration removes that shot’s timing approval and blocks paid work again.</p>
         </div>
       </section>
+
+      <details className="advancedEconomy">
+        <summary><span><SlidersHorizontal /> Advanced production controls</span><small>Forecast assumptions, routing table, provider details and learning data</small></summary>
 
       <section className="panel">
         <div className="panelHead">
@@ -1193,6 +1280,7 @@ function EconomyPage({
         ) : <p className="sub">The router starts learning after generated takes are reviewed. Until then it uses conservative default acceptance assumptions.</p>}
       </section>
       <SeedanceVisibility compact />
+      </details>
     </>
   );
 }
