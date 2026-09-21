@@ -16,6 +16,16 @@ import {
 const json = (body, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
 const stamp = () => new Date().toISOString();
+const LTX_CONTROLLED_TEST = Object.freeze({
+  projectId: "enemies-closer-ep01",
+  sceneId: "001",
+  shotId: "027",
+  provider: "ltx-2.5-fast",
+  duration: 8,
+  resolution: "1080p",
+  aspectRatio: "16:9",
+  maxEstimatedCostUsd: 1.04,
+});
 const dbOf = (env) =>
   env.GENERATION_DB ||
   fail("STORAGE_CONFIG", "Render database is not configured.", 503);
@@ -309,6 +319,28 @@ function authorizeSeedanceJob(input, quote, env) {
     );
   }
 }
+function authorizeLtxJob(input, quote, env) {
+  if (!String(env.LTX_API_KEY || "").trim())
+    fail("PROVIDER_CONFIG", "LTX_API_KEY is not configured.", 503);
+  const mismatches = [
+    "projectId",
+    "sceneId",
+    "shotId",
+    "provider",
+    "duration",
+    "resolution",
+    "aspectRatio",
+  ].filter((key) => input[key] !== LTX_CONTROLLED_TEST[key]);
+  if (
+    mismatches.length ||
+    Math.abs(Number(quote.estimatedCost) - LTX_CONTROLLED_TEST.maxEstimatedCostUsd) > 0.0001
+  )
+    fail(
+      "LTX_PLAN_DENIED",
+      `The first LTX test is restricted to Scene 001, Shot 027, 8 seconds, 1080p landscape, LTX 2.5 Fast, and $${LTX_CONTROLLED_TEST.maxEstimatedCostUsd.toFixed(2)} (${mismatches.join(", ") || "cost"}).`,
+      403,
+    );
+}
 async function create(request, env) {
   const body = await readBody(request);
   const { input, provider } = await inputFrom(body, env);
@@ -366,6 +398,7 @@ async function create(request, env) {
   if (quote.estimatedCost > policy.singleCeiling)
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
+  if (isLtxProvider(input.provider)) authorizeLtxJob(input, quote, env);
   const hash = await sha(JSON.stringify(input));
   const db = dbOf(env);
   const existing = await db

@@ -43,7 +43,18 @@ jobs:
           [vars]
           LIVE_RENDERING_ENABLED = "false"
           SEEDANCE_LIVE_ENABLED = "false"
+          LTX_LIVE_ENABLED = "true"
           CHARACTER_FACTORY_LIVE_ENABLED = "false"
+          MOCK_E2E_VERIFIED = "true"
+          RENDER_PROJECT_ID = "enemies-closer-ep01"
+          RENDER_PROJECT_CEILING_USD = "20"
+          RENDER_SESSION_CEILING_USD = "1.10"
+          RENDER_SESSION_ID = "ltx-first-controlled-test"
+          MAX_SINGLE_JOB_USD = "1.10"
+          LTX_FAST_720P_RATE_PER_SECOND_USD = "0.09"
+          LTX_FAST_1080P_RATE_PER_SECOND_USD = "0.13"
+          LTX_PRO_720P_RATE_PER_SECOND_USD = "0.12"
+          LTX_PRO_1080P_RATE_PER_SECOND_USD = "0.17"
 
           [[d1_databases]]
           binding = "GENERATION_DB"
