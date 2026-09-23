@@ -89,8 +89,11 @@ import { characterBiblePatch, defaultExpressionBankNames, visibleExpressionNames
 import { assignCharacterCanonicalSlot, fetchCharacterLibrary, uploadCharacterReference } from "./characterReferenceClient.js";
 import { applyTarmacCharacterLocks, TARMAC_CHARACTER_LOCKS } from "./tarmacContinuity.js";
 import { validateShotStartFrame } from "./shotStartFrame.js";
+import { YARD_PROJECT_ID, yardProduction } from "./yardProduction.js";
 
 const STORAGE_KEY = "fpai-film-studio-v1.2";
+const YARD_STORAGE_KEY = "fpai-film-studio-the-yard-v1";
+const ACTIVE_PRODUCTION_KEY = "fpai-film-studio-active-production";
 const MEDIA_DB = "fpai-film-studio-media";
 const MEDIA_STORE = "media";
 const REFERENCE_SLOTS = CANONICAL_REFERENCE_CATEGORIES.map(({ key, label }) => [key, label.toUpperCase()]);
@@ -305,9 +308,19 @@ function migrateData() {
 }
 
 function useData() {
-  const [data, setData] = useState(migrateData);
-  useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(data)), [data]);
-  return [data, setData];
+  const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_PRODUCTION_KEY) === YARD_PROJECT_ID ? YARD_PROJECT_ID : PROJECT_ID);
+  const [data, setData] = useState(() => activeId === YARD_PROJECT_ID ? JSON.parse(localStorage.getItem(YARD_STORAGE_KEY) || "null") || yardProduction : migrateData());
+  useEffect(() => {
+    localStorage.setItem(activeId === YARD_PROJECT_ID ? YARD_STORAGE_KEY : STORAGE_KEY, JSON.stringify(data));
+  }, [activeId, data]);
+  function switchProduction(id) {
+    if (id === activeId) return;
+    localStorage.setItem(activeId === YARD_PROJECT_ID ? YARD_STORAGE_KEY : STORAGE_KEY, JSON.stringify(data));
+    localStorage.setItem(ACTIVE_PRODUCTION_KEY, id);
+    setData(id === YARD_PROJECT_ID ? JSON.parse(localStorage.getItem(YARD_STORAGE_KEY) || "null") || yardProduction : migrateData());
+    setActiveId(id);
+  }
+  return [data, setData, switchProduction];
 }
 
 function formatTime(seconds) {
@@ -366,7 +379,7 @@ function Media({ mediaKey, type = "image", remoteUrl, assetUrl }) {
 }
 
 function App() {
-  const [data, setData] = useData();
+  const [data, setData, switchProduction] = useData();
   const [tab, setTab] = useState("Overview");
   const [characterId, setCharacterId] = useState(null);
   const [shotId, setShotId] = useState(null);
@@ -387,9 +400,10 @@ function App() {
     let timer;
     async function sync() {
       try {
-        const result = await renderRequest('/api/renders');
+        const result = await renderRequest(`/api/renders?projectId=${encodeURIComponent(data.project.id)}`);
         for (const row of result.renders) {
           if (canceled) return;
+          if (row.projectId !== data.project.id) continue;
           receiveRender(row);
           if (['queued','starting','running'].includes(row.status) || (row.status === 'completed' && !row.outputAsset)) {
             const result = await renderRequest(`/api/renders/${row.id}`);
@@ -401,9 +415,11 @@ function App() {
     }
     sync();
     return () => { canceled = true; clearTimeout(timer); };
-  }, []);
+  }, [data.project.id]);
 
-  const tabs = ["Overview", "Film Engine", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
+  const tabs = data.project.id === YARD_PROJECT_ID
+    ? ["Overview", "Economy", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"]
+    : ["Overview", "Film Engine", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
   const character = data.characters.find((item) => item.id === characterId) || null;
   const shot = data.shots.find((item) => item.id === shotId) || null;
   const packageShot = data.shots.find((item) => item.id === packageShotId) || null;
@@ -791,6 +807,12 @@ function App() {
           <div className="fpMark">FP</div>
           <div><b>FPAI</b><span>FILM STUDIO v1.2</span></div>
         </div>
+        <label className="productionPicker">PRODUCTION
+          <select value={data.project.id} onChange={(event) => { setShotId(null); setCharacterId(null); setPackageShotId(null); setRenders([]); setTab("Overview"); switchProduction(event.target.value); }}>
+            <option value={PROJECT_ID}>Enemies Closer</option>
+            <option value={YARD_PROJECT_ID}>The Yard Is Home</option>
+          </select>
+        </label>
         <nav>
           {tabs.map((item) => (
             <button key={item} aria-label={item} title={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>
@@ -819,7 +841,7 @@ function App() {
 
         {tab !== "Economy" && tab !== "Overview" && (
           <section className="metrics">
-            <Metric label="CAST LOCKED" value={`${lockedCast}/4`} detail="Principal cast" />
+            <Metric label={data.project.id === YARD_PROJECT_ID ? "START FRAMES" : "CAST LOCKED"} value={data.project.id === YARD_PROJECT_ID ? `${data.shots.filter(item => item.startFrame?.key).length}/${data.shots.length}` : `${lockedCast}/4`} detail={data.project.id === YARD_PROJECT_ID ? "Ready for shot review" : "Principal cast"} />
             <Metric label="GENERATION FORECAST" value={formatMoney(economySummary.forecast.forecast)} detail={`${economySummary.forecast.savingsPercent}% below naive`} tone="economy" />
             <Metric label="GENERATION COMMITTED" value={formatMoney(economySummary.actual + economySummary.committed)} detail={`${formatMoney(economySummary.availableToWorking)} to working ceiling`} />
             <Metric label="PRODUCTION SPEND" value={formatMoney(productionBudget.spent)} detail={`${productionBudget.percentageUsed.toFixed(1)}% of ${formatMoney(productionBudget.currentBudget)}`} tone={productionBudget.warningState} />
@@ -827,7 +849,15 @@ function App() {
         )}
 
         {tab === "Film Engine" && <FilmEngine production={data} onCast={() => setTab('Characters')} />}
-        {tab === "Overview" && (
+        {tab === "Overview" && data.project.id === YARD_PROJECT_ID && (
+          <section className="panel">
+            <span className="eyebrow">THE YARD · ANIMATION WORKSPACE</span>
+            <h2>Six shots, five schools</h2>
+            <p>Open Shots, choose a school, then upload its approved image in Shot Start Frame. Use the frames folder from the animation handoff. The Southern drone shot is separate. Review the quote and shot timing before any render; paid Yard LTX submissions remain gated on the adapter.</p>
+            <button className="primary" onClick={() => { setTab("Shots"); setShotId("PV"); }}>Open PV flagpoles shot</button>
+          </section>
+        )}
+        {tab === "Overview" && data.project.id !== YARD_PROJECT_ID && (
           <OverviewPage
             data={data}
             economySummary={economySummary}
