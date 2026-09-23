@@ -13,6 +13,7 @@ import {
   drawThingsHandoffFilename,
 } from "./drawThingsWorkflow.js";
 import { withTarmacCharacterLocks } from "./tarmacContinuity.js";
+import { YARD_PROJECT_ID } from "./yardProduction.js";
 import {
   START_FRAME_PROVIDER_LIMIT,
   isLtxProviderId,
@@ -65,10 +66,10 @@ export default function RenderPanel({
   renders,
 }) {
   const [catalog, setCatalog] = useState(null),
-    [provider, setProvider] = useState("mock");
-  const [duration, setDuration] = useState(8),
+    [provider, setProvider] = useState(project.id === YARD_PROJECT_ID ? "ltx-2.5-fast" : "mock");
+  const [duration, setDuration] = useState(project.id === YARD_PROJECT_ID ? 6 : 8),
     [resolution, setResolution] = useState("720p"),
-    [aspectRatio, setAspect] = useState("16:9");
+    [aspectRatio, setAspect] = useState(project.id === YARD_PROJECT_ID ? "9:16" : "16:9");
   const [selected, setSelected] = useState([]),
     [quote, setQuote] = useState(null),
     [error, setError] = useState(""),
@@ -222,6 +223,8 @@ export default function RenderPanel({
     : Boolean(catalog?.policy?.liveEnabled);
   const liveBlock = !capabilities?.paid
     ? ""
+    : project.id === YARD_PROJECT_ID
+      ? "The Yard paid rendering is gated until a project-specific controlled test and current quote are approved. You can upload start frames and review shots now."
     : !providerLiveReady
       ? isSeedanceProvider(provider)
         ? "Seedance live rendering is disabled on the server."
