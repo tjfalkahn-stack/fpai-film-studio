@@ -1361,7 +1361,7 @@ function ShotsPage({ data, view, setView, planForShot, continuityForShot, setSho
   return (
     <section className="panel">
       <div className="panelHead">
-        <div><span className="eyebrow">SHOT DIRECTOR</span><h2>Scene 001</h2></div>
+        <div><span className="eyebrow">SHOT DIRECTOR</span><h2>{data.scenes[0]?.title || "Shots"}</h2></div>
         <div className="viewToggle">
           <button onClick={() => setView("Storyboard")} className={view === "Storyboard" ? "on" : ""}><LayoutGrid /></button>
           <button onClick={() => setView("List")} className={view === "List" ? "on" : ""}><List /></button>
