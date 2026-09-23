@@ -3,6 +3,7 @@ import { fail, validateInput, ProviderError } from "./providers/contract.js";
 import { seedanceLiveEnabled } from "./providers/seedance.js";
 import { isSeedanceProvider } from "../src/seedanceRequest.js";
 import { isLtxProvider, ltxLiveEnabled } from "./providers/ltx.js";
+import { YARD_PROJECT_ID } from "../src/yardProduction.js";
 import {
   SEEDANCE_CONTROLLED_TEST,
   seedanceEstimatedCostAllowed,
@@ -26,6 +27,7 @@ const LTX_CONTROLLED_TEST = Object.freeze({
   aspectRatio: "16:9",
   maxEstimatedCostUsd: 1.04,
 });
+const allowedProject = (id, env) => id === config(env).projectId || id === YARD_PROJECT_ID;
 const dbOf = (env) =>
   env.GENERATION_DB ||
   fail("STORAGE_CONFIG", "Render database is not configured.", 503);
@@ -314,7 +316,7 @@ async function inputFrom(body, env) {
   }
   if (body.selectionReason) input.selectionReason = body.selectionReason;
   const provider = providerFor(input.provider, env);
-  if (input.projectId !== config(env).projectId)
+  if (!allowedProject(input.projectId, env))
     fail(
       "PROJECT_SCOPE",
       "Project is not enabled for this render service.",
@@ -326,6 +328,8 @@ async function inputFrom(body, env) {
 }
 function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
+  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid)
+    fail("YARD_RENDER_GATE", "The Yard paid renderer is gated until its controlled test and current spend quote are approved.", 403);
   if (provider.capabilities.manual)
     fail(
       "MANUAL_PROVIDER",
@@ -384,6 +388,8 @@ function authorizeSeedanceJob(input, quote, env) {
   }
 }
 function authorizeLtxJob(input, quote, env) {
+  if (input.projectId === YARD_PROJECT_ID)
+    fail("YARD_RENDER_GATE", "The Yard LTX paid test has not been enabled. Review the current quote and set a project-specific controlled test gate first.", 403);
   if (!String(env.LTX_API_KEY || "").trim())
     fail("PROVIDER_CONFIG", "LTX_API_KEY is not configured.", 503);
   const mismatches = [
@@ -862,11 +868,13 @@ export async function renderRoutes(request, env) {
     if (url.pathname === "/api/renders" && request.method === "POST")
       return await create(request, env);
     if (url.pathname === "/api/renders" && request.method === "GET") {
+      const projectId = url.searchParams.get("projectId") || config(env).projectId;
+      if (!allowedProject(projectId, env)) fail("PROJECT_SCOPE", "Project is not enabled for this render service.", 403);
       const rows = await dbOf(env)
         .prepare(
           "SELECT * FROM renders WHERE project_id=? ORDER BY CASE WHEN status IN ('queued','starting','running','uncertain') OR (status='completed' AND output_key IS NULL) THEN 0 ELSE 1 END, created_at DESC LIMIT 200",
         )
-        .bind(config(env).projectId)
+        .bind(projectId)
         .all();
       return json({ renders: rows.results.map(publicRender) });
     }
@@ -876,7 +884,7 @@ export async function renderRoutes(request, env) {
     if (!match)
       return json({ error: { code: "NOT_FOUND", message: "Not found." } }, 404);
     let row = await get(env, match[1]);
-    if (!row || row.project_id !== config(env).projectId)
+    if (!row || !allowedProject(row.project_id, env))
       fail("NOT_FOUND", "Render not found.", 404);
     if (match[2] === "asset" && request.method === "GET")
       return await asset(request, env, row);
