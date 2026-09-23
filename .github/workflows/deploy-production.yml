@@ -41,10 +41,8 @@ jobs:
           compatibility_date = "2026-09-04"
 
           [vars]
-          LIVE_RENDERING_ENABLED = "false"
-          SEEDANCE_LIVE_ENABLED = "false"
-          LTX_LIVE_ENABLED = "false"
-          CHARACTER_FACTORY_LIVE_ENABLED = "false"
+          # Preserve the existing live-rendering gates with --keep-vars below.
+          # Missing values fail closed in the adapter on a fresh deployment.
           MOCK_E2E_VERIFIED = "true"
           RENDER_PROJECT_ID = "enemies-closer-ep01"
           RENDER_PROJECT_CEILING_USD = "20"

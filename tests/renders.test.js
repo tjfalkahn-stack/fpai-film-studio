@@ -7,6 +7,7 @@ import { createVeoProvider } from "../worker/providers/veo.js";
 import { validateInput } from "../worker/providers/contract.js";
 import { mergeRender } from "../src/renderClient.js";
 import { authorizeStudio } from "../frontend-worker/auth.js";
+import { YARD_PROJECT_ID } from "../src/yardProduction.js";
 let mf, db, env;
 before(async () => {
   mf = new Miniflare({
@@ -229,6 +230,23 @@ test("auth fail closed, project scope, validation, and changed-payload idempoten
     ),
     false,
   );
+});
+test("The Yard has an isolated render list and blocks paid jobs before provider execution", async (t) => {
+  const network = noNetwork(t);
+  const request = body(undefined, { projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "PV", duration: 8 });
+  const preview = await call("/api/renders", { ...request, estimateOnly: true });
+  assert.equal(preview.response.status, 200);
+  const paid = await call("/api/renders", { ...request, provider: "veo-fast", aspectRatio: "9:16", acceptedCost: 0.8 });
+  assert.equal(paid.response.status, 403);
+  assert.equal(paid.data.error.code, "YARD_RENDER_GATE");
+  const mock = await call("/api/renders", request);
+  assert.equal(mock.response.status, 202);
+  const yard = await call(`/api/renders?projectId=${YARD_PROJECT_ID}`);
+  assert.equal(yard.data.renders.length, 1);
+  assert.equal(yard.data.renders[0].projectId, YARD_PROJECT_ID);
+  const enemies = await call("/api/renders");
+  assert.ok(enemies.data.renders.every((render) => render.projectId !== YARD_PROJECT_ID));
+  assert.equal(network.mock.callCount(), 0);
 });
 test("mock cancel is durable and never paid", async (t) => {
   noNetwork(t);
