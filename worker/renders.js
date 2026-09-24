@@ -27,6 +27,7 @@ const LTX_CONTROLLED_TEST = Object.freeze({
   aspectRatio: "16:9",
   maxEstimatedCostUsd: 1.04,
 });
+const YARD_LTX_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "PV", provider: "ltx-2.5-fast", duration: 6, resolution: "720p", aspectRatio: "9:16", maxEstimatedCostUsd: 0.54 });
 const allowedProject = (id, env) => id === config(env).projectId || id === YARD_PROJECT_ID;
 const dbOf = (env) =>
   env.GENERATION_DB ||
@@ -328,7 +329,7 @@ async function inputFrom(body, env) {
 }
 function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
-  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid)
+  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && input.provider !== YARD_LTX_TEST.provider)
     fail("YARD_RENDER_GATE", "The Yard paid renderer is gated until its controlled test and current spend quote are approved.", 403);
   if (provider.capabilities.manual)
     fail(
@@ -388,8 +389,12 @@ function authorizeSeedanceJob(input, quote, env) {
   }
 }
 function authorizeLtxJob(input, quote, env) {
-  if (input.projectId === YARD_PROJECT_ID)
-    fail("YARD_RENDER_GATE", "The Yard LTX paid test has not been enabled. Review the current quote and set a project-specific controlled test gate first.", 403);
+  if (input.projectId === YARD_PROJECT_ID) {
+    const mismatches = ["projectId", "sceneId", "shotId", "provider", "duration", "resolution", "aspectRatio"].filter((key) => input[key] !== YARD_LTX_TEST[key]);
+    if (mismatches.length || input.referenceImages.length !== 1 || quote.estimatedCost > YARD_LTX_TEST.maxEstimatedCostUsd)
+      fail("YARD_RENDER_GATE", `The Yard trial permits one PV image-to-video job: 6 seconds, 720p portrait, LTX Fast, one start frame, and at most $${YARD_LTX_TEST.maxEstimatedCostUsd.toFixed(2)}.`, 403);
+    return;
+  }
   if (!String(env.LTX_API_KEY || "").trim())
     fail("PROVIDER_CONFIG", "LTX_API_KEY is not configured.", 503);
   const mismatches = [
@@ -537,6 +542,7 @@ async function create(request, env) {
       (SELECT COALESCE(SUM(actual_cost+reserved_cost),0) FROM generation_jobs WHERE project_id=?) + ? <= ?
       AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE session_id=?) + ? <= ?))
       AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE provider LIKE 'seedance-%') < ?)
+      AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE project_id=? AND provider LIKE 'ltx-2.5-%') < 1)
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
     .bind(
@@ -564,6 +570,8 @@ async function create(request, env) {
       policy.sessionCeiling,
       isSeedanceProvider(input.provider) ? 1 : 0,
       SEEDANCE_CONTROLLED_TEST.maxJobs,
+      input.projectId === YARD_PROJECT_ID && isLtxProvider(input.provider) ? 1 : 0,
+      YARD_PROJECT_ID,
     )
     .run();
   const row = await db
