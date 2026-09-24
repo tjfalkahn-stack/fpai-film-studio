@@ -307,9 +307,19 @@ function migrateData() {
   };
 }
 
+function migrateYardData() {
+  const saved = JSON.parse(localStorage.getItem(YARD_STORAGE_KEY) || "null");
+  if (!saved) return yardProduction;
+  const existing = new Set((saved.shots || []).map((shot) => shot.id));
+  return {
+    ...saved,
+    shots: [...(saved.shots || []), ...yardProduction.shots.filter((shot) => !existing.has(shot.id))],
+  };
+}
+
 function useData() {
   const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_PRODUCTION_KEY) === YARD_PROJECT_ID ? YARD_PROJECT_ID : PROJECT_ID);
-  const [data, setData] = useState(() => activeId === YARD_PROJECT_ID ? JSON.parse(localStorage.getItem(YARD_STORAGE_KEY) || "null") || yardProduction : migrateData());
+  const [data, setData] = useState(() => activeId === YARD_PROJECT_ID ? migrateYardData() : migrateData());
   useEffect(() => {
     localStorage.setItem(activeId === YARD_PROJECT_ID ? YARD_STORAGE_KEY : STORAGE_KEY, JSON.stringify(data));
   }, [activeId, data]);
@@ -317,7 +327,7 @@ function useData() {
     if (id === activeId) return;
     localStorage.setItem(activeId === YARD_PROJECT_ID ? YARD_STORAGE_KEY : STORAGE_KEY, JSON.stringify(data));
     localStorage.setItem(ACTIVE_PRODUCTION_KEY, id);
-    setData(id === YARD_PROJECT_ID ? JSON.parse(localStorage.getItem(YARD_STORAGE_KEY) || "null") || yardProduction : migrateData());
+    setData(id === YARD_PROJECT_ID ? migrateYardData() : migrateData());
     setActiveId(id);
   }
   return [data, setData, switchProduction];
@@ -852,8 +862,8 @@ function App() {
         {tab === "Overview" && data.project.id === YARD_PROJECT_ID && (
           <section className="panel">
             <span className="eyebrow">THE YARD · ANIMATION WORKSPACE</span>
-            <h2>Six shots, five schools</h2>
-            <p>Open Shots, choose a school, then upload its approved image in Shot Start Frame. Use the frames folder from the animation handoff. The Southern drone shot is separate. Review the quote and shot timing before any render; paid Yard LTX submissions remain gated on the adapter.</p>
+            <h2>Five schools, six scenes, one spokesperson test</h2>
+            <p>Open Shots and upload an approved image in Shot Start Frame. The Southern drone shot and PV spokesperson test are separate. Review the quote and shot timing before any render; paid Yard LTX submissions remain gated on the adapter.</p>
             <button className="primary" onClick={() => { setTab("Shots"); setShotId("PV"); }}>Open PV flagpoles shot</button>
           </section>
         )}

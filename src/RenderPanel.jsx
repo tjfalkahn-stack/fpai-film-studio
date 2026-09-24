@@ -223,8 +223,8 @@ export default function RenderPanel({
     : Boolean(catalog?.policy?.liveEnabled);
   const liveBlock = !capabilities?.paid
     ? ""
-    : project.id === YARD_PROJECT_ID && (shot.id !== "PV" || provider !== "ltx-2.5-fast")
-      ? "Only one PV LTX 2.5 Fast trial is enabled. Other Yard shots remain gated."
+    : project.id === YARD_PROJECT_ID && (!["PV", "SPK"].includes(shot.id) || provider !== "ltx-2.5-fast")
+      ? "Only the PV and spokesperson LTX 2.5 Fast trials are enabled. Other Yard shots remain gated."
     : !providerLiveReady
       ? isSeedanceProvider(provider)
         ? "Seedance live rendering is disabled on the server."
