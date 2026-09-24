@@ -28,6 +28,7 @@ const LTX_CONTROLLED_TEST = Object.freeze({
   maxEstimatedCostUsd: 1.04,
 });
 const YARD_LTX_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "PV", provider: "ltx-2.5-fast", duration: 6, resolution: "720p", aspectRatio: "9:16", maxEstimatedCostUsd: 0.54 });
+const YARD_SPOKESPERSON_TEST = Object.freeze({ ...YARD_LTX_TEST, shotId: "SPK" });
 const allowedProject = (id, env) => id === config(env).projectId || id === YARD_PROJECT_ID;
 const dbOf = (env) =>
   env.GENERATION_DB ||
@@ -390,9 +391,10 @@ function authorizeSeedanceJob(input, quote, env) {
 }
 function authorizeLtxJob(input, quote, env) {
   if (input.projectId === YARD_PROJECT_ID) {
-    const mismatches = ["projectId", "sceneId", "shotId", "provider", "duration", "resolution", "aspectRatio"].filter((key) => input[key] !== YARD_LTX_TEST[key]);
-    if (mismatches.length || input.referenceImages.length !== 1 || quote.estimatedCost > YARD_LTX_TEST.maxEstimatedCostUsd)
-      fail("YARD_RENDER_GATE", `The Yard trial permits one PV image-to-video job: 6 seconds, 720p portrait, LTX Fast, one start frame, and at most $${YARD_LTX_TEST.maxEstimatedCostUsd.toFixed(2)}.`, 403);
+    const plan = input.shotId === "SPK" ? YARD_SPOKESPERSON_TEST : YARD_LTX_TEST;
+    const mismatches = ["projectId", "sceneId", "shotId", "provider", "duration", "resolution", "aspectRatio"].filter((key) => input[key] !== plan[key]);
+    if (mismatches.length || input.referenceImages.length !== 1 || quote.estimatedCost > plan.maxEstimatedCostUsd)
+      fail("YARD_RENDER_GATE", `The Yard trial permits one PV job and one spokesperson job: each 6 seconds, 720p portrait, LTX Fast, one start frame, and at most $${plan.maxEstimatedCostUsd.toFixed(2)}.`, 403);
     return;
   }
   if (!String(env.LTX_API_KEY || "").trim())
@@ -542,7 +544,7 @@ async function create(request, env) {
       (SELECT COALESCE(SUM(actual_cost+reserved_cost),0) FROM generation_jobs WHERE project_id=?) + ? <= ?
       AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE session_id=?) + ? <= ?))
       AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE provider LIKE 'seedance-%') < ?)
-      AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE project_id=? AND provider LIKE 'ltx-2.5-%') < 1)
+      AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND provider LIKE 'ltx-2.5-%') < 1)
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
     .bind(
@@ -572,6 +574,7 @@ async function create(request, env) {
       SEEDANCE_CONTROLLED_TEST.maxJobs,
       input.projectId === YARD_PROJECT_ID && isLtxProvider(input.provider) ? 1 : 0,
       YARD_PROJECT_ID,
+      input.shotId,
     )
     .run();
   const row = await db

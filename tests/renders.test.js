@@ -250,7 +250,7 @@ test("The Yard has an isolated render list and blocks paid jobs before provider 
 });
 test("The Yard permits only one capped PV LTX trial with an opening frame", async (t) => {
   const network = noNetwork(t);
-  Object.assign(env, { LTX_LIVE_ENABLED: "true", LTX_API_KEY: "test-key", LTX_FAST_720P_RATE_PER_SECOND_USD: "0.09" });
+  Object.assign(env, { LTX_LIVE_ENABLED: "true", LTX_API_KEY: "test-key", LTX_FAST_720P_RATE_PER_SECOND_USD: "0.09", RENDER_SESSION_CEILING_USD: "1.2" });
   try {
     const request = body(undefined, {
       projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "PV", provider: "ltx-2.5-fast",
@@ -266,11 +266,17 @@ test("The Yard permits only one capped PV LTX trial with an opening frame", asyn
     assert.equal(accepted.response.status, 202);
     const second = await call("/api/renders", { ...request, requestKey: crypto.randomUUID() });
     assert.equal(second.response.status, 409);
+    const spokesperson = await call("/api/renders", { ...request, shotId: "SPK", requestKey: crypto.randomUUID() });
+    assert.equal(spokesperson.response.status, 202);
+    const spokespersonRetry = await call("/api/renders", { ...request, shotId: "SPK", requestKey: crypto.randomUUID() });
+    assert.equal(spokespersonRetry.response.status, 409);
+    await call(`/api/renders/${spokesperson.data.render.id}/cancel`, {});
     const canceled = await call(`/api/renders/${accepted.data.render.id}/cancel`, {});
     assert.equal(canceled.data.render.status, "canceled");
     assert.equal(network.mock.callCount(), 0);
   } finally {
     delete env.LTX_LIVE_ENABLED; delete env.LTX_API_KEY; delete env.LTX_FAST_720P_RATE_PER_SECOND_USD;
+    env.RENDER_SESSION_CEILING_USD = "0.8";
   }
 });
 test("mock cancel is durable and never paid", async (t) => {

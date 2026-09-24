@@ -7,6 +7,7 @@ const shots = [
   ["SOUTHERN", "Southern campus band", "Friends react to the band. Small natural gestures and coordinated musician movement in blue and gold. Keep the landscaped SOUTHERN letters readable and instruments consistent."],
   ["DRONE", "Southern drone band", "High overhead drone view rises slowly and drifts back as the Southern band marches in coherent formation. Keep yard lines straight, spacing plausible, and blue and gold uniforms consistent."],
   ["ALCORN", "Alcorn reunion", "Friends complete a natural reunion hug, camera arcs gently. Preserve the ALCORN STATE UNIVERSITY sign, faces and purple and gold clothes. Avoid invented building geometry."],
+  ["SPK", "PV spokesperson face test", "One spokesperson faces the camera in a purple and gold rugby top. A subtle blink, natural breathing, and a small smile. Keep her facial features, hair, hands, clothing, and background consistent. No head turn, speech, new text, or extra people."],
 ];
 
 export const yardProduction = {
