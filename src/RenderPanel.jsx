@@ -223,8 +223,8 @@ export default function RenderPanel({
     : Boolean(catalog?.policy?.liveEnabled);
   const liveBlock = !capabilities?.paid
     ? ""
-    : project.id === YARD_PROJECT_ID
-      ? "The Yard paid rendering is gated until a project-specific controlled test and current quote are approved. You can upload start frames and review shots now."
+    : project.id === YARD_PROJECT_ID && (shot.id !== "PV" || provider !== "ltx-2.5-fast")
+      ? "Only one PV LTX 2.5 Fast trial is enabled. Other Yard shots remain gated."
     : !providerLiveReady
       ? isSeedanceProvider(provider)
         ? "Seedance live rendering is disabled on the server."
