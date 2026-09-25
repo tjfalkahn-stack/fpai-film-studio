@@ -25,8 +25,6 @@ export const fail = (code, message, httpStatus = 400) => {
 };
 
 export function validateInput(input, capabilities) {
-  if (input.audioInput && !capabilities.audioInput)
-    fail("UNSUPPORTED_INPUT", "This renderer does not accept uploaded audio.");
   for (const key of ["projectId", "sceneId", "shotId"]) {
     if (
       typeof input[key] !== "string" ||
