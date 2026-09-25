@@ -53,12 +53,6 @@ LTX_FAST_1080P_RATE_PER_SECOND_USD = "0.13"
 LTX_PRO_720P_RATE_PER_SECOND_USD = "0.12"
 LTX_PRO_1080P_RATE_PER_SECOND_USD = "0.17"
 
-# Six-second PV spokesperson image + uploaded WAV lip sync via fal.ai Sync-3.
-# FAL_KEY is a Worker secret; Google AI Studio balance does not pay this provider.
-# Confirm the live fal.ai rate before enabling. Isolated to one Yard SPK job.
-SYNC3_LIVE_ENABLED = "false"
-SYNC3_RATE_PER_SECOND_USD = "0.1333"
-
 [[d1_databases]]
 binding = "GENERATION_DB"
 database_name = "fpai-film-studio-generation"

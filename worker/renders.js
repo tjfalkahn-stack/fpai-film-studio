@@ -3,7 +3,6 @@ import { fail, validateInput, ProviderError } from "./providers/contract.js";
 import { seedanceLiveEnabled } from "./providers/seedance.js";
 import { isSeedanceProvider } from "../src/seedanceRequest.js";
 import { isLtxProvider, ltxLiveEnabled } from "./providers/ltx.js";
-import { sync3LiveEnabled } from "./providers/syncLipsync.js";
 import { YARD_PROJECT_ID } from "../src/yardProduction.js";
 import {
   SEEDANCE_CONTROLLED_TEST,
@@ -30,7 +29,6 @@ const LTX_CONTROLLED_TEST = Object.freeze({
 });
 const YARD_LTX_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "PV", provider: "ltx-2.5-fast", duration: 6, resolution: "720p", aspectRatio: "9:16", maxEstimatedCostUsd: 0.54 });
 const YARD_SPOKESPERSON_TEST = Object.freeze({ ...YARD_LTX_TEST, shotId: "SPK" });
-const YARD_SYNC3_TEST = Object.freeze({ ...YARD_SPOKESPERSON_TEST, provider: "sync-lipsync-v3", maxEstimatedCostUsd: 0.81 });
 const allowedProject = (id, env) => id === config(env).projectId || id === YARD_PROJECT_ID;
 const dbOf = (env) =>
   env.GENERATION_DB ||
@@ -87,8 +85,6 @@ export function config(env) {
     ltxConfigured,
     ltxExecutionReady:
       ltxLiveEnabled(env) && ltxConfigured && executionStorageReady,
-    sync3LiveEnabled: sync3LiveEnabled(env),
-    sync3ExecutionReady: sync3LiveEnabled(env) && falConfigured && executionStorageReady,
     falConfigured,
     seedanceControlledTest: {
       projectId: SEEDANCE_CONTROLLED_TEST.projectId,
@@ -146,13 +142,6 @@ function providerAvailability(provider, policy, env) {
       ? { state: "ready", label: "READY", detail: "Controlled Seedance queue is ready" }
       : { state: "configured", label: "CONFIGURED", detail: "Seedance live gate is off" };
   }
-  if (id === "sync-lipsync-v3") {
-    if (!policy.falConfigured) return { state: "key-needed", label: "KEY NEEDED", detail: "fal.ai key is missing" };
-    if (!Number.isFinite(Number(env.SYNC3_RATE_PER_SECOND_USD)) || Number(env.SYNC3_RATE_PER_SECOND_USD) <= 0)
-      return { state: "blocked", label: "RATE NEEDED", detail: "Confirm the current fal.ai per-second rate" };
-    if (!policy.sync3LiveEnabled) return { state: "configured", label: "CONFIGURED", detail: "Spokesperson lip-sync live gate is off" };
-    return { state: "ready", label: "READY", detail: "Six-second Yard spokesperson route" };
-  }
   if (id === "comfy-video") {
     const configured = Boolean(
       env.COMFYUI_BASE_URL && (env.COMFYUI_WORKFLOW_KEY || env.COMFYUI_WORKFLOW_JSON),
@@ -167,7 +156,6 @@ export function providerLiveEnabled(provider, env) {
   if (provider === "mock") return true;
   if (providerFor(provider, env).capabilities.manual) return false;
   if (isSeedanceProvider(provider)) return seedanceLiveEnabled(env);
-  if (provider === "sync-lipsync-v3") return sync3LiveEnabled(env);
   if (isLtxProvider(provider)) return ltxLiveEnabled(env);
   return config(env).liveEnabled;
 }
@@ -216,8 +204,7 @@ export function publicRender(row) {
       referenceImagesTransmitted: Array.isArray(input.referenceImages)
         ? input.referenceImages.length
         : 0,
-      generateAudio: input.audioInput ? false : input.generateAudio !== false,
-      suppliedAudio: Boolean(input.audioInput),
+      generateAudio: input.generateAudio !== false,
       seed: input.seed ?? null,
       endpointId: input.seedanceEndpoint || null,
       rationale: input.routingRationale || null,
@@ -306,7 +293,6 @@ async function inputFrom(body, env) {
       "aspectRatio",
       "referenceImages",
       "continuity",
-      "audioInput",
     ].map((k) => [k, body[k]]),
   );
   if (!Array.isArray(input.referenceImages)) input.referenceImages = [];
@@ -344,7 +330,7 @@ async function inputFrom(body, env) {
 }
 function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
-  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && ![YARD_LTX_TEST.provider, YARD_SYNC3_TEST.provider].includes(input.provider))
+  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && input.provider !== YARD_LTX_TEST.provider)
     fail("YARD_RENDER_GATE", "The Yard paid renderer is gated until its controlled test and current spend quote are approved.", 403);
   if (provider.capabilities.manual)
     fail(
@@ -359,8 +345,6 @@ function liveGate(input, provider, env) {
         ? "Seedance live rendering is disabled. Mock mode is available."
         : isLtxProvider(input.provider)
           ? "LTX live rendering is disabled. Mock mode is available."
-        : input.provider === "sync-lipsync-v3"
-          ? "Spokesperson lip sync is disabled on the server."
         : "Live rendering is disabled. Mock mode is available.",
       403,
     );
@@ -434,13 +418,6 @@ function authorizeLtxJob(input, quote, env) {
       403,
     );
 }
-function authorizeSync3Job(input, quote, env) {
-  const mismatches = ["projectId", "sceneId", "shotId", "provider", "duration", "resolution", "aspectRatio"]
-    .filter((key) => input[key] !== YARD_SYNC3_TEST[key]);
-  if (mismatches.length || input.referenceImages.length !== 1 || !input.audioInput ||
-      quote.estimatedCost > YARD_SYNC3_TEST.maxEstimatedCostUsd)
-    fail("YARD_RENDER_GATE", "Lip sync is limited to one six-second PV spokesperson take, one portrait, one WAV, and a $0.81 maximum quote.", 403);
-}
 async function create(request, env) {
   const body = await readBody(request);
   const { input, provider } = await inputFrom(body, env);
@@ -454,7 +431,6 @@ async function create(request, env) {
       liveEnabled: policy.liveEnabled,
       seedanceLiveEnabled: policy.seedanceLiveEnabled,
       ltxLiveEnabled: policy.ltxLiveEnabled,
-      sync3LiveEnabled: policy.sync3LiveEnabled,
       policy,
       capabilities: provider.capabilities,
       characterReferenceSelection: input.characterReferenceSelection || null,
@@ -480,7 +456,7 @@ async function create(request, env) {
         referenceImagesTransmitted: provider.capabilities.manual
           ? 0
           : input.referenceImages.length,
-        generateAudio: input.audioInput ? false : input.generateAudio !== false,
+        generateAudio: input.generateAudio !== false,
         rationale: quote.rationale || null,
       },
     });
@@ -500,7 +476,6 @@ async function create(request, env) {
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   if (isLtxProvider(input.provider)) authorizeLtxJob(input, quote, env);
-  if (input.provider === "sync-lipsync-v3") authorizeSync3Job(input, quote, env);
   const hash = await sha(JSON.stringify(input));
   const db = dbOf(env);
   const existing = await db
@@ -548,15 +523,13 @@ async function create(request, env) {
         }))
       : undefined,
     characterReferenceSelection: input.characterReferenceSelection || null,
-    audioInput: input.audioInput ? { mimeType: input.audioInput.mimeType, name: input.audioInput.name || "speech.wav" } : undefined,
   };
   const hasInlineBytes =
     input.referenceImages.some((ref) => ref.data) ||
     (input.environmentReferences || []).some((ref) => ref.data) ||
     Boolean(input.endFrameImage?.data) ||
     (input.referenceVideos || []).some((ref) => ref.data);
-  const hasInlineMedia = hasInlineBytes || Boolean(input.audioInput?.data);
-  if (hasInlineMedia)
+  if (hasInlineBytes)
     await env.GENERATION_MEDIA.put(
       `render-inputs/${id}.json`,
       JSON.stringify(input),
@@ -572,7 +545,6 @@ async function create(request, env) {
       AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE session_id=?) + ? <= ?))
       AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE provider LIKE 'seedance-%') < ?)
       AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND provider LIKE 'ltx-2.5-%') < 1)
-      AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND provider='sync-lipsync-v3') < 1)
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
     .bind(
@@ -603,9 +575,6 @@ async function create(request, env) {
       input.projectId === YARD_PROJECT_ID && isLtxProvider(input.provider) ? 1 : 0,
       YARD_PROJECT_ID,
       input.shotId,
-      input.provider === "sync-lipsync-v3" ? 1 : 0,
-      YARD_PROJECT_ID,
-      "SPK",
     )
     .run();
   const row = await db
@@ -613,7 +582,7 @@ async function create(request, env) {
     .bind(input.projectId, body.requestKey)
     .first();
   if (!row || row.id !== id) {
-    if (hasInlineMedia)
+    if (hasInlineBytes)
       await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
   }
   if (!row) {
@@ -693,8 +662,6 @@ export async function advance(env, row) {
           ) ||
           Boolean(input.endFrameImage?.mimeType && !input.endFrameImage?.assetId) ||
           (input.referenceVideos || []).some((ref) => ref?.data);
-        if (input.audioInput?.mimeType && !input.audioInput?.data)
-          fail("MISSING_AUDIO", "Stored spokesperson audio is missing.", 503);
         if (storedInline)
           fail(
             "MISSING_REFERENCES",
