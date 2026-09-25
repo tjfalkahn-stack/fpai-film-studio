@@ -66,11 +66,14 @@ export default function RenderPanel({
   renders,
 }) {
   const [catalog, setCatalog] = useState(null),
-    [provider, setProvider] = useState(project.id === YARD_PROJECT_ID ? "ltx-2.5-fast" : "mock");
+    [provider, setProvider] = useState(project.id === YARD_PROJECT_ID
+      ? shot.id === "SPK" ? "sync-lipsync-v3" : "ltx-2.5-fast"
+      : "mock");
   const [duration, setDuration] = useState(project.id === YARD_PROJECT_ID ? 6 : 8),
     [resolution, setResolution] = useState("720p"),
     [aspectRatio, setAspect] = useState(project.id === YARD_PROJECT_ID ? "9:16" : "16:9");
   const [selected, setSelected] = useState([]),
+    [speechFile, setSpeechFile] = useState(null),
     [quote, setQuote] = useState(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -103,6 +106,7 @@ export default function RenderPanel({
   const isVibesManual = provider === VIBES_MANUAL_PROVIDER_ID;
   const isDrawThingsLocal = provider === DRAW_THINGS_LOCAL_PROVIDER_ID;
   const isLtx = isLtxProviderId(provider);
+  const isLipSync = provider === "sync-lipsync-v3";
   const isManualProvider = Boolean(capabilities?.manual);
   const active = renders.filter(
     (r) => r.shotId === shot.id && r.sceneId === shot.scene,
@@ -113,9 +117,11 @@ export default function RenderPanel({
       .catch((e) => setError(e.message));
   }, []);
   useEffect(() => {
-    if (isLtx && shot.startFrame?.key) setSelected([shot.startFrame.key]);
-  }, [isLtx, shot.startFrame?.key]);
+    if ((isLtx || isLipSync) && shot.startFrame?.key) setSelected([shot.startFrame.key]);
+  }, [isLtx, isLipSync, shot.startFrame?.key]);
   async function input() {
+    if (isLipSync && speechFile && speechFile.size > 2_000_000)
+      throw new Error("The WAV must be under 2 MB.");
     // Fail closed when local metadata points to missing blobs before any paid submission.
     if (capabilities?.paid) {
       for (const c of characters)
@@ -149,6 +155,9 @@ export default function RenderPanel({
       resolution,
       aspectRatio,
       referenceImages: inline,
+      audioInput: isLipSync && speechFile
+        ? { mimeType: "audio/wav", name: speechFile.name, data: await fileToBase64(speechFile) }
+        : undefined,
       generateAudio: String(provider).startsWith("seedance-") ? true : undefined,
       characterIds: characters.map((c) => c.id),
       characters: characters.map((c) => ({
@@ -201,6 +210,7 @@ export default function RenderPanel({
     resolution,
     aspectRatio,
     selected,
+    speechFile,
     generationPrompt,
     characters.map((c) => JSON.stringify(c.refs)).join("|"),
     continuity.ready,
@@ -218,25 +228,34 @@ export default function RenderPanel({
     .reduce((s, r) => s + (r.actualCost || 0) + (r.reservedCost || 0), 0);
   const providerLiveReady = isSeedanceProvider(provider)
     ? Boolean(catalog?.policy?.seedanceLiveEnabled)
+    : isLipSync
+      ? Boolean(catalog?.policy?.sync3LiveEnabled)
     : String(provider).startsWith("ltx-2.5-")
       ? Boolean(catalog?.policy?.ltxLiveEnabled)
     : Boolean(catalog?.policy?.liveEnabled);
   const liveBlock = !capabilities?.paid
     ? ""
-    : project.id === YARD_PROJECT_ID && (!["PV", "SPK"].includes(shot.id) || provider !== "ltx-2.5-fast")
-      ? "Only the PV and spokesperson LTX 2.5 Fast trials are enabled. Other Yard shots remain gated."
+    : project.id === YARD_PROJECT_ID && !(
+        (["PV", "SPK"].includes(shot.id) && provider === "ltx-2.5-fast") ||
+        (shot.id === "SPK" && isLipSync)
+      )
+      ? "Only the controlled PV and spokesperson routes are enabled. Other Yard shots remain gated."
     : !providerLiveReady
       ? isSeedanceProvider(provider)
         ? "Seedance live rendering is disabled on the server."
         : String(provider).startsWith("ltx-2.5-")
           ? "LTX live rendering is disabled on the server."
+        : isLipSync
+          ? "Spokesperson lip sync is disabled on the server."
         : "Live rendering is disabled on the server."
       : !continuity.ready
         ? "Complete and lock the Character Bible first."
         : !scene?.animaticLocked || !shot.economy?.animaticApproved
           ? "Approve shot timing and lock the scene animatic first."
-          : isLtx && !shot.startFrame?.key
-            ? "Upload a composed Shot Start Frame before submitting LTX image-to-video."
+          : (isLtx || isLipSync) && !shot.startFrame?.key
+            ? "Upload the approved Shot Start Frame first."
+          : isLipSync && !speechFile
+            ? "Upload the six-second WAV before submitting lip sync."
           : characters.length &&
               !selected.length &&
               !quote?.debug?.selectedAssetIds?.length
@@ -496,16 +515,35 @@ export default function RenderPanel({
           </select>
         </label>
       </div>
+      {isLipSync && (
+        <label>
+          Spokesperson audio (six-second PCM WAV, under 2 MB)
+          <input
+            type="file"
+            accept=".wav,audio/wav,audio/x-wav"
+            onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+              setSpeechFile(file);
+              setQuote(null);
+              setError(file && file.size > 2_000_000 ? "The WAV must be under 2 MB." : "");
+            }}
+          />
+          {speechFile && <small>{speechFile.name}</small>}
+        </label>
+      )}
       <p>
-        Final edit: {shot.sec}s. {isDrawThingsLocal ? "Still-image source. " : `Source clip: ${duration}s. `}The worker selects
-        the Primary Identity image plus up to five supporting library photos
-        for this shot. Manual PNG/JPEG boxes remain for older Bible uploads.
+        Final edit: {shot.sec}s. {isDrawThingsLocal ? "Still-image source. " : `Source clip: ${duration}s. `}
+        {isLipSync
+          ? "The approved Shot Start Frame and uploaded WAV are sent together for the talking shot."
+          : "The worker selects the Primary Identity image plus up to five supporting library photos for this shot. Manual PNG/JPEG boxes remain for older Bible uploads."}
         {isDrawThingsLocal
           ? " Draw Things can use up to three identity and wardrobe references. The files are downloaded to this Mac and never transmitted by the adapter."
           : isVibesManual
           ? " Vibes uses one primary reference image. Film Studio preserves the full Character Bible and prepares a manual handoff; no Vibes credentials or production secrets are stored."
           : provider === "veo-fast"
           ? " Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
+          : isLipSync
+            ? " Lip sync uses the uploaded WAV as the exact speech track. It does not write new words or use Google credit."
           : isLtx
             ? " LTX uses the dedicated composed Shot Start Frame as frame one. Character Bible portraits remain continuity references and are not substituted for the opening frame."
           : provider?.startsWith("seedance-")
@@ -516,9 +554,9 @@ export default function RenderPanel({
         <label key={ref.key} className="checkLabel">
           <input
             type="checkbox"
-            checked={isLtx && ref.startFrame ? true : selected.includes(ref.key)}
+            checked={(isLtx || isLipSync) && ref.startFrame ? true : selected.includes(ref.key)}
             disabled={
-              (isLtx && ref.startFrame) ||
+              ((isLtx || isLipSync) && ref.startFrame) ||
               (!selected.includes(ref.key) &&
                 selected.length >= (capabilities?.maxReferences || 3))
             }
@@ -533,9 +571,9 @@ export default function RenderPanel({
           <span>{ref.label}</span>
         </label>
       ))}
-      {isLtx && !shot.startFrame?.key && (
+      {(isLtx || isLipSync) && !shot.startFrame?.key && (
         <div className="validation">
-          Upload a composed Shot Start Frame above. LTX will not use a Character Bible portrait as this shot's opening frame.
+          Upload the approved composed Shot Start Frame above.
         </div>
       )}
       {quote?.debug?.characterReferenceSelection && (
@@ -669,7 +707,8 @@ export default function RenderPanel({
                 : `$${r.actualCost.toFixed(2)}`}
             </small>
             {r.error && <p>{r.error.message}</p>}
-            {["queued", "running"].includes(r.status) && (
+            {["queued", "running"].includes(r.status) &&
+              catalog?.providers.find((item) => item.id === r.provider)?.cancelRunning !== false && (
               <button className="ghost" onClick={() => cancel(r)}>
                 Cancel render
               </button>

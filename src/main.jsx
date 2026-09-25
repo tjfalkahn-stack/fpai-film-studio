@@ -313,7 +313,20 @@ function migrateYardData() {
   const existing = new Set((saved.shots || []).map((shot) => shot.id));
   return {
     ...saved,
-    shots: [...(saved.shots || []), ...yardProduction.shots.filter((shot) => !existing.has(shot.id))],
+    shots: [
+      ...(saved.shots || []).map((shot) => shot.id === "SPK"
+        ? {
+            ...shot,
+            sec: 6,
+            subject: shot.subject === "PV spokesperson face test" ? "PV spokesperson talking shot" : shot.subject,
+            prompt: shot.prompt?.includes("No head turn, speech")
+              ? yardProduction.shots.find((item) => item.id === "SPK").prompt
+              : shot.prompt,
+            move: shot.move === "Subtle tracking" ? "Locked camera" : shot.move,
+          }
+        : shot),
+      ...yardProduction.shots.filter((shot) => !existing.has(shot.id)),
+    ],
   };
 }
 

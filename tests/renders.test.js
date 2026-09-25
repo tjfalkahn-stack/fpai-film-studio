@@ -279,6 +279,53 @@ test("The Yard permits only one capped PV LTX trial with an opening frame", asyn
     env.RENDER_SESSION_CEILING_USD = "0.8";
   }
 });
+test("Yard spokesperson accepts one six-second WAV job and keeps audio out of D1", async (t) => {
+  noNetwork(t);
+  const samples = 24000 * 6, bytes = Buffer.alloc(44 + samples * 2);
+  bytes.write("RIFF", 0); bytes.writeUInt32LE(bytes.length - 8, 4);
+  bytes.write("WAVEfmt ", 8); bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(24000, 24); bytes.writeUInt32LE(48000, 28);
+  bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36); bytes.writeUInt32LE(samples * 2, 40);
+  const audioData = bytes.toString("base64");
+  Object.assign(env, {
+    SYNC3_LIVE_ENABLED: "true", SYNC3_RATE_PER_SECOND_USD: "0.1333", FAL_KEY: "test",
+    RENDER_SESSION_CEILING_USD: "1.2",
+  });
+  let createdId;
+  try {
+    const request = body(undefined, {
+      projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "SPK",
+      provider: "sync-lipsync-v3", duration: 6, resolution: "720p", aspectRatio: "9:16",
+      acceptedCost: 0.7998,
+      referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+      audioInput: { mimeType: "audio/wav", name: "PV_Yard_VO_6s_Edit.wav", data: audioData },
+      continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+    });
+    const quote = await call("/api/renders", { ...request, estimateOnly: true });
+    assert.equal(quote.data.estimatedCost, 0.7998);
+    const accepted = await call("/api/renders", request);
+    assert.equal(accepted.response.status, 202);
+    createdId = accepted.data.render.id;
+    const row = await db.prepare("SELECT input_json FROM renders WHERE id=?").bind(accepted.data.render.id).first();
+    assert.equal(row.input_json.includes(audioData), false);
+    assert.equal(JSON.parse(row.input_json).audioInput.name, "PV_Yard_VO_6s_Edit.wav");
+    const stored = await env.GENERATION_MEDIA.get(`render-inputs/${accepted.data.render.id}.json`);
+    assert.equal((await stored.json()).audioInput.data, audioData);
+    const duplicate = await call("/api/renders", request);
+    assert.equal(duplicate.data.render.id, accepted.data.render.id);
+    const second = await call("/api/renders", { ...request, requestKey: crypto.randomUUID() });
+    assert.equal(second.response.status, 409);
+  } finally {
+    if (createdId) {
+      await db.prepare("DELETE FROM renders WHERE id=?").bind(createdId).run();
+      await env.GENERATION_MEDIA.delete(`render-inputs/${createdId}.json`);
+    }
+    delete env.SYNC3_LIVE_ENABLED; delete env.SYNC3_RATE_PER_SECOND_USD; delete env.FAL_KEY;
+    env.RENDER_SESSION_CEILING_USD = "0.8";
+  }
+});
 test("mock cancel is durable and never paid", async (t) => {
   noNetwork(t);
   let { data } = await call("/api/renders", body());
