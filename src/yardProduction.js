@@ -7,7 +7,7 @@ const shots = [
   ["SOUTHERN", "Southern campus band", "Friends react to the band. Small natural gestures and coordinated musician movement in blue and gold. Keep the landscaped SOUTHERN letters readable and instruments consistent."],
   ["DRONE", "Southern drone band", "High overhead drone view rises slowly and drifts back as the Southern band marches in coherent formation. Keep yard lines straight, spacing plausible, and blue and gold uniforms consistent."],
   ["ALCORN", "Alcorn reunion", "Friends complete a natural reunion hug, camera arcs gently. Preserve the ALCORN STATE UNIVERSITY sign, faces and purple and gold clothes. Avoid invented building geometry."],
-  ["SPK", "PV spokesperson face test", "One spokesperson faces the camera in a purple and gold rugby top. A subtle blink, natural breathing, and a small smile. Keep her facial features, hair, hands, clothing, and background consistent. No head turn, speech, new text, or extra people."],
+  ["SPK", "PV spokesperson talking shot", "The approved spokesperson faces the camera in a purple and gold rugby top and speaks the supplied audio. Keep her identity, hair, clothing, and background consistent. No head turn, new text, or extra people."],
 ];
 
 export const yardProduction = {
@@ -27,7 +27,7 @@ export const yardProduction = {
   assets: [],
   providers: [],
   shots: shots.map(([id, subject, prompt], index) => ({
-    id, scene: "YARD", sec: 3, mode: "CONTROL", subject,
+    id, scene: "YARD", sec: id === "SPK" ? 6 : 3, mode: "CONTROL", subject,
     move: index === 4 ? "Overhead drone rise" : "Subtle tracking",
     characters: [], assets: [], status: "Planned", prompt,
     provider: "auto", cost: 0, approved: false, takes: [], drift: "STRICT",

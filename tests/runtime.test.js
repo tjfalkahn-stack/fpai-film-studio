@@ -51,6 +51,7 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
       "seedance-standard",
       "ltx-2.5-fast",
       "ltx-2.5-pro",
+      "sync-lipsync-v3",
       "veo-fast",
     ]);
     assert.equal(catalog.policy.liveEnabled, false);

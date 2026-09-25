@@ -24,6 +24,6 @@ export function validateShotStartFrame(file) {
 }
 
 export function renderReferenceKeys({ provider, startFrameKey, selected = [] }) {
-  if (isLtxProviderId(provider) && startFrameKey) return [startFrameKey];
+  if ((isLtxProviderId(provider) || provider === "sync-lipsync-v3") && startFrameKey) return [startFrameKey];
   return [...selected];
 }
