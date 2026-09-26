@@ -10,6 +10,7 @@ import {
   orderedShots,
   continuityReport,
   validateCut,
+  cutPreflight,
   delivery,
 } from "../src/film/engine.ts";
 import { extractDocument, extractPdf } from "../src/film/documents.js";
@@ -299,6 +300,30 @@ test("editorial rejects unapproved media, overlap, out-of-range trims and protec
     () => reduce(s, { type: "remove-clip", cutId, id: s.cuts[0].clips[0].id }),
     /new cut/,
   );
+});
+test("cut preflight blocks missing picture, timeline gaps and audio or captions beyond picture", () => {
+  let s = approved();
+  s.jobs = [{ id: "take", status: "approved", outputAsset: "/asset", duration: 8,
+    sceneId: activeScript(s).scenes[0].id, provider: "mock" }];
+  s = reduce(s, { type: "new-cut" });
+  const cutId = s.cuts[0].id;
+  assert.match(cutPreflight(s.cuts[0])[0], /video take/);
+  assert.throws(() => reduce(s, { type: "review-cut", id: cutId }), /video take/);
+  s = reduce(s, { type: "place-clip", cutId, lane: "video", jobId: "take", start: 2, out: 3 });
+  assert.match(cutPreflight(s.cuts[0])[0], /Video gap/);
+  s = reduce(s, { type: "place-clip", cutId, lane: "video", jobId: "take", start: 0, out: 2 });
+  s = reduce(s, { type: "place-clip", cutId, lane: "dialogue", sourceId: "recorded-line", start: 0, out: 6 });
+  assert.match(cutPreflight(s.cuts[0]).join(" "), /extends past/);
+  assert.throws(() => reduce(s, { type: "review-cut", id: cutId }), /dialogue/);
+  const dialogue = s.cuts[0].clips.find((c) => c.lane === "dialogue");
+  s = reduce(s, { type: "edit-clip", cutId, id: dialogue.id, out: 5 });
+  s = reduce(s, { type: "place-clip", cutId, lane: "captions", start: 0, out: 5 });
+  assert.match(cutPreflight(s.cuts[0]).join(" "), /needs text/);
+  const caption = s.cuts[0].clips.find((c) => c.lane === "captions");
+  s = reduce(s, { type: "edit-clip", cutId, id: caption.id, caption: "Stay with me." });
+  assert.deepEqual(cutPreflight(s.cuts[0]), []);
+  s = reduce(s, { type: "review-cut", id: cutId });
+  assert.equal(delivery(s, cutId, [], []).renderManifest.duration, 5);
 });
 test("FDX and DOCX extraction preserve dialogue and reject external XML entities or oversized ZIP members", () => {
   const fdx =
