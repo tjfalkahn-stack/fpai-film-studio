@@ -1,0 +1,37 @@
+{
+  "schema": "fpai.character-continuity.v1",
+  "projectId": "enemies-closer-ep01",
+  "referencePolicy": "Use the same approved clean identity master for each shot. Do not chain a generated take as the new identity master. A composed approved start frame may set framing and lighting while the master preserves identity.",
+  "skinPolicy": "Cinematic natural skin: preserve complexion and undertone in shadows and highlights, subtle irregular pores separated by smoother areas, restrained sheen and natural tonal transitions. Avoid plastic smoothing, uniform stamped pores, embossed texture, whitening haze, orange cast and aggressive sharpening. Do not import a beauty-editorial backdrop or lighting into the scene.",
+  "motionPolicy": "Preserve the approved keyframe composition, facial structure, hairline, skin tone, proportions and wardrobe across every frame. One camera movement; avoid face morphing, temporal flicker and an unplanned face turn.",
+  "characters": {
+    "marcus": {
+      "identity": "Marcus is a Black man approximately 6 ft 2 in; match his exact approved reference face, build, hairline and skin tone.",
+      "wardrobe": "Use the selected approved regular-clothes look. Do not substitute a suit or tactical look unless the shot explicitly selects it.",
+      "avoid": "No identity drift, age drift, wardrobe swap or Four Seasons backdrop."
+    },
+    "jasmine": {
+      "identity": "Match Jasmine's exact approved reference face, skin tone, hairline, hair length, build and proportions.",
+      "wardrobe": "For Scene 001 use the approved tarmac wardrobe lock; otherwise use the selected approved look.",
+      "avoid": "No substitute face, hair change or wardrobe swap."
+    },
+    "mikey": {
+      "identity": "Mikey is exactly six years old. Match his approved reference face, curl pattern, skin tone and small child proportions.",
+      "wardrobe": "For Scene 001 use the approved tarmac wardrobe lock; otherwise use the selected approved look.",
+      "avoid": "No toddler, teenager or small-adult proportions, face change or wardrobe swap."
+    },
+    "turner": {
+      "identity": "Match Turner's exact approved reference face and skin tone; he is bald.",
+      "wardrobe": "Use the selected approved look. For SWAT coverage, use sleeved tactical clothing without goggles.",
+      "avoid": "No goggles, sleeveless tactical clothing, new hair or identity drift.",
+      "woundedShot": "In Shot 012 preserve the approved thigh and lower-abdomen wounds, including side and severity, across the take."
+    }
+  },
+  "shotRules": {
+    "008": "Honor the explicitly approved wardrobe change; do not carry a previous outfit across this cut automatically.",
+    "010": "Jasmine and Mikey must match their approved shared tarmac reference.",
+    "011": "Continue Jasmine and Mikey identity and wardrobe from Shot 010.",
+    "012": "Turner is wounded in the thigh and lower abdomen, not another location.",
+    "027": "Marcus hero reveal on the tarmac at night in rain. Keep his selected regular-clothes look and approved framing; avoid a face-turn reveal that changes identity."
+  }
+}
