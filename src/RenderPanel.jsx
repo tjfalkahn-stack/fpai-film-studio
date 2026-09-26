@@ -12,7 +12,7 @@ import {
   DRAW_THINGS_LOCAL_PROVIDER_ID,
   drawThingsHandoffFilename,
 } from "./drawThingsWorkflow.js";
-import { withTarmacCharacterLocks } from "./tarmacContinuity.js";
+import { withCharacterContinuity } from "./characterContinuity.js";
 import { YARD_PROJECT_ID } from "./yardProduction.js";
 import {
   START_FRAME_PROVIDER_LIMIT,
@@ -96,9 +96,11 @@ export default function RenderPanel({
       ]
     : characterRefs;
   const capabilities = catalog?.providers.find((p) => p.id === provider);
-  const generationPrompt = withTarmacCharacterLocks(plan.prompt, {
+  const generationPrompt = withCharacterContinuity(plan.prompt, {
+    projectId: project.id,
     sceneId: shot.scene,
-    characterIds: characters.map((character) => character.id),
+    shotId: shot.id,
+    characters,
   });
   const isVibesManual = provider === VIBES_MANUAL_PROVIDER_ID;
   const isDrawThingsLocal = provider === DRAW_THINGS_LOCAL_PROVIDER_ID;
