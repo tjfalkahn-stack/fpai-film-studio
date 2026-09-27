@@ -1837,12 +1837,12 @@ function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy,
           <label className="checkLabel"><input type="checkbox" checked={economy.nativeDetail} onChange={(event) => updateShotEconomy(shot.id, { nativeDetail: event.target.checked })} /><span>Native 1080p needed</span></label>
         </div>
 
-        <div className="shotCostCard">
+        {project.id !== YARD_PROJECT_ID && <div className="shotCostCard">
           <div><span>RECOMMENDED ROUTE</span><b>{plan.route.label}</b><small>{titleCase(plan.shotClass)}</small></div>
           <div><span>PAID DURATION</span><b>{plan.requestSeconds || 0}s</b><small>{plan.route.estimate.clipDurations.join(" + ") || "Local"}</small></div>
           <div><span>ONE ATTEMPT</span><b>{formatMoney(plan.oneAttemptCost)}</b><small>{plan.route.estimate.expectedAttempts} expected attempts</small></div>
           <div><span>MAX EXPOSURE</span><b>{formatMoney(plan.maxExposure)}</b><small>cap {formatMoney(economy.shotCap)}</small></div>
-        </div>
+        </div>}
         <button className="ghost full" onClick={() => setPackageShotId(shot.id)}><PackageCheck /> Preview Cost-Control Package</button>
         {packet.gate.blockers.length > 0 && <div className="validation"><AlertTriangle /> {packet.gate.blockers[0]}</div>}
 
