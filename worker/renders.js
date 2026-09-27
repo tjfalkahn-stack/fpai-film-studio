@@ -79,6 +79,7 @@ export function config(env) {
     env.FPAI_CONTROL_TOKEN && env.GENERATION_DB && env.GENERATION_MEDIA,
   );
   const geminiConfigured = Boolean(String(env.GEMINI_API_KEY || "").trim());
+  const veoSubmissionsPaused = env.VEO_NEW_SUBMISSIONS_PAUSED === "true";
   const ltxConfigured = Boolean(String(env.LTX_API_KEY || "").trim());
   const falConfigured = Boolean(String(env.FAL_KEY || "").trim());
   return {
@@ -91,7 +92,8 @@ export function config(env) {
     liveMasterEnabled: liveMaster,
     executionStorageReady,
     geminiConfigured,
-    veoExecutionReady: liveMaster && geminiConfigured && executionStorageReady,
+    veoSubmissionsPaused,
+    veoExecutionReady: liveMaster && geminiConfigured && executionStorageReady && !veoSubmissionsPaused,
     seedanceLiveEnabled: seedanceLiveEnabled(env),
     ltxLiveEnabled: ltxLiveEnabled(env),
     ltxConfigured,
@@ -126,6 +128,8 @@ function providerAvailability(provider, policy, env) {
         : "Handoff workflow, no API submission",
     };
   if (id === "veo-fast") {
+    if (policy.veoSubmissionsPaused)
+      return { state: "blocked", label: "PAUSED", detail: "Google submissions are paused while the lost responses are investigated" };
     if (!policy.geminiConfigured)
       return { state: "key-needed", label: "KEY NEEDED", detail: "Gemini API key is missing" };
     if (!policy.liveMasterEnabled)
@@ -342,6 +346,8 @@ async function inputFrom(body, env) {
 }
 function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
+  if (input.provider === "veo-fast" && env.VEO_NEW_SUBMISSIONS_PAUSED === "true")
+    fail("VEO_PAUSED", "New Google Veo submissions are paused while two uncertain outcomes are investigated. LTX Pro remains available.", 503);
   if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && !yardTrialFor(input.shotId, input.provider))
     fail("YARD_RENDER_GATE", "The Yard paid renderer is gated until its controlled test and current spend quote are approved.", 403);
   if (provider.capabilities.manual)

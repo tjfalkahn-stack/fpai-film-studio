@@ -648,6 +648,35 @@ test("Yard uncertain Google take keeps its reservation and requires explicit ack
   }
 });
 
+test("paused Veo rejects paid starts while the read-only connectivity probe checks Google", async (t) => {
+  const network = t.mock.method(globalThis, "fetch", async (_url, init) => {
+    assert.equal(init.method, "GET");
+    return Response.json({ models: [] });
+  });
+  const previous = { ...env };
+  Object.assign(env, {
+    LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", GEMINI_API_KEY: "fake",
+    VEO_NEW_SUBMISSIONS_PAUSED: "true",
+  });
+  try {
+    const denied = await call("/api/renders", body(undefined, {
+      provider: "veo-fast", acceptedCost: 0.8,
+      continuity: { ready: true, animaticLocked: true, timingApproved: true },
+    }));
+    assert.equal(denied.response.status, 503);
+    assert.equal(denied.data.error.code, "VEO_PAUSED");
+    assert.equal(network.mock.callCount(), 0);
+    const health = await call("/health/veo");
+    assert.equal(health.data.probe.transport, "response");
+    assert.equal(health.data.probe.httpStatus, 200);
+    assert.equal(network.mock.callCount(), 1);
+  } finally {
+    Object.assign(env, previous);
+    for (const key of ["LIVE_RENDERING_ENABLED", "MOCK_E2E_VERIFIED", "GEMINI_API_KEY", "VEO_NEW_SUBMISSIONS_PAUSED"])
+      if (!(key in previous)) delete env[key];
+  }
+});
+
 test("provider failure releases reservation; completed-but-undownloaded video retains actual charge and retries only retrieval", async (t) => {
   // Separate session avoids the intentionally unresolved job from the previous test.
   Object.assign(env, {

@@ -49,6 +49,7 @@ jobs:
           RENDER_SESSION_CEILING_USD = "1.10"
           RENDER_SESSION_ID = "ltx-first-controlled-test"
           MAX_SINGLE_JOB_USD = "1.10"
+          VEO_NEW_SUBMISSIONS_PAUSED = "true"
           LTX_FAST_720P_RATE_PER_SECOND_USD = "0.09"
           LTX_FAST_1080P_RATE_PER_SECOND_USD = "0.13"
           LTX_PRO_720P_RATE_PER_SECOND_USD = "0.12"
@@ -103,3 +104,6 @@ jobs:
         run: |
           curl --fail --silent --show-error --retry 4 --retry-delay 3 \
             https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev/health
+          echo
+          curl --fail --silent --show-error \
+            https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev/health/veo

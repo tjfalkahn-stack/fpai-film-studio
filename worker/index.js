@@ -5,6 +5,26 @@ import { createCharacterFactoryRuntime } from "./characterFactoryRuntime.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
+async function probeVeoConnection(env) {
+  if (!env.GEMINI_API_KEY) return { transport: "not-configured" };
+  const startedAt = Date.now();
+  try {
+    // Model listing is read-only. It does not create a video operation or charge.
+    const response = await fetch(`${GOOGLE_BASE}/models?pageSize=1`, {
+      method: "GET",
+      headers: { "x-goog-api-key": env.GEMINI_API_KEY },
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    });
+    return { transport: "response", httpStatus: response.status, elapsedMs: Date.now() - startedAt };
+  } catch (error) {
+    return {
+      transport: "error",
+      errorType: ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "OtherError",
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
+}
 const DEFAULT_WORKING_CEILING = 200;
 const DEFAULT_EMERGENCY_CEILING = 250;
 const DEFAULT_SINGLE_JOB_LIMIT = 4;
@@ -326,6 +346,8 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
+    if (url.pathname === "/health/veo" && request.method === "GET")
+      return json({ ok: true, probe: await probeVeoConnection(env) }, 200, cors);
     if (url.pathname === "/health") {
       return json({
         ok: true,
