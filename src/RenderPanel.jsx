@@ -257,6 +257,8 @@ export default function RenderPanel({
     : project.id === YARD_PROJECT_ID && remainingYardShot &&
         (duration !== (isYardVeo ? 8 : 6) || resolution !== "1080p" || aspectRatio !== "9:16")
       ? `This Yard ${isYardVeo ? "Google Veo Fast" : "LTX Pro"} take requires ${isYardVeo ? 8 : 6} seconds, 1080p, and 9:16 portrait.`
+    : provider === "veo-fast" && catalog?.policy?.veoSubmissionsPaused
+      ? "Google Veo submissions are paused after two uncertain responses. Choose LTX Pro for this shot while the provider connection is checked."
     : !providerLiveReady
       ? isSeedanceProvider(provider)
         ? "Seedance live rendering is disabled on the server."
