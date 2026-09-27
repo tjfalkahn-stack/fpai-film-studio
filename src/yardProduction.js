@@ -31,7 +31,7 @@ export const yardProduction = {
     move: index === 4 ? "Overhead drone rise" : "Subtle tracking",
     characters: [], assets: [], status: "Planned", prompt,
     provider: "auto", cost: 0, approved: false, takes: [], drift: "STRICT",
-    economy: { motionNeed: "generative", shotCap: 2, maxAttempts: 1, manualRouteId: "auto", animaticApproved: false },
+    economy: { motionNeed: "generative", shotCap: 20, maxAttempts: 100, manualRouteId: "auto", animaticApproved: false },
   })),
   ledger: [],
 };

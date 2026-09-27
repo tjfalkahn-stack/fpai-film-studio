@@ -313,7 +313,13 @@ function migrateYardData() {
   const existing = new Set((saved.shots || []).map((shot) => shot.id));
   return {
     ...saved,
-    shots: [...(saved.shots || []), ...yardProduction.shots.filter((shot) => !existing.has(shot.id))],
+    shots: [
+      ...(saved.shots || []).map((shot) => ({
+        ...shot,
+        economy: { ...shot.economy, shotCap: 20, maxAttempts: 100 },
+      })),
+      ...yardProduction.shots.filter((shot) => !existing.has(shot.id)),
+    ],
   };
 }
 

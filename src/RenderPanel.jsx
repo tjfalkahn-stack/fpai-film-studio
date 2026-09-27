@@ -74,6 +74,7 @@ export default function RenderPanel({
     [quote, setQuote] = useState(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
+    [acknowledgedUncertainId, setAcknowledgedUncertainId] = useState(""),
     [manualNotice, setManualNotice] = useState("");
   const pending = useRef(null),
     submitting = useRef(false);
@@ -119,6 +120,12 @@ export default function RenderPanel({
   const active = renders.filter(
     (r) => r.shotId === shot.id && r.sceneId === shot.scene,
   );
+  const pendingPaidTake = active.find((r) =>
+    r.provider !== "mock" && ["queued", "starting", "running"].includes(r.status));
+  const uncertainTake = active
+    .filter((r) => r.provider !== "mock" && r.status === "uncertain")
+    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
+  useEffect(() => setAcknowledgedUncertainId(""), [shot.id]);
   useEffect(() => {
     renderRequest("/api/renderers")
       .then(setCatalog)
@@ -260,6 +267,10 @@ export default function RenderPanel({
         ? "Complete and lock the Character Bible first."
         : !scene?.animaticLocked || !shot.economy?.animaticApproved
           ? "Approve shot timing and lock the scene animatic first."
+          : project.id === YARD_PROJECT_ID && pendingPaidTake
+            ? "A paid take is still in progress for this shot. Check its result before another submission."
+          : project.id === YARD_PROJECT_ID && uncertainTake && acknowledgedUncertainId !== uncertainTake.id
+            ? "Review the uncertain take and acknowledge the possible additional charge before submitting another."
           : usesStartFrame && !shot.startFrame?.key
             ? "Upload a composed Shot Start Frame before submitting image-to-video."
           : characters.length &&
@@ -296,8 +307,10 @@ export default function RenderPanel({
         ...body,
         requestKey: pending.current.key,
         acceptedCost: quote.estimatedCost,
+        acknowledgeUncertainRenderId: uncertainTake?.id || undefined,
       });
       onRender(render);
+      setAcknowledgedUncertainId("");
       pending.current = null;
       localStorage.removeItem(storageKey);
     } catch (e) {
@@ -605,8 +618,24 @@ export default function RenderPanel({
         {isManualProvider ? "Film Studio charge: " : "Estimated render cost: "}
         <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : "Checking…"}</b>
         {quote && !isManualProvider &&
-          ` · Session ceiling $${quote.policy.sessionCeiling.toFixed(2)} · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`}
+          (project.id === YARD_PROJECT_ID
+            ? ` · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`
+            : ` · Session ceiling $${quote.policy.sessionCeiling.toFixed(2)} · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`)}
       </p>
+      {project.id === YARD_PROJECT_ID && uncertainTake && (
+        <label className="checkLabel">
+          <input
+            type="checkbox"
+            checked={acknowledgedUncertainId === uncertainTake.id}
+            onChange={(e) => setAcknowledgedUncertainId(e.target.checked ? uncertainTake.id : "")}
+          />
+          <span>
+            {uncertainTake.providerLabel || uncertainTake.provider} may have accepted take {uncertainTake.id.slice(0, 8)} even though its response was lost.
+            Its ${Number(uncertainTake.reservedCost || 0).toFixed(2)} reservation remains pending.
+            I understand another take may add {quote ? `$${quote.estimatedCost.toFixed(2)}` : "the quoted cost"}.
+          </span>
+        </label>
+      )}
       {liveBlock && <div className="validation">{liveBlock}</div>}
       {error && (
         <div role="alert" className="validation">

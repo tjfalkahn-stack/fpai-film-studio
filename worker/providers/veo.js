@@ -21,7 +21,7 @@ export function createVeoProvider(env, fetchImpl = fetch) {
       const response = await fetchImpl(new URL(path, BASE), {
         ...init,
         redirect: "error",
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(init.method === "POST" ? 90000 : 30000),
         headers: {
           "content-type": "application/json",
           "x-goog-api-key": env.GEMINI_API_KEY,
