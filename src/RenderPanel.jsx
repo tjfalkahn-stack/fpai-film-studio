@@ -105,6 +105,16 @@ export default function RenderPanel({
   const isVibesManual = provider === VIBES_MANUAL_PROVIDER_ID;
   const isDrawThingsLocal = provider === DRAW_THINGS_LOCAL_PROVIDER_ID;
   const isLtx = isLtxProviderId(provider);
+  const isYardVeo = project.id === YARD_PROJECT_ID && provider === "veo-fast";
+  const usesStartFrame = isLtx || isYardVeo;
+  const remainingYardShot = ["LAMAR", "SOUTHERN", "DRONE", "ALCORN", "SPK"].includes(shot.id);
+  useEffect(() => {
+    if (project.id !== YARD_PROJECT_ID || !remainingYardShot) return;
+    setProvider("ltx-2.5-pro");
+    setDuration(6);
+    setResolution("1080p");
+    setAspect("9:16");
+  }, [project.id, shot.id]);
   const isManualProvider = Boolean(capabilities?.manual);
   const active = renders.filter(
     (r) => r.shotId === shot.id && r.sceneId === shot.scene,
@@ -115,8 +125,8 @@ export default function RenderPanel({
       .catch((e) => setError(e.message));
   }, []);
   useEffect(() => {
-    if (isLtx && shot.startFrame?.key) setSelected([shot.startFrame.key]);
-  }, [isLtx, shot.startFrame?.key]);
+    if (usesStartFrame && shot.startFrame?.key) setSelected([shot.startFrame.key]);
+  }, [usesStartFrame, shot.startFrame?.key]);
   async function input() {
     // Fail closed when local metadata points to missing blobs before any paid submission.
     if (capabilities?.paid) {
@@ -135,6 +145,7 @@ export default function RenderPanel({
         provider,
         startFrameKey: shot.startFrame?.key,
         selected,
+        forceStartFrame: isYardVeo,
       });
       for (const key of referenceKeys) {
         const file = await getMedia(key);
@@ -222,20 +233,23 @@ export default function RenderPanel({
     ? Boolean(catalog?.policy?.seedanceLiveEnabled)
     : String(provider).startsWith("ltx-2.5-")
       ? Boolean(catalog?.policy?.ltxLiveEnabled)
+    : provider === "veo-fast"
+      ? Boolean(catalog?.policy?.veoExecutionReady)
     : Boolean(catalog?.policy?.liveEnabled);
   const liveBlock = !capabilities?.paid
     ? ""
     : project.id === YARD_PROJECT_ID && !(
-        (["PV", "SPK"].includes(shot.id) && provider === "ltx-2.5-fast") ||
-        (["TSU", "LAMAR"].includes(shot.id) && provider === "ltx-2.5-pro")
+        (shot.id === "PV" && provider === "ltx-2.5-fast") ||
+        (shot.id === "TSU" && provider === "ltx-2.5-pro") ||
+        (remainingYardShot && ["ltx-2.5-pro", "veo-fast"].includes(provider))
       )
-      ? "Yard live trials are limited to PV and spokesperson LTX Fast, TSU LTX Pro, or Lamar LTX Pro. Other shots remain gated."
+      ? "Select LTX Pro or Google Veo Fast for remaining Yard shots. PV and TSU retain their original routes."
     : project.id === YARD_PROJECT_ID && shot.id === "TSU" &&
         (duration !== 6 || resolution !== "720p" || aspectRatio !== "9:16")
       ? "The TSU Pro trial requires 6 seconds, 720p, and 9:16 portrait."
-    : project.id === YARD_PROJECT_ID && shot.id === "LAMAR" &&
-        (duration !== 6 || resolution !== "1080p" || aspectRatio !== "9:16")
-      ? "The Lamar Pro trial requires 6 seconds, 1080p, and 9:16 portrait."
+    : project.id === YARD_PROJECT_ID && remainingYardShot &&
+        (duration !== (isYardVeo ? 8 : 6) || resolution !== "1080p" || aspectRatio !== "9:16")
+      ? `This Yard ${isYardVeo ? "Google Veo Fast" : "LTX Pro"} take requires ${isYardVeo ? 8 : 6} seconds, 1080p, and 9:16 portrait.`
     : !providerLiveReady
       ? isSeedanceProvider(provider)
         ? "Seedance live rendering is disabled on the server."
@@ -246,8 +260,8 @@ export default function RenderPanel({
         ? "Complete and lock the Character Bible first."
         : !scene?.animaticLocked || !shot.economy?.animaticApproved
           ? "Approve shot timing and lock the scene animatic first."
-          : isLtx && !shot.startFrame?.key
-            ? "Upload a composed Shot Start Frame before submitting LTX image-to-video."
+          : usesStartFrame && !shot.startFrame?.key
+            ? "Upload a composed Shot Start Frame before submitting image-to-video."
           : characters.length &&
               !selected.length &&
               !quote?.debug?.selectedAssetIds?.length
@@ -451,11 +465,13 @@ export default function RenderPanel({
             onChange={(e) => {
               const next = catalog?.providers.find((item) => item.id === e.target.value);
               setProvider(e.target.value);
-              setDuration(next?.durations?.[0] ?? 8);
-              setResolution(project.id === YARD_PROJECT_ID && shot.id === "LAMAR" && e.target.value === "ltx-2.5-pro"
+              setDuration(project.id === YARD_PROJECT_ID && remainingYardShot && e.target.value === "veo-fast"
+                ? 8
+                : next?.durations?.[0] ?? 8);
+              setResolution(project.id === YARD_PROJECT_ID && remainingYardShot && ["ltx-2.5-pro", "veo-fast"].includes(e.target.value)
                 ? "1080p"
                 : next?.resolutions?.[0] ?? "720p");
-              setAspect(project.id === YARD_PROJECT_ID && e.target.value.startsWith("ltx-2.5-")
+              setAspect(project.id === YARD_PROJECT_ID && (e.target.value.startsWith("ltx-2.5-") || e.target.value === "veo-fast")
                 ? "9:16"
                 : next?.aspectRatios?.[0] ?? "16:9");
               setManualNotice("");
@@ -512,15 +528,18 @@ export default function RenderPanel({
         </label>
       </div>
       <p>
-        Final edit: {shot.sec}s. {isDrawThingsLocal ? "Still-image source. " : `Source clip: ${duration}s. `}The worker selects
-        the Primary Identity image plus up to five supporting library photos
-        for this shot. Manual PNG/JPEG boxes remain for older Bible uploads.
+        Final edit: {shot.sec}s. {isDrawThingsLocal ? "Still-image source. " : `Source clip: ${duration}s. `}
+        {usesStartFrame
+          ? "This renderer sends the composed Shot Start Frame as the opening image. Character Bible photos remain continuity references."
+          : "The worker selects the Primary Identity image plus supporting library photos for this shot. Manual PNG/JPEG boxes remain for older Bible uploads."}
         {isDrawThingsLocal
           ? " Draw Things can use up to three identity and wardrobe references. The files are downloaded to this Mac and never transmitted by the adapter."
           : isVibesManual
           ? " Vibes uses one primary reference image. Film Studio preserves the full Character Bible and prepares a manual handoff; no Vibes credentials or production secrets are stored."
           : provider === "veo-fast"
-          ? " Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
+          ? isYardVeo
+            ? " Google Veo Fast uses the dedicated composed Shot Start Frame as frame one. Its 1080p output requires an 8-second source; select the best 3 seconds in the edit."
+            : " Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
           : isLtx
             ? " LTX uses the dedicated composed Shot Start Frame as frame one. Character Bible portraits remain continuity references and are not substituted for the opening frame."
           : provider?.startsWith("seedance-")
@@ -531,9 +550,9 @@ export default function RenderPanel({
         <label key={ref.key} className="checkLabel">
           <input
             type="checkbox"
-            checked={isLtx && ref.startFrame ? true : selected.includes(ref.key)}
+            checked={usesStartFrame && ref.startFrame ? true : selected.includes(ref.key)}
             disabled={
-              (isLtx && ref.startFrame) ||
+              (usesStartFrame && ref.startFrame) ||
               (!selected.includes(ref.key) &&
                 selected.length >= (capabilities?.maxReferences || 3))
             }
@@ -548,9 +567,9 @@ export default function RenderPanel({
           <span>{ref.label}</span>
         </label>
       ))}
-      {isLtx && !shot.startFrame?.key && (
+      {usesStartFrame && !shot.startFrame?.key && (
         <div className="validation">
-          Upload a composed Shot Start Frame above. LTX will not use a Character Bible portrait as this shot's opening frame.
+          Upload a composed Shot Start Frame above. The renderer will not use a Character Bible portrait as this shot's opening frame.
         </div>
       )}
       {quote?.debug?.characterReferenceSelection && (
