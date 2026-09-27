@@ -41,6 +41,9 @@ export function approveTakeState(current, shotId, takeId, plan) {
   );
   const pendingIndex = foundIndex < 0 ? undefined : foundIndex;
   const ledger = [...current.ledger];
+  const manualImport = !selected.renderId &&
+    (pendingIndex === undefined || ledger[pendingIndex].metadata?.importMethod === "manual-upload");
+  const manualProvider = selected.provider || "external-manual";
   const completed = normalizeLedgerEntry({
     ...(pendingIndex !== undefined ? ledger[pendingIndex] : {}),
     id:
@@ -51,16 +54,17 @@ export function approveTakeState(current, shotId, takeId, plan) {
     sceneId: targetShot.scene,
     shotId: targetShot.id,
     generationId: takeId,
-    provider: selected.provider || plan.route.provider,
-    model: selected.model || plan.route.model,
-    routeId:
-      pendingIndex !== undefined ? ledger[pendingIndex].routeId : plan.route.id,
+    provider: manualImport ? manualProvider : selected.provider || plan.route.provider,
+    model: manualImport ? selected.model || "uploaded-take" : selected.model || plan.route.model,
+    routeId: manualImport
+      ? manualProvider
+      : pendingIndex !== undefined ? ledger[pendingIndex].routeId : plan.route.id,
     shotClass: plan.shotClass,
     generationType: GENERATION_TYPES.VIDEO,
     estimatedCost:
-      pendingIndex !== undefined
-        ? ledger[pendingIndex].estimatedCost
-        : plan.oneAttemptCost,
+      manualImport
+        ? Number(selected.cost || 0)
+        : pendingIndex !== undefined ? ledger[pendingIndex].estimatedCost : plan.oneAttemptCost,
     actualCost:
       selected.renderId && pendingIndex !== undefined
         ? ledger[pendingIndex].actualCost
@@ -71,11 +75,11 @@ export function approveTakeState(current, shotId, takeId, plan) {
     requestHash:
       pendingIndex !== undefined
         ? ledger[pendingIndex].requestHash || null
-        : plan.requestHash,
+        : manualImport ? null : plan.requestHash,
     requestSeconds:
-      pendingIndex !== undefined
-        ? ledger[pendingIndex].requestSeconds
-        : plan.requestSeconds,
+      manualImport
+        ? sourceDuration
+        : pendingIndex !== undefined ? ledger[pendingIndex].requestSeconds : plan.requestSeconds,
     generatedSeconds: sourceDuration,
     usableSeconds: reviewedUsableSeconds,
     salvageStatus: reviewedUsableSeconds > 0 ? "salvaged" : "unreviewed",
@@ -83,6 +87,7 @@ export function approveTakeState(current, shotId, takeId, plan) {
     metadata: {
       ...(pendingIndex !== undefined ? ledger[pendingIndex].metadata : {}),
       salvage,
+      ...(manualImport ? { sourceFileName: selected.name, importMethod: "manual-upload" } : {}),
     },
     label: `Shot ${targetShot.id} approved take`,
   });
@@ -94,7 +99,7 @@ export function approveTakeState(current, shotId, takeId, plan) {
     )
       ledger[i] = { ...ledger[i], approvalStatus: "rejected" };
   if (pendingIndex !== undefined) ledger[pendingIndex] = completed;
-  else if (completed.actualCost > 0) ledger.push(completed);
+  else ledger.push(completed);
 
   return {
     ...current,

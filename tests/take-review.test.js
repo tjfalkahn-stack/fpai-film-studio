@@ -67,3 +67,32 @@ test("generated cost cannot be edited and rejecting paid footage still counts co
   assert.equal(s.shots[0].takes[0].generatedSeconds, 8);
   assert.equal(s.ledger[0].actualCost, 0.8);
 });
+test("a free externally uploaded take keeps its source and measured duration in the ledger", () => {
+  const current = {
+    project: { id: "the-yard-homecoming" },
+    shots: [{ id: "PV", scene: "YARD", sec: 3, takes: [{
+      id: "manual-1", name: "pv-arrival.mp4", provider: "perchance-manual",
+      model: "uploaded-take", generatedSeconds: 5.25, usableSeconds: 3,
+      usableRangeText: "0.5-3.5", cost: 0, status: "Review",
+    }] }],
+    ledger: [],
+  };
+  const approved = approveTakeState(current, "PV", "manual-1", plan);
+  assert.equal(approved.ledger.length, 1);
+  assert.equal(approved.ledger[0].provider, "perchance-manual");
+  assert.equal(approved.ledger[0].routeId, "perchance-manual");
+  assert.equal(approved.ledger[0].generatedSeconds, 5.25);
+  assert.equal(approved.ledger[0].requestSeconds, 5.25);
+  assert.equal(approved.ledger[0].estimatedCost, 0);
+  assert.equal(approved.ledger[0].metadata.sourceFileName, "pv-arrival.mp4");
+  assert.equal(approveTakeState(approved, "PV", "manual-1", plan).ledger.length, 1);
+  const corrected = updateTakeState(approved, "PV", "manual-1", {
+    provider: "external-manual", cost: 0.25,
+  });
+  const reapproved = approveTakeState(corrected, "PV", "manual-1", plan);
+  assert.equal(reapproved.ledger.length, 1);
+  assert.equal(reapproved.ledger[0].provider, "external-manual");
+  assert.equal(reapproved.ledger[0].routeId, "external-manual");
+  assert.equal(reapproved.ledger[0].actualCost, 0.25);
+  assert.equal(reapproved.ledger[0].estimatedCost, 0.25);
+});

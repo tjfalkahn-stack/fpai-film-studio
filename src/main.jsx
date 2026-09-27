@@ -642,17 +642,42 @@ function App() {
 
   async function addTake(targetShot, file) {
     if (!file) return;
+    if (!file.type.startsWith("video/") && !file.type.startsWith("image/")) {
+      notify("Upload a video or image take.", "bad");
+      return;
+    }
     const key = `shot:${targetShot.id}:take:${Date.now()}`;
+    let generatedSeconds = targetShot.sec;
+    if (file.type.startsWith("video/")) {
+      const url = URL.createObjectURL(file);
+      try {
+        generatedSeconds = await new Promise((resolve, reject) => {
+          const video = document.createElement("video");
+          video.preload = "metadata";
+          video.onloadedmetadata = () => resolve(video.duration);
+          video.onerror = () => reject(new Error("Video duration could not be read."));
+          video.src = url;
+        });
+        if (!Number.isFinite(generatedSeconds) || generatedSeconds <= 0)
+          throw new Error("Video duration could not be read.");
+      } catch (error) {
+        notify(`${error.message} Export an MP4 and try again.`, "bad");
+        return;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
     await putMedia(key, file);
-    const plan = planForShot(targetShot);
     const take = {
       id: String(Date.now()),
       key,
       name: file.name,
+      provider: "external-manual",
+      model: "uploaded-take",
       status: "Review",
       cost: 0,
       continuity: 0,
-      generatedSeconds: plan.requestSeconds || targetShot.sec,
+      generatedSeconds: Math.round(generatedSeconds * 100) / 100,
       usableSeconds: 0,
       usableRanges: [],
       usableRangeText: "",
@@ -1829,6 +1854,7 @@ function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy,
             <div className="takeCard" key={take.id}>
               <div className="takeMedia"><Media mediaKey={take.key} remoteUrl={take.url} type={take.name.match(/\.(mp4|mov|webm)$/i) ? "video" : "image"} /></div>
               <div className="formGrid two compactForm">
+                {!take.renderId && <label>Source<select value={take.provider || "external-manual"} onChange={(event) => updateTake(shot, take.id, { provider: event.target.value })}><option value="external-manual">External or camera</option><option value="perchance-manual">Perchance manual test</option><option value="openmontage-manual">OpenMontage export</option><option value="fpai-film-studio-manual">FPAI Film Studio export</option></select></label>}
                 <label>Actual Cost<input type="number" min="0" readOnly={Boolean(take.renderId)} step="0.01" value={take.cost} onChange={(event) => updateTake(shot, take.id, { cost: Number(event.target.value) })} /></label>
                 <label>Continuity<input type="number" min="0" max="100" value={take.continuity} onChange={(event) => updateTake(shot, take.id, { continuity: Number(event.target.value) })} /></label>
                 <label>Generated sec<input type="number" readOnly={Boolean(take.renderId)} step="0.1" value={take.generatedSeconds} onChange={(event) => {
