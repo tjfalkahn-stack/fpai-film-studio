@@ -8,6 +8,7 @@ const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
 async function probeVeoConnection(env) {
   if (!env.GEMINI_API_KEY) return { transport: "not-configured" };
   const startedAt = Date.now();
+  const key = String(env.GEMINI_API_KEY);
   try {
     // Model listing is read-only. It does not create a video operation or charge.
     const response = await fetch(`${GOOGLE_BASE}/models?pageSize=1`, {
@@ -21,6 +22,8 @@ async function probeVeoConnection(env) {
     return {
       transport: "error",
       errorType: ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "OtherError",
+      errorDetail: String(error?.message || "unknown").replaceAll(key, "[redacted]").slice(0, 240),
+      keyHasLineBreak: /[\r\n]/.test(key),
       elapsedMs: Date.now() - startedAt,
     };
   }
