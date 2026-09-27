@@ -279,6 +279,45 @@ test("The Yard permits only one capped PV LTX trial with an opening frame", asyn
     env.RENDER_SESSION_CEILING_USD = "0.8";
   }
 });
+test("The Yard permits one capped portrait TSU LTX Pro trial in its own session", async (t) => {
+  const network = noNetwork(t);
+  Object.assign(env, {
+    LTX_LIVE_ENABLED: "true", LTX_API_KEY: "test-key",
+    LTX_FAST_720P_RATE_PER_SECOND_USD: "0.09",
+    LTX_PRO_720P_RATE_PER_SECOND_USD: "0.12",
+    LTX_PRO_1080P_RATE_PER_SECOND_USD: "0.17",
+    RENDER_SESSION_CEILING_USD: "0.8",
+  });
+  const tsu = body(undefined, {
+    projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "TSU", provider: "ltx-2.5-pro",
+    duration: 6, resolution: "720p", aspectRatio: "9:16", acceptedCost: 0.72,
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+  });
+  try {
+    const quote = await call("/api/renders", { ...tsu, estimateOnly: true });
+    assert.equal(quote.data.estimatedCost, 0.72);
+    for (const patch of [{ aspectRatio: "16:9" }, { resolution: "1080p", acceptedCost: 1.02 }, { shotId: "LAMAR" }, { provider: "ltx-2.5-fast", acceptedCost: 0.54 }]) {
+      const denied = await call("/api/renders", { ...tsu, ...patch, requestKey: crypto.randomUUID() });
+      assert.equal(denied.data.error.code, "YARD_RENDER_GATE");
+    }
+    const accepted = await call("/api/renders", tsu);
+    assert.equal(accepted.response.status, 202);
+    const row = await env.GENERATION_DB.prepare("SELECT session_id FROM renders WHERE id=?")
+      .bind(accepted.data.render.id).first();
+    assert.equal(row.session_id, "yard-tsu-pro-first-test");
+    const second = await call("/api/renders", { ...tsu, requestKey: crypto.randomUUID() });
+    assert.equal(second.response.status, 409);
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    delete env.LTX_LIVE_ENABLED;
+    delete env.LTX_API_KEY;
+    delete env.LTX_FAST_720P_RATE_PER_SECOND_USD;
+    delete env.LTX_PRO_720P_RATE_PER_SECOND_USD;
+    delete env.LTX_PRO_1080P_RATE_PER_SECOND_USD;
+    env.RENDER_SESSION_CEILING_USD = "0.8";
+  }
+});
 test("mock cancel is durable and never paid", async (t) => {
   noNetwork(t);
   let { data } = await call("/api/renders", body());
