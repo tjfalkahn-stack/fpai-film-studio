@@ -21,7 +21,7 @@ export function createVeoProvider(env, fetchImpl = fetch) {
       const response = await fetchImpl(new URL(path, BASE), {
         ...init,
         redirect: "error",
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(init.method === "POST" ? 90000 : 30000),
         headers: {
           "content-type": "application/json",
           "x-goog-api-key": env.GEMINI_API_KEY,
@@ -42,7 +42,7 @@ export function createVeoProvider(env, fetchImpl = fetch) {
       if (error instanceof ProviderError) throw error;
       throw new ProviderError(
         "PROVIDER_TRANSPORT",
-        "Google response was not received safely; do not resubmit.",
+        "Google's submission response was lost. This take may still be charged; a new take could add another charge.",
         { httpStatus: 502, retryable: true, uncertain: init.method === "POST" },
       );
     }

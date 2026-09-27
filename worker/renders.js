@@ -431,7 +431,7 @@ function authorizeYardJob(input, quote, env) {
     fail("PROVIDER_CONFIG", "Gemini API key is not configured for this Veo trial.", 503);
   const mismatches = ["projectId", "sceneId", "shotId", "provider", "duration", "resolution", "aspectRatio"].filter((key) => input[key] !== plan[key]);
   if (mismatches.length || input.referenceImages.length !== 1 || quote.estimatedCost > plan.maxEstimatedCostUsd)
-    fail("YARD_RENDER_GATE", `This Yard trial permits one ${plan.shotId} job: ${plan.duration} seconds, ${plan.resolution} portrait, ${plan.provider}, one start frame, and at most $${plan.maxEstimatedCostUsd.toFixed(2)}.`, 403);
+    fail("YARD_RENDER_GATE", `This Yard route requires ${plan.duration} seconds, ${plan.resolution} portrait, ${plan.provider}, one start frame, and at most $${plan.maxEstimatedCostUsd.toFixed(2)} per take.`, 403);
 }
 async function create(request, env) {
   const body = await readBody(request);
@@ -493,8 +493,8 @@ async function create(request, env) {
   if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid) authorizeYardJob(input, quote, env);
   if (isLtxProvider(input.provider)) authorizeLtxJob(input, quote, env);
   const hash = await sha(JSON.stringify(input));
-  // Each authorized Yard shot has its own session ceiling; the project ceiling
-  // and atomic one-job-per-shot reservation still cover the combined spend.
+  // Yard takes share the project ceiling. The session ceiling for the other
+  // controlled render tests remains unchanged.
   const reservationSessionId = input.projectId === YARD_PROJECT_ID
     ? (["TSU", ...YARD_REMAINING_SHOTS].includes(input.shotId) ? `yard-${input.shotId.toLowerCase()}-pro-first-test` : policy.sessionId)
     : policy.sessionId;
@@ -565,7 +565,10 @@ async function create(request, env) {
       (SELECT COALESCE(SUM(actual_cost+reserved_cost),0) FROM generation_jobs WHERE project_id=?) + ? <= ?
       AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE session_id=?) + ? <= ?))
       AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE provider LIKE 'seedance-%') < ?)
-      AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast')) < 1)
+      AND (?=0 OR (
+        (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status IN ('queued','starting','running')) = 0
+        AND COALESCE((SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ?
+      ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
     .bind(
@@ -590,12 +593,15 @@ async function create(request, env) {
       policy.projectCeiling,
       reservationSessionId,
       quote.estimatedCost,
-      policy.sessionCeiling,
+      input.projectId === YARD_PROJECT_ID ? policy.projectCeiling : policy.sessionCeiling,
       isSeedanceProvider(input.provider) ? 1 : 0,
       SEEDANCE_CONTROLLED_TEST.maxJobs,
       input.projectId === YARD_PROJECT_ID && provider.capabilities.paid ? 1 : 0,
       YARD_PROJECT_ID,
       input.shotId,
+      YARD_PROJECT_ID,
+      input.shotId,
+      body.acknowledgeUncertainRenderId || "",
     )
     .run();
   const row = await db
@@ -608,11 +614,15 @@ async function create(request, env) {
   }
   if (!row) {
     if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid) {
-      const used = await db.prepare(
-        "SELECT COUNT(*) AS n FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast')",
+      const pending = await db.prepare(
+        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status IN ('queued','starting','running') LIMIT 1",
       ).bind(YARD_PROJECT_ID, input.shotId).first();
-      if (Number(used?.n || 0) >= 1)
-        fail("YARD_JOB_LIMIT", "This Yard shot already has its one controlled paid take.", 409);
+      if (pending) fail("RENDER_IN_PROGRESS", "A paid take is already in progress for this shot.", 409);
+      const uncertain = await db.prepare(
+        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      ).bind(YARD_PROJECT_ID, input.shotId).first();
+      if ((uncertain?.id || "") !== (body.acknowledgeUncertainRenderId || ""))
+        fail("UNCERTAIN_RETRY_ACK", "A prior take has an unknown Google outcome. Review the possible additional charge and explicitly confirm a new take.", 409);
     }
     if (isSeedanceProvider(input.provider)) {
       const used = await db

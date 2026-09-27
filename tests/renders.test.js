@@ -315,7 +315,7 @@ test("The Yard permits one capped portrait TSU LTX Pro trial in its own session"
     env.RENDER_SESSION_CEILING_USD = "0.8";
   }
 });
-test("The Yard permits one capped 1080p portrait Lamar LTX Pro take", async (t) => {
+test("The Yard quotes capped 1080p portrait Lamar LTX Pro takes and prevents concurrent submissions", async (t) => {
   const network = noNetwork(t);
   Object.assign(env, {
     LTX_LIVE_ENABLED: "true", LTX_API_KEY: "test-key",
@@ -348,6 +348,7 @@ test("The Yard permits one capped 1080p portrait Lamar LTX Pro take", async (t) 
     assert.equal(row.session_id, "yard-lamar-pro-first-test");
     const second = await call("/api/renders", { ...lamar, requestKey: crypto.randomUUID() });
     assert.equal(second.response.status, 409);
+    assert.equal(second.data.error.code, "RENDER_IN_PROGRESS");
     assert.equal(network.mock.callCount(), 0);
   } finally {
     delete env.LTX_LIVE_ENABLED;
@@ -359,7 +360,7 @@ test("The Yard permits one capped 1080p portrait Lamar LTX Pro take", async (t) 
     env.RENDER_PROJECT_CEILING_USD = "1.6";
   }
 });
-test("remaining Yard shots offer Pro or Google with one shared attempt per shot", async (t) => {
+test("remaining Yard shots allow reviewed retakes across Pro and Google within the project budget", async (t) => {
   const network = noNetwork(t);
   const previous = { ...env };
   Object.assign(env, {
@@ -399,9 +400,15 @@ test("remaining Yard shots offer Pro or Google with one shared attempt per shot"
       ...base, provider: "ltx-2.5-pro", duration: 6, acceptedCost: 1.02, requestKey: crypto.randomUUID(),
     });
     assert.equal(proRetry.response.status, 409);
-    assert.equal(proRetry.data.error.code, "YARD_JOB_LIMIT");
+    assert.equal(proRetry.data.error.code, "RENDER_IN_PROGRESS");
+    await env.GENERATION_DB.prepare("UPDATE renders SET status='failed',reserved_cost=0,actual_cost=0 WHERE id=?")
+      .bind(google.data.render.id).run();
+    const reviewedRetry = await call("/api/renders", {
+      ...base, provider: "ltx-2.5-pro", duration: 6, acceptedCost: 1.02, requestKey: crypto.randomUUID(),
+    });
+    assert.equal(reviewedRetry.response.status, 202, JSON.stringify(reviewedRetry.data));
     const googleRetry = await call("/api/renders", { ...base, requestKey: crypto.randomUUID() });
-    assert.equal(googleRetry.data.error.code, "YARD_JOB_LIMIT");
+    assert.equal(googleRetry.data.error.code, "RENDER_IN_PROGRESS");
     const spokesperson = await call("/api/renders", {
       ...base, shotId: "SPK", provider: "ltx-2.5-pro", duration: 6,
       acceptedCost: 1.02, requestKey: crypto.randomUUID(),
@@ -599,6 +606,45 @@ test("ambiguous Veo start retains reservation and cannot be retried or canceled 
     assert.equal(globalThis.fetch.mock.callCount(), 1);
   } finally {
     env.LIVE_RENDERING_ENABLED = "false";
+  }
+});
+
+test("Yard uncertain Google take keeps its reservation and requires explicit acknowledgement for a new paid take", async (t) => {
+  t.mock.method(globalThis, "fetch", () => { throw new Error("simulated lost response"); });
+  const previous = { ...env };
+  Object.assign(env, {
+    LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", GEMINI_API_KEY: "fake",
+    RENDER_PROJECT_CEILING_USD: "20", RENDER_SESSION_CEILING_USD: "1.10",
+  });
+  const request = body(undefined, {
+    projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "ALCORN", provider: "veo-fast",
+    duration: 8, resolution: "1080p", aspectRatio: "9:16", acceptedCost: 0.96,
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+  });
+  try {
+    const first = await call("/api/renders", request);
+    assert.equal(first.response.status, 202);
+    const id = first.data.render.id;
+    const lost = await call(`/api/renders/${id}`);
+    assert.equal(lost.data.render.status, "uncertain");
+    assert.equal(lost.data.render.reservedCost, 0.96);
+    const blocked = await call("/api/renders", { ...request, requestKey: crypto.randomUUID() });
+    assert.equal(blocked.data.error.code, "UNCERTAIN_RETRY_ACK");
+    const second = await call("/api/renders", {
+      ...request, requestKey: crypto.randomUUID(), acknowledgeUncertainRenderId: id,
+    });
+    assert.equal(second.response.status, 202, JSON.stringify(second.data));
+    assert.equal(second.data.render.reservedCost, 0.96);
+    const firstStillReserved = await env.GENERATION_DB.prepare("SELECT status,reserved_cost FROM renders WHERE id=?")
+      .bind(id).first();
+    assert.equal(firstStillReserved.status, "uncertain");
+    assert.equal(firstStillReserved.reserved_cost, 0.96);
+    assert.equal(globalThis.fetch.mock.callCount(), 1);
+  } finally {
+    Object.assign(env, previous);
+    for (const key of ["LIVE_RENDERING_ENABLED", "MOCK_E2E_VERIFIED", "GEMINI_API_KEY"])
+      if (!(key in previous)) delete env[key];
   }
 });
 
