@@ -41,3 +41,12 @@ test("LTX always receives the composed Shot Start Frame instead of a portrait re
     ["char:marcus:identity"],
   );
 });
+
+test("Yard Google trial selects its composed start frame instead of a character portrait", () => {
+  assert.deepEqual(renderReferenceKeys({
+    provider: "veo-fast",
+    startFrameKey: "shot:SOUTHERN:start-frame:1",
+    selected: ["char:friend:identity"],
+    forceStartFrame: true,
+  }), ["shot:SOUTHERN:start-frame:1"]);
+});
