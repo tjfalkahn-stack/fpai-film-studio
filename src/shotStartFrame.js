@@ -23,7 +23,7 @@ export function validateShotStartFrame(file) {
   };
 }
 
-export function renderReferenceKeys({ provider, startFrameKey, selected = [] }) {
-  if (isLtxProviderId(provider) && startFrameKey) return [startFrameKey];
+export function renderReferenceKeys({ provider, startFrameKey, selected = [], forceStartFrame = false }) {
+  if ((isLtxProviderId(provider) || forceStartFrame) && startFrameKey) return [startFrameKey];
   return [...selected];
 }

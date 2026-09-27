@@ -266,11 +266,8 @@ test("The Yard permits only one capped PV LTX trial with an opening frame", asyn
     assert.equal(accepted.response.status, 202);
     const second = await call("/api/renders", { ...request, requestKey: crypto.randomUUID() });
     assert.equal(second.response.status, 409);
-    const spokesperson = await call("/api/renders", { ...request, shotId: "SPK", requestKey: crypto.randomUUID() });
-    assert.equal(spokesperson.response.status, 202);
-    const spokespersonRetry = await call("/api/renders", { ...request, shotId: "SPK", requestKey: crypto.randomUUID() });
-    assert.equal(spokespersonRetry.response.status, 409);
-    await call(`/api/renders/${spokesperson.data.render.id}/cancel`, {});
+    const spokespersonFast = await call("/api/renders", { ...request, shotId: "SPK", requestKey: crypto.randomUUID() });
+    assert.equal(spokespersonFast.data.error.code, "YARD_RENDER_GATE");
     const canceled = await call(`/api/renders/${accepted.data.render.id}/cancel`, {});
     assert.equal(canceled.data.render.status, "canceled");
     assert.equal(network.mock.callCount(), 0);
@@ -316,6 +313,105 @@ test("The Yard permits one capped portrait TSU LTX Pro trial in its own session"
     delete env.LTX_PRO_720P_RATE_PER_SECOND_USD;
     delete env.LTX_PRO_1080P_RATE_PER_SECOND_USD;
     env.RENDER_SESSION_CEILING_USD = "0.8";
+  }
+});
+test("The Yard permits one capped 1080p portrait Lamar LTX Pro take", async (t) => {
+  const network = noNetwork(t);
+  Object.assign(env, {
+    LTX_LIVE_ENABLED: "true", LTX_API_KEY: "test-key",
+    LTX_PRO_720P_RATE_PER_SECOND_USD: "0.12",
+    LTX_PRO_1080P_RATE_PER_SECOND_USD: "0.17",
+    LTX_FAST_1080P_RATE_PER_SECOND_USD: "0.11",
+    RENDER_SESSION_CEILING_USD: "1.10",
+    RENDER_PROJECT_CEILING_USD: "20",
+  });
+  const lamar = body(undefined, {
+    projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "LAMAR", provider: "ltx-2.5-pro",
+    duration: 6, resolution: "1080p", aspectRatio: "9:16", acceptedCost: 1.02,
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+  });
+  try {
+    const quote = await call("/api/renders", { ...lamar, estimateOnly: true });
+    assert.equal(quote.data.estimatedCost, 1.02);
+    for (const patch of [
+      { aspectRatio: "16:9" }, { resolution: "720p", acceptedCost: 0.72 },
+      { provider: "ltx-2.5-fast", acceptedCost: 0.66 }, { shotId: "TSU" },
+    ]) {
+      const denied = await call("/api/renders", { ...lamar, ...patch, requestKey: crypto.randomUUID() });
+      assert.equal(denied.data.error.code, "YARD_RENDER_GATE");
+    }
+    const accepted = await call("/api/renders", lamar);
+    assert.equal(accepted.response.status, 202, JSON.stringify(accepted.data));
+    const row = await env.GENERATION_DB.prepare("SELECT session_id FROM renders WHERE id=?")
+      .bind(accepted.data.render.id).first();
+    assert.equal(row.session_id, "yard-lamar-pro-first-test");
+    const second = await call("/api/renders", { ...lamar, requestKey: crypto.randomUUID() });
+    assert.equal(second.response.status, 409);
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    delete env.LTX_LIVE_ENABLED;
+    delete env.LTX_API_KEY;
+    delete env.LTX_PRO_720P_RATE_PER_SECOND_USD;
+    delete env.LTX_PRO_1080P_RATE_PER_SECOND_USD;
+    delete env.LTX_FAST_1080P_RATE_PER_SECOND_USD;
+    env.RENDER_SESSION_CEILING_USD = "0.8";
+    env.RENDER_PROJECT_CEILING_USD = "1.6";
+  }
+});
+test("remaining Yard shots offer Pro or Google with one shared attempt per shot", async (t) => {
+  const network = noNetwork(t);
+  const previous = { ...env };
+  Object.assign(env, {
+    LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", GEMINI_API_KEY: "fake",
+    LTX_LIVE_ENABLED: "true", LTX_API_KEY: "test-key", LTX_PRO_1080P_RATE_PER_SECOND_USD: "0.17",
+    RENDER_SESSION_CEILING_USD: "1.10", RENDER_PROJECT_CEILING_USD: "20",
+  });
+  const base = body(undefined, {
+    projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "SOUTHERN", provider: "veo-fast",
+    duration: 8, resolution: "1080p", aspectRatio: "9:16", acceptedCost: 0.96,
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+  });
+  try {
+    for (const shotId of ["LAMAR", "SOUTHERN", "DRONE", "ALCORN", "SPK"]) {
+      const google = await call("/api/renders", { ...base, shotId, estimateOnly: true });
+      const pro = await call("/api/renders", {
+        ...base, shotId, provider: "ltx-2.5-pro", duration: 6, acceptedCost: 1.02, estimateOnly: true,
+      });
+      assert.equal(google.data.estimatedCost, 0.96);
+      assert.equal(pro.data.estimatedCost, 1.02);
+    }
+    for (const patch of [
+      { duration: 6, acceptedCost: 0.72 }, { resolution: "720p", acceptedCost: 0.8 },
+      { aspectRatio: "16:9" }, { referenceImages: [base.referenceImages[0], base.referenceImages[0]] },
+      { shotId: "TSU" },
+    ]) {
+      const denied = await call("/api/renders", { ...base, ...patch, requestKey: crypto.randomUUID() });
+      assert.equal(denied.data.error.code, patch.duration === 6 ? "UNSUPPORTED_INPUT" : "YARD_RENDER_GATE");
+    }
+    const google = await call("/api/renders", base);
+    assert.equal(google.response.status, 202, JSON.stringify(google.data));
+    const row = await env.GENERATION_DB.prepare("SELECT session_id FROM renders WHERE id=?")
+      .bind(google.data.render.id).first();
+    assert.equal(row.session_id, "yard-southern-pro-first-test");
+    const proRetry = await call("/api/renders", {
+      ...base, provider: "ltx-2.5-pro", duration: 6, acceptedCost: 1.02, requestKey: crypto.randomUUID(),
+    });
+    assert.equal(proRetry.response.status, 409);
+    assert.equal(proRetry.data.error.code, "YARD_JOB_LIMIT");
+    const googleRetry = await call("/api/renders", { ...base, requestKey: crypto.randomUUID() });
+    assert.equal(googleRetry.data.error.code, "YARD_JOB_LIMIT");
+    const spokesperson = await call("/api/renders", {
+      ...base, shotId: "SPK", provider: "ltx-2.5-pro", duration: 6,
+      acceptedCost: 1.02, requestKey: crypto.randomUUID(),
+    });
+    assert.equal(spokesperson.response.status, 202, JSON.stringify(spokesperson.data));
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    Object.assign(env, previous);
+    for (const key of ["LIVE_RENDERING_ENABLED", "MOCK_E2E_VERIFIED", "GEMINI_API_KEY", "LTX_LIVE_ENABLED", "LTX_API_KEY", "LTX_PRO_1080P_RATE_PER_SECOND_USD"])
+      if (!(key in previous)) delete env[key];
   }
 });
 test("mock cancel is durable and never paid", async (t) => {
@@ -454,6 +550,23 @@ test("Veo adapter maps prompt, reference bytes, duration, aspect, resolution and
     () => validateInput({ ...input, duration: 6 }, p.capabilities),
     /8-second/,
   );
+});
+test("Yard Veo uses its single composed still as the initial frame", async () => {
+  let payload;
+  const p = createVeoProvider({ LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", GEMINI_API_KEY: "fake" },
+    async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return Response.json({ name: "models/veo-3.1-fast-generate-preview/operations/test" });
+    });
+  await p.start(body(undefined, {
+    projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "SOUTHERN", provider: "veo-fast",
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    duration: 8, resolution: "1080p", aspectRatio: "9:16",
+  }));
+  assert.equal(payload.instances[0].image.inlineData.data, "iVBORw0KGgo=");
+  assert.equal(payload.instances[0].referenceImages, undefined);
+  assert.equal(payload.parameters.durationSeconds, 8);
+  assert.equal(payload.parameters.resolution, "1080p");
 });
 test("ambiguous Veo start retains reservation and cannot be retried or canceled as free", async (t) => {
   t.mock.method(globalThis, "fetch", () => {

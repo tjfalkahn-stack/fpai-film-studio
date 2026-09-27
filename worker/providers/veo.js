@@ -1,4 +1,5 @@
 import { ProviderError, fail } from "./contract.js";
+import { YARD_PROJECT_ID } from "../../src/yardProduction.js";
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta/";
 const MODEL = "veo-3.1-fast-generate-preview";
@@ -68,7 +69,10 @@ export function createVeoProvider(env, fetchImpl = fetch) {
     }),
     async start(input) {
       const instance = { prompt: input.prompt };
-      if (input.referenceImages.length)
+      if (input.projectId === YARD_PROJECT_ID && input.referenceImages.length === 1) {
+        const ref = input.referenceImages[0];
+        instance.image = { inlineData: { mimeType: ref.mimeType, data: ref.data } };
+      } else if (input.referenceImages.length)
         instance.referenceImages = input.referenceImages.map((ref) => ({
           image: { inlineData: { mimeType: ref.mimeType, data: ref.data } },
           referenceType: "asset",
