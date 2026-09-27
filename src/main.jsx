@@ -1823,11 +1823,12 @@ function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy,
           )}
         </div>
 
-        <div className="sectionTitle"><SlidersHorizontal /><span>GENERATION ECONOMY CONTROLS</span></div>
+        <div className="sectionTitle"><SlidersHorizontal /><span>{project.id === YARD_PROJECT_ID ? "SHOT TIMING" : "GENERATION ECONOMY CONTROLS"}</span></div>
         <div className="animaticApproval">
           <div><b>Shot timing approved in animatic</b><small>Changing duration automatically removes this approval.</small></div>
           <button className={economy.animaticApproved ? "toggle on" : "toggle"} onClick={() => updateShotEconomy(shot.id, { animaticApproved: !economy.animaticApproved })}><i /></button>
         </div>
+        {project.id !== YARD_PROJECT_ID && <>
         <div className="formGrid three">
           <label>Motion Method<select value={economy.motionNeed} onChange={(event) => updateShotEconomy(shot.id, { motionNeed: event.target.value })}><option value="local">Local composite</option><option value="still">Still + local motion</option><option value="generative">Paid generative motion</option></select></label>
           <label>Route<select value={economy.manualRouteId} onChange={(event) => updateShotEconomy(shot.id, { manualRouteId: event.target.value })}><option value="auto">Auto route</option>{ROUTES.map((route) => <option value={route.id} key={route.id}>{route.label}</option>)}</select></label>
@@ -1843,14 +1844,15 @@ function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy,
           <label className="checkLabel"><input type="checkbox" checked={economy.nativeDetail} onChange={(event) => updateShotEconomy(shot.id, { nativeDetail: event.target.checked })} /><span>Native 1080p needed</span></label>
         </div>
 
-        {project.id !== YARD_PROJECT_ID && <div className="shotCostCard">
+        <div className="shotCostCard">
           <div><span>RECOMMENDED ROUTE</span><b>{plan.route.label}</b><small>{titleCase(plan.shotClass)}</small></div>
           <div><span>PAID DURATION</span><b>{plan.requestSeconds || 0}s</b><small>{plan.route.estimate.clipDurations.join(" + ") || "Local"}</small></div>
           <div><span>ONE ATTEMPT</span><b>{formatMoney(plan.oneAttemptCost)}</b><small>{plan.route.estimate.expectedAttempts} expected attempts</small></div>
           <div><span>MAX EXPOSURE</span><b>{formatMoney(plan.maxExposure)}</b><small>cap {formatMoney(economy.shotCap)}</small></div>
-        </div>}
+        </div>
         <button className="ghost full" onClick={() => setPackageShotId(shot.id)}><PackageCheck /> Preview Cost-Control Package</button>
         {packet.gate.blockers.length > 0 && <div className="validation"><AlertTriangle /> {packet.gate.blockers[0]}</div>}
+        </>}
 
         {renderPanel}
         <h3>Takes and Salvage</h3>
