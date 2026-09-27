@@ -29,6 +29,8 @@ const LTX_CONTROLLED_TEST = Object.freeze({
 });
 const YARD_LTX_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "PV", provider: "ltx-2.5-fast", duration: 6, resolution: "720p", aspectRatio: "9:16", maxEstimatedCostUsd: 0.54 });
 const YARD_SPOKESPERSON_TEST = Object.freeze({ ...YARD_LTX_TEST, shotId: "SPK" });
+const YARD_TSU_PRO_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "TSU", provider: "ltx-2.5-pro", duration: 6, resolution: "720p", aspectRatio: "9:16", maxEstimatedCostUsd: 0.72 });
+const yardTrialFor = (shotId) => ({ PV: YARD_LTX_TEST, SPK: YARD_SPOKESPERSON_TEST, TSU: YARD_TSU_PRO_TEST })[shotId];
 const allowedProject = (id, env) => id === config(env).projectId || id === YARD_PROJECT_ID;
 const dbOf = (env) =>
   env.GENERATION_DB ||
@@ -330,7 +332,7 @@ async function inputFrom(body, env) {
 }
 function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
-  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && input.provider !== YARD_LTX_TEST.provider)
+  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && input.provider !== yardTrialFor(input.shotId)?.provider)
     fail("YARD_RENDER_GATE", "The Yard paid renderer is gated until its controlled test and current spend quote are approved.", 403);
   if (provider.capabilities.manual)
     fail(
@@ -391,10 +393,11 @@ function authorizeSeedanceJob(input, quote, env) {
 }
 function authorizeLtxJob(input, quote, env) {
   if (input.projectId === YARD_PROJECT_ID) {
-    const plan = input.shotId === "SPK" ? YARD_SPOKESPERSON_TEST : YARD_LTX_TEST;
+    const plan = yardTrialFor(input.shotId);
+    if (!plan) fail("YARD_RENDER_GATE", "This Yard shot has no authorized LTX trial.", 403);
     const mismatches = ["projectId", "sceneId", "shotId", "provider", "duration", "resolution", "aspectRatio"].filter((key) => input[key] !== plan[key]);
     if (mismatches.length || input.referenceImages.length !== 1 || quote.estimatedCost > plan.maxEstimatedCostUsd)
-      fail("YARD_RENDER_GATE", `The Yard trial permits one PV job and one spokesperson job: each 6 seconds, 720p portrait, LTX Fast, one start frame, and at most $${plan.maxEstimatedCostUsd.toFixed(2)}.`, 403);
+      fail("YARD_RENDER_GATE", `This Yard trial permits one ${plan.shotId} job: 6 seconds, 720p portrait, ${plan.provider}, one start frame, and at most $${plan.maxEstimatedCostUsd.toFixed(2)}.`, 403);
     return;
   }
   if (!String(env.LTX_API_KEY || "").trim())
@@ -477,6 +480,11 @@ async function create(request, env) {
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   if (isLtxProvider(input.provider)) authorizeLtxJob(input, quote, env);
   const hash = await sha(JSON.stringify(input));
+  // Keep the TSU trial's session ceiling independent of the earlier PV test.
+  // The project ceiling and one-job-per-shot reservation still cover both.
+  const reservationSessionId = input.projectId === YARD_PROJECT_ID && input.shotId === "TSU"
+    ? "yard-tsu-pro-first-test"
+    : policy.sessionId;
   const db = dbOf(env);
   const existing = await db
     .prepare("SELECT * FROM renders WHERE project_id=? AND request_key=?")
@@ -550,7 +558,7 @@ async function create(request, env) {
     .bind(
       id,
       input.projectId,
-      policy.sessionId,
+      reservationSessionId,
       input.sceneId,
       input.shotId,
       body.requestKey,
@@ -567,7 +575,7 @@ async function create(request, env) {
       input.projectId,
       quote.estimatedCost,
       policy.projectCeiling,
-      policy.sessionId,
+      reservationSessionId,
       quote.estimatedCost,
       policy.sessionCeiling,
       isSeedanceProvider(input.provider) ? 1 : 0,
