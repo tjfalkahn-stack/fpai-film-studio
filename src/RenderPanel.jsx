@@ -550,9 +550,9 @@ export default function RenderPanel({
         <label key={ref.key} className="checkLabel">
           <input
             type="checkbox"
-            checked={usesStartFrame && ref.startFrame ? true : selected.includes(ref.key)}
+            checked={usesStartFrame ? Boolean(ref.startFrame) : selected.includes(ref.key)}
             disabled={
-              (usesStartFrame && ref.startFrame) ||
+              usesStartFrame ||
               (!selected.includes(ref.key) &&
                 selected.length >= (capabilities?.maxReferences || 3))
             }
