@@ -227,12 +227,15 @@ export default function RenderPanel({
     ? ""
     : project.id === YARD_PROJECT_ID && !(
         (["PV", "SPK"].includes(shot.id) && provider === "ltx-2.5-fast") ||
-        (shot.id === "TSU" && provider === "ltx-2.5-pro")
+        (["TSU", "LAMAR"].includes(shot.id) && provider === "ltx-2.5-pro")
       )
-      ? "Yard live trials are limited to PV and spokesperson LTX Fast, or TSU LTX Pro. Other shots remain gated."
+      ? "Yard live trials are limited to PV and spokesperson LTX Fast, TSU LTX Pro, or Lamar LTX Pro. Other shots remain gated."
     : project.id === YARD_PROJECT_ID && shot.id === "TSU" &&
         (duration !== 6 || resolution !== "720p" || aspectRatio !== "9:16")
       ? "The TSU Pro trial requires 6 seconds, 720p, and 9:16 portrait."
+    : project.id === YARD_PROJECT_ID && shot.id === "LAMAR" &&
+        (duration !== 6 || resolution !== "1080p" || aspectRatio !== "9:16")
+      ? "The Lamar Pro trial requires 6 seconds, 1080p, and 9:16 portrait."
     : !providerLiveReady
       ? isSeedanceProvider(provider)
         ? "Seedance live rendering is disabled on the server."
@@ -449,7 +452,9 @@ export default function RenderPanel({
               const next = catalog?.providers.find((item) => item.id === e.target.value);
               setProvider(e.target.value);
               setDuration(next?.durations?.[0] ?? 8);
-              setResolution(next?.resolutions?.[0] ?? "720p");
+              setResolution(project.id === YARD_PROJECT_ID && shot.id === "LAMAR" && e.target.value === "ltx-2.5-pro"
+                ? "1080p"
+                : next?.resolutions?.[0] ?? "720p");
               setAspect(project.id === YARD_PROJECT_ID && e.target.value.startsWith("ltx-2.5-")
                 ? "9:16"
                 : next?.aspectRatios?.[0] ?? "16:9");
