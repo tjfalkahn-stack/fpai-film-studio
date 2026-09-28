@@ -135,6 +135,98 @@ test("live disabled blocks both render API and legacy paid route before network;
   );
   assert.equal(network.mock.callCount(), 0);
 });
+test("Enemies Closer Veo quotes an explicit composed start frame and rejects ambiguous inputs before spend", async (t) => {
+  const network = noNetwork(t);
+  const request = body(undefined, {
+    provider: "veo-fast", duration: 8, resolution: "1080p", aspectRatio: "16:9",
+    referenceMode: "start-frame",
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+  });
+  const quote = await call("/api/renders", { ...request, estimateOnly: true });
+  assert.equal(quote.response.status, 200);
+  assert.equal(quote.data.estimatedCost, 0.96);
+  assert.equal(quote.data.debug.referenceMode, "start-frame");
+  const missing = await call("/api/renders", { ...request, referenceImages: [], estimateOnly: true });
+  assert.equal(missing.data.error.code, "INVALID_REFERENCES");
+  const unknown = await call("/api/renders", { ...request, referenceMode: "unknown", estimateOnly: true });
+  assert.equal(unknown.data.error.code, "UNSUPPORTED_INPUT");
+  assert.equal(network.mock.callCount(), 0);
+});
+test("Enemies Closer Veo accepts composed shots independently within the project ceiling", async (t) => {
+  const network = noNetwork(t);
+  const previous = { ...env };
+  Object.assign(env, {
+    LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", GEMINI_API_KEY: "fake",
+    RENDER_PROJECT_CEILING_USD: "20", RENDER_SESSION_CEILING_USD: "1.10",
+  });
+  const request = body(undefined, {
+    provider: "veo-fast", duration: 8, resolution: "1080p", aspectRatio: "16:9",
+    referenceMode: "start-frame", acceptedCost: 0.96,
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    continuity: { ready: true, animaticLocked: false, timingApproved: false, hasCharacters: false },
+  });
+  const created = [];
+  try {
+    const first = await call("/api/renders", request);
+    assert.equal(first.response.status, 202, JSON.stringify(first.data));
+    created.push(first.data.render.id);
+    const second = await call("/api/renders", { ...request, shotId: "028", requestKey: crypto.randomUUID() });
+    assert.equal(second.response.status, 202, JSON.stringify(second.data));
+    created.push(second.data.render.id);
+    const rows = await env.GENERATION_DB.prepare(
+      "SELECT shot_id,session_id FROM renders WHERE id IN (?,?) ORDER BY shot_id",
+    ).bind(first.data.render.id, second.data.render.id).all();
+    assert.deepEqual(rows.results.map((row) => row.session_id), ["enemies-veo-001-027", "enemies-veo-001-028"]);
+    const concurrent = await call("/api/renders", { ...request, requestKey: crypto.randomUUID() });
+    assert.equal(concurrent.data.error.code, "RENDER_IN_PROGRESS");
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    for (const id of created) {
+      await env.GENERATION_DB.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
+      await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
+    }
+    Object.assign(env, previous);
+    for (const key of ["LIVE_RENDERING_ENABLED", "MOCK_E2E_VERIFIED", "GEMINI_API_KEY"])
+      if (!(key in previous)) delete env[key];
+  }
+});
+test("Enemies Closer LTX Pro accepts separate 1080p composed shots without an animatic lock", async (t) => {
+  const network = noNetwork(t);
+  const previous = { ...env };
+  Object.assign(env, {
+    LTX_LIVE_ENABLED: "true", LTX_API_KEY: "fake",
+    LTX_PRO_1080P_RATE_PER_SECOND_USD: "0.17", LTX_PRO_720P_RATE_PER_SECOND_USD: "0.12",
+    RENDER_PROJECT_CEILING_USD: "20",
+  });
+  const request = body(undefined, {
+    shotId: "010", provider: "ltx-2.5-pro", duration: 6, resolution: "1080p",
+    aspectRatio: "16:9", acceptedCost: 1.02,
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    continuity: { ready: true, animaticLocked: false, timingApproved: false, hasCharacters: false },
+  });
+  const created = [];
+  try {
+    const quote = await call("/api/renders", { ...request, estimateOnly: true });
+    assert.equal(quote.data.estimatedCost, 1.02);
+    const first = await call("/api/renders", request);
+    assert.equal(first.response.status, 202, JSON.stringify(first.data));
+    created.push(first.data.render.id);
+    const second = await call("/api/renders", { ...request, shotId: "011", requestKey: crypto.randomUUID() });
+    assert.equal(second.response.status, 202, JSON.stringify(second.data));
+    created.push(second.data.render.id);
+    const invalid = await call("/api/renders", { ...request, resolution: "720p", acceptedCost: 0.72, requestKey: crypto.randomUUID() });
+    assert.equal(invalid.data.error.code, "LTX_PLAN_DENIED");
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    for (const id of created) {
+      await env.GENERATION_DB.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
+      await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
+    }
+    Object.assign(env, previous);
+    for (const key of ["LTX_LIVE_ENABLED", "LTX_API_KEY", "LTX_PRO_1080P_RATE_PER_SECOND_USD", "LTX_PRO_720P_RATE_PER_SECOND_USD"])
+      if (!(key in previous)) delete env[key];
+  }
+});
 test("Vibes quotes a zero-dollar manual handoff and can never enter the render queue", async (t) => {
   const network = noNetwork(t);
   const quote = await call(
@@ -718,6 +810,7 @@ test("provider failure releases reservation; completed-but-undownloaded video re
   const paid = () =>
     body(undefined, {
       provider: "veo-fast",
+      shotId: "retrieval",
       acceptedCost: 0.8,
       continuity: { ready: true, animaticLocked: true, timingApproved: true },
     });
