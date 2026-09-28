@@ -22,6 +22,7 @@ test("Higgsfield registers model-specific routes and separates audio pricing", (
   assert.throws(() => p.estimate({...input, referenceImages:[]}), /one composed/);
   assert.equal(providerLiveEnabled(p.capabilities.id, env), true);
   assert.equal(providerLiveEnabled(p.capabilities.id, {...env, HF_CREDENTIALS:""}), false);
+  assert.equal(providerLiveEnabled(p.capabilities.id, {...env, HF_CREDENTIALS:" test-id:test-secret\n"}), true);
   assert.deepEqual(renderReferenceKeys({provider:p.capabilities.id, startFrameKey:"shot", selected:["portrait"]}), ["shot"]);
 });
 test("Higgsfield uploads bytes without credential forwarding and submits documented body", async () => {
@@ -32,6 +33,9 @@ test("Higgsfield uploads bytes without credential forwarding and submits documen
   assert.equal(calls[1].headers["x-amz-tagging"],"retention=temporary");
   assert.equal(calls[2].headers.Authorization,"Key test-id:test-secret");
   assert.deepEqual(JSON.parse(calls[2].body),{image_url:"https://cdn.example.com/input.png",prompt:"Cinema shot",duration:5,sound:"off",cfg_scale:0.5,multi_shots:false});
+  const pastedCalls=[];
+  await createHiggsfieldProvider({...env,HF_CREDENTIALS:" test-id:test-secret\n"},mock(async()=>Response.json({request_id:requestId,status_url:statusUrl}),pastedCalls)).start(input);
+  assert.equal(pastedCalls[2].headers.Authorization,"Key test-id:test-secret");
 });
 test("ambiguous submissions retain spending reservations; rejection does not leak response", async () => {
   for(const run of [async()=>{throw Error("lost")},async()=>new Response("bad",{status:502}),async()=>Response.json({})]) {

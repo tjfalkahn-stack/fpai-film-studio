@@ -169,7 +169,8 @@ export default function QuickCreate({ projectId, renders, onRender }) {
             {!isMotion && <label className="checkLabel"><input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} /> Generate audio</label>}
           </div>
           {isMotion && <small>The reference clip must be publicly reachable. Set the length to that clip’s rounded-up duration.</small>}
-          {!catalog?.policy?.higgsfieldExecutionReady && catalog && <p className="validation">Higgsfield credentials are not ready on the server.</p>}
+          {catalog && !catalog.policy?.higgsfieldConfigured && <p className="validation">Higgsfield needs the <b>HF_CREDENTIALS</b> secret on the <b>fpai-film-studio-video-adapter</b> Worker. Its value must be <b>KEY_ID:KEY_SECRET</b>. Check Cloudflare → Workers &amp; Pages → video adapter → Settings → Variables and Secrets.</p>}
+          {catalog?.policy?.higgsfieldConfigured && !catalog.policy?.executionStorageReady && <p className="validation">Higgsfield is configured, but render storage or the adapter control token is unavailable.</p>}
           {uncertain && <label className="checkLabel"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> A previous request has an uncertain provider outcome. I understand a new render may add another charge.</label>}
           {error && <p className="validation" role="alert">{error}</p>}
           {pending.current && <button className="ghost" onClick={() => { pending.current = null; localStorage.removeItem(`fpai-direct-render:${projectId}`); setError(""); }}>Clear unresolved request after checking recent videos</button>}

@@ -358,6 +358,7 @@ export default {
         geminiKeyConfigured: Boolean(env.GEMINI_API_KEY),
         falKeyConfigured: Boolean(env.FAL_KEY),
         ltxKeyConfigured: Boolean(env.LTX_API_KEY),
+        higgsfieldConfigured: renderConfig(env).higgsfieldConfigured,
         controlTokenConfigured: Boolean(env.FPAI_CONTROL_TOKEN),
         d1Configured: Boolean(env.GENERATION_DB),
         r2Configured: Boolean(env.GENERATION_MEDIA),
@@ -367,6 +368,7 @@ export default {
         seedanceLiveEnabled: renderConfig(env).seedanceLiveEnabled,
         ltxLiveEnabled: renderConfig(env).ltxLiveEnabled,
         ltxExecutionReady: renderConfig(env).ltxExecutionReady,
+        higgsfieldExecutionReady: renderConfig(env).higgsfieldExecutionReady,
       }, 200, cors);
     }
 
