@@ -31,6 +31,27 @@ function auth(env) {
   if (!higgsfieldConfigured(env)) fail("PROVIDER_CONFIG", "Set the server HF_CREDENTIALS secret to the complete Higgsfield API key.", 503);
   return { Authorization: `Key ${String(env.HF_CREDENTIALS).trim()}` };
 }
+export async function probeHiggsfieldUploadConnection(env, fetchImpl = fetch) {
+  const startedAt = Date.now();
+  if (!higgsfieldConfigured(env)) return { transport: "not-configured" };
+  try {
+    // Requesting an upload slot does not submit a video. Never return its signed URLs.
+    const response = await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
+      method: "POST", headers: { ...auth(env), "Content-Type": "application/json" },
+      body: JSON.stringify({ content_type: "image/png" }), redirect: "manual",
+      signal: AbortSignal.timeout(10000),
+    });
+    return { transport: "response", httpStatus: response.status, redirect: response.status >= 300 && response.status < 400, elapsedMs: Date.now() - startedAt };
+  } catch (error) {
+    const credential = String(env.HF_CREDENTIALS || "").trim();
+    return {
+      transport: "error",
+      errorType: ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "OtherError",
+      errorDetail: String(error?.message || "unknown").replaceAll(credential, "[redacted]").replace(/https?:\/\/\S+/g, "[url]").slice(0, 180),
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
+}
 async function checked(response, stage) {
   if (!response.ok) throw new ProviderError("HIGGSFIELD_API_ERROR", `Higgsfield ${stage} failed (HTTP ${response.status}).`, { httpStatus: 502, retryable: response.status >= 500 });
   return response;
