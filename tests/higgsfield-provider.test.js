@@ -60,7 +60,28 @@ test("image upload transport failure does not mark an unsubmitted video as billa
   await assert.rejects(provider.start(input), (error) => {
     assert.equal(error.code, "HIGGSFIELD_IMAGE_PREPARATION");
     assert.equal(error.uncertain, false);
+    assert.match(error.message, /upload initialization failed/);
     assert.match(error.message, /No video request was submitted/);
+    return true;
+  });
+  assert.equal(submissions, 0);
+});
+test("Higgsfield reports storage upload stage without leaking signed URLs", async () => {
+  let submissions = 0;
+  const provider = createHiggsfieldProvider(env, async (url) => {
+    if (url.endsWith("generate-upload-url")) return Response.json({
+      upload_url: "https://storage.example.com/signed?token=private",
+      public_url: "https://cdn.example.com/input.png",
+      upload_headers: { "Content-Type": "image/png", "x-amz-tagging": "retention=temporary" },
+    });
+    if (url.includes("storage.example.com")) throw new Error("private signed URL");
+    submissions++;
+    return Response.json({ request_id: requestId, status_url: statusUrl });
+  });
+  await assert.rejects(provider.start(input), error => {
+    assert.equal(error.code, "HIGGSFIELD_IMAGE_PREPARATION");
+    assert.match(error.message, /storage upload failed/);
+    assert.doesNotMatch(error.message, /private|storage\.example/);
     return true;
   });
   assert.equal(submissions, 0);
