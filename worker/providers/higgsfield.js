@@ -83,24 +83,31 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
       const headers = auth(env);
       estimate(input);
       const imageUrls = [];
+      let uploadStage = "image preparation";
       try {
         for (const ref of input.referenceImages || []) {
+          uploadStage = "upload initialization";
           const upload = await (await checked(await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
             method: "POST", headers: { ...headers, "Content-Type": "application/json" },
             body: JSON.stringify({ content_type: ref.mimeType }), redirect: "error",
           }), "upload initialization")).json();
+          uploadStage = "upload URL validation";
           const uploadUrl = safeUrl(upload.upload_url);
           const imageUrl = safeUrl(upload.public_url);
-          const uploadHeaders = { ...(upload.upload_headers || {}), "Content-Type": ref.mimeType };
+          const uploadHeaders = { ...(upload.upload_headers || {}) };
+          if (!Object.keys(uploadHeaders).some(name => name.toLowerCase() === "content-type")) uploadHeaders["Content-Type"] = ref.mimeType;
           for (const name of Object.keys(uploadHeaders)) if (/authorization|cookie/i.test(name)) delete uploadHeaders[name];
+          uploadStage = "image decoding";
+          const bytes = Uint8Array.from(atob(ref.data), c => c.charCodeAt(0));
+          uploadStage = "storage upload";
           await checked(await fetchImpl(uploadUrl, { method: "PUT", headers: uploadHeaders,
-            body: Uint8Array.from(atob(ref.data), c => c.charCodeAt(0)), redirect: "error" }), "image upload");
+            body: bytes, redirect: "error" }), "image upload");
           imageUrls.push(imageUrl);
         }
       } catch (error) {
-        if (error instanceof ProviderError) throw error;
+        if (error instanceof ProviderError && error.code === "HIGGSFIELD_API_ERROR") throw error;
         // Nothing has been sent to the paid generation endpoint yet.
-        throw new ProviderError("HIGGSFIELD_IMAGE_PREPARATION", "The reference image could not be uploaded to Higgsfield. No video request was submitted.", { httpStatus: 502, retryable: true });
+        throw new ProviderError("HIGGSFIELD_IMAGE_PREPARATION", `Higgsfield ${uploadStage} failed before video submission. No video request was submitted.`, { httpStatus: 502, retryable: true });
       }
       const payload = spec.kind === "motion"
         ? { prompt: input.prompt, video_url: safeUrl(input.referenceVideos[0].url), image_urls: imageUrls, resolution: input.resolution }
