@@ -169,7 +169,9 @@ export default function QuickCreate({ projectId, renders, onRender }) {
             {!isMotion && <label className="checkLabel"><input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} /> Generate audio</label>}
           </div>
           {isMotion && <small>The reference clip must be publicly reachable. Set the length to that clip’s rounded-up duration.</small>}
-          {catalog && !catalog.policy?.higgsfieldConfigured && <p className="validation">Higgsfield needs the <b>HF_CREDENTIALS</b> secret on the <b>fpai-film-studio-video-adapter</b> Worker. Its value must be <b>KEY_ID:KEY_SECRET</b>. Check Cloudflare → Workers &amp; Pages → video adapter → Settings → Variables and Secrets.</p>}
+          {catalog && !catalog.policy?.higgsfieldConfigured && <p className="validation">{catalog.policy?.higgsfieldCredentialPresent
+            ? <>The video adapter has <b>HF_CREDENTIALS</b>, but its value is not in <b>KEY_ID:KEY_SECRET</b> format. Edit the existing secret and deploy the change.</>
+            : <>The video adapter cannot see <b>HF_CREDENTIALS</b>. Check that the existing secret is on <b>fpai-film-studio-video-adapter</b>, then deploy the change in Cloudflare.</>}</p>}
           {catalog?.policy?.higgsfieldConfigured && !catalog.policy?.executionStorageReady && <p className="validation">Higgsfield is configured, but render storage or the adapter control token is unavailable.</p>}
           {uncertain && <label className="checkLabel"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> A previous request has an uncertain provider outcome. I understand a new render may add another charge.</label>}
           {error && <p className="validation" role="alert">{error}</p>}
