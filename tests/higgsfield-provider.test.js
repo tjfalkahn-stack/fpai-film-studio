@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createHiggsfieldProvider } from "../worker/providers/higgsfield.js";
+import { createHiggsfieldProvider, probeHiggsfieldUploadConnection } from "../worker/providers/higgsfield.js";
 import { serveHiggsfieldInput, signedHiggsfieldInputUrl } from "../worker/providers/higgsfieldInput.js";
 import { providerFor } from "../worker/providers/index.js";
 import { config, providerLiveEnabled } from "../worker/renders.js";
@@ -110,6 +110,23 @@ test("direct image renders use a signed Studio URL without Higgsfield upload ini
   assert.equal((await serveHiggsfieldInput(new Request(tampered), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
   const expired = await signedHiggsfieldInputUrl(directEnv, renderId, Date.now() - 3700_000);
   assert.equal((await serveHiggsfieldInput(new Request(expired), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
+});
+test("Higgsfield connection probe never submits video or exposes upload URLs", async () => {
+  const calls = [];
+  const response = await probeHiggsfieldUploadConnection(env, async (url, init) => {
+    calls.push({ url, init });
+    return Response.json({ upload_url: "https://storage.example.com/private", public_url: "https://cdn.example.com/private" });
+  });
+  assert.equal(response.transport, "response");
+  assert.equal(response.httpStatus, 200);
+  assert.equal(JSON.stringify(response).includes("private"), false);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/files\/generate-upload-url$/);
+  assert.equal(calls[0].init.redirect, "manual");
+  const failed = await probeHiggsfieldUploadConnection(env, async () => { throw new TypeError(`fetch failed ${env.HF_CREDENTIALS}`); });
+  assert.equal(failed.transport, "error");
+  assert.equal(failed.errorType, "TypeError");
+  assert.equal(JSON.stringify(failed).includes(env.HF_CREDENTIALS), false);
 });
 test("polling and private asset retrieval work without an extra live switch",async()=>{
   const calls=[];

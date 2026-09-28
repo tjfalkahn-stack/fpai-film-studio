@@ -3,6 +3,7 @@ import { characterReferenceRoutes } from "./characterReferences.js";
 import { filmRoutes } from "./filmEngine.js";
 import { createCharacterFactoryRuntime } from "./characterFactoryRuntime.js";
 import { serveHiggsfieldInput } from "./providers/higgsfieldInput.js";
+import { probeHiggsfieldUploadConnection } from "./providers/higgsfield.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -413,6 +414,8 @@ export default {
         const preflight = await runtime.preflight();
         return json(preflight, preflight.ready ? 200 : 503, cors);
       }
+      if (url.pathname === "/api/higgsfield/probe" && request.method === "POST")
+        return json({ probe: await probeHiggsfieldUploadConnection(env), videoSubmitted: false }, 200, cors);
       if (url.pathname.startsWith("/api/renders") || url.pathname === "/api/renderers") return renderRoutes(request, env);
       if (url.pathname.startsWith("/api/generation-jobs") && request.method === "POST") return json({ error: "Legacy provider execution is disabled. Use /api/renders with the render cost gate." }, 403, cors);
       if (request.method === "POST" && url.pathname === "/api/generation-jobs") {
