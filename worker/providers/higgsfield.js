@@ -158,9 +158,10 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
         const result = await response.json();
         submissionDetail = "HTTP 2xx without a valid request ID";
         if (!/^[a-f0-9-]{36}$/i.test(result.request_id)) throw new Error("Missing request ID");
-        submissionDetail = "HTTP 2xx with an invalid status URL";
-        const statusUrl = safeUrl(result.status_url, true);
-        if (new URL(statusUrl).pathname !== `/requests/${result.request_id}/status`) throw new Error("Mismatched status URL");
+        // Higgsfield's request ID is the durable acknowledgement. Poll its documented
+        // canonical route rather than trusting a provider-supplied URL or dropping a
+        // successfully accepted request when that optional URL differs.
+        const statusUrl = `${ORIGIN}/requests/${result.request_id}/status`;
         return { operationId: statusUrl, costBasis: "higgsfield-configured-rate-estimate" };
       } catch (error) {
         if (error.code === "HIGGSFIELD_API_ERROR") throw error;
