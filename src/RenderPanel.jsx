@@ -508,6 +508,8 @@ export default function RenderPanel({
                 ? 8
                 : project.id === "enemies-closer-ep01" && e.target.value === "ltx-2.5-pro"
                   ? 6
+                : e.target.value.startsWith("higgsfield-") && next?.durations?.includes(5)
+                  ? 5
                 : next?.durations?.[0] ?? 8);
               setResolution(e.target.value === "veo-fast" ||
                 (project.id === "enemies-closer-ep01" && e.target.value === "ltx-2.5-pro") ||

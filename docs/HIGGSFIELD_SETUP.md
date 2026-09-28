@@ -20,6 +20,7 @@ The app can quote with the published pre-discount rates using only the secret. T
 - `HIGGSFIELD_SEEDANCE25_720P_AUDIO_RATE_PER_SECOND_USD`
 - `HIGGSFIELD_GENJUTSU_480P_RATE_PER_SECOND_USD`
 - `HIGGSFIELD_GENJUTSU_720P_RATE_PER_SECOND_USD`
+- `HIGGSFIELD_GENJUTSU_1080P_RATE_PER_SECOND_USD`
 
 Audio defaults off in the UI. Published rates are estimates, not guaranteed provider charges. Confirm the amount in Higgsfield billing after a render; the ledger retains its estimate until reconciled.
 

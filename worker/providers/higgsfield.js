@@ -1,14 +1,15 @@
 import { ProviderError, fail } from "./contract.js";
 
 const ORIGIN = "https://api.higgsfield.ai";
+const seconds = (minimum, maximum) => Array.from({ length: maximum - minimum + 1 }, (_, index) => minimum + index);
 export const HIGGSFIELD_MODELS = Object.freeze({
-  "higgsfield-kling-3-standard": { model: "kling-video/v3.0/std/image-to-video", label: "Kling 3.0 Standard · image", kind: "image", resolutions: ["720p"], durations: [5, 10], price: "HIGGSFIELD_KLING3_STANDARD" },
-  "higgsfield-kling-3-pro": { model: "kling-video/v3.0/pro/image-to-video", label: "Kling 3.0 Pro · image", kind: "image", resolutions: ["1080p"], durations: [5, 10], price: "HIGGSFIELD_KLING3_PRO" },
-  "higgsfield-kling-3-standard-text": { model: "kling-video/v3.0/std/text-to-video", label: "Kling 3.0 Standard · text", kind: "text", resolutions: ["720p"], durations: [5, 10], price: "HIGGSFIELD_KLING3_STANDARD" },
-  "higgsfield-kling-3-pro-text": { model: "kling-video/v3.0/pro/text-to-video", label: "Kling 3.0 Pro · text", kind: "text", resolutions: ["1080p"], durations: [5, 10], price: "HIGGSFIELD_KLING3_PRO" },
-  "higgsfield-seedance-2.5-text": { model: "bytedance/seedance-2.5/text-to-video", label: "Seedance 2.5 · text", kind: "text", resolutions: ["480p", "720p"], durations: [4, 5, 6, 8, 10, 15, 20, 30], price: "HIGGSFIELD_SEEDANCE25" },
-  "higgsfield-seedance-2.5-image": { model: "bytedance/seedance-2.5/image-to-video", label: "Seedance 2.5 · image", kind: "image", resolutions: ["480p", "720p"], durations: [4, 5, 6, 8, 10, 15, 20, 30], price: "HIGGSFIELD_SEEDANCE25" },
-  "higgsfield-genjutsu-motion": { model: "higgsfield/genjutsu/motion-transfer/v1.0", label: "Genjutsu · motion transfer", kind: "motion", resolutions: ["480p", "720p"], durations: [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 30], price: "HIGGSFIELD_GENJUTSU" },
+  "higgsfield-kling-3-standard": { model: "kling-video/v3.0/std/image-to-video", label: "Kling 3.0 Standard · image", kind: "image", resolutions: ["720p"], durations: seconds(3, 15), price: "HIGGSFIELD_KLING3_STANDARD" },
+  "higgsfield-kling-3-pro": { model: "kling-video/v3.0/pro/image-to-video", label: "Kling 3.0 Pro · image", kind: "image", resolutions: ["1080p"], durations: seconds(3, 15), price: "HIGGSFIELD_KLING3_PRO" },
+  "higgsfield-kling-3-standard-text": { model: "kling-video/v3.0/std/text-to-video", label: "Kling 3.0 Standard · text", kind: "text", resolutions: ["720p"], durations: seconds(3, 15), price: "HIGGSFIELD_KLING3_STANDARD" },
+  "higgsfield-kling-3-pro-text": { model: "kling-video/v3.0/pro/text-to-video", label: "Kling 3.0 Pro · text", kind: "text", resolutions: ["1080p"], durations: seconds(3, 15), price: "HIGGSFIELD_KLING3_PRO" },
+  "higgsfield-seedance-2.5-text": { model: "bytedance/seedance-2.5/text-to-video", label: "Seedance 2.5 · text", kind: "text", resolutions: ["720p", "480p"], durations: seconds(4, 30), price: "HIGGSFIELD_SEEDANCE25" },
+  "higgsfield-seedance-2.5-image": { model: "bytedance/seedance-2.5/image-to-video", label: "Seedance 2.5 · image", kind: "image", resolutions: ["720p", "480p"], durations: seconds(4, 30), price: "HIGGSFIELD_SEEDANCE25" },
+  "higgsfield-genjutsu-motion": { model: "higgsfield/genjutsu/motion-transfer/v1.0", label: "Genjutsu · motion transfer", kind: "motion", resolutions: ["720p", "480p", "1080p"], durations: seconds(1, 30), price: "HIGGSFIELD_GENJUTSU" },
 });
 export const isHiggsfieldProvider = (id) => Object.hasOwn(HIGGSFIELD_MODELS, id);
 export const higgsfieldConfigured = (env) => /^[^\s:]+:[^\s:]+$/.test(String(env.HF_CREDENTIALS || ""));
@@ -56,7 +57,7 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
     // Published pre-discount rates provide a usable quote with only HF_CREDENTIALS.
     // Explicit Worker variables override these when the owner's account differs.
     const publishedRate = spec.kind === "motion"
-      ? { "480p": 0.318, "720p": 0.681 }[input.resolution]
+      ? { "480p": 0.318, "720p": 0.681, "1080p": 1.632 }[input.resolution]
       : spec.price === "HIGGSFIELD_SEEDANCE25"
         ? Number((Math.ceil((input.resolution === "480p" ? 854 * 480 : 1280 * 720) * 24 / 1024) * 0.0214 / 1000).toFixed(5))
         : spec.price === "HIGGSFIELD_KLING3_PRO"
