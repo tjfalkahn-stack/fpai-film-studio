@@ -148,9 +148,8 @@ function providerAvailability(provider, policy, env) {
   }
   if (isHiggsfieldProvider(id)) {
     if (!policy.higgsfieldConfigured) return { state: "key-needed", label: "KEY NEEDED", detail: "Higgsfield credentials are missing" };
-    if (!policy.higgsfieldLiveEnabled) return { state: "configured", label: "CONFIGURED", detail: "Higgsfield live gate is off" };
     if (!policy.executionStorageReady) return { state: "blocked", label: "BLOCKED", detail: "Render storage or control token is missing" };
-    return { state: "ready", label: "READY", detail: "Higgsfield connected; quote validates configured audio pricing" };
+    return { state: "ready", label: "READY", detail: "Higgsfield key and render queue configured; quote checks model pricing" };
   }
   if (isLtxProvider(id)) {
     if (!policy.ltxConfigured)
@@ -270,6 +269,7 @@ async function readBody(request) {
   return body;
 }
 async function attachCharacterReferences(body, input, provider, env) {
+  if (provider.capabilities.inputKind === "text") return input;
   const characterIds = Array.isArray(body.characterIds)
     ? body.characterIds.filter(Boolean)
     : [];
@@ -300,10 +300,10 @@ async function attachCharacterReferences(body, input, provider, env) {
     return input;
   }
   const hasInlineBytes = (input.referenceImages || []).some((ref) => ref?.data);
-  if (!hasInlineBytes && isHiggsfieldProvider(input.provider)) {
+  if (!hasInlineBytes && provider.capabilities.requiresStartFrame) {
     fail("INVALID_REFERENCES", "Upload a composed Shot Start Frame for Higgsfield.");
   }
-  if (!hasInlineBytes && selection.transmitted.length) {
+  if (!hasInlineBytes && selection.transmitted.length && provider.capabilities.maxReferences) {
     input.referenceImages = await resolveProviderReferenceImages(
       env,
       input.projectId,
@@ -399,8 +399,8 @@ function liveGate(input, provider, env) {
   const composedEnemiesPro = enemiesProShot(input) && input.referenceImages.length === 1;
   if (
     !c ||
-    c.ready !== true ||
-    (!approvedYardShot && !composedEnemiesVeo && !composedEnemiesPro &&
+    (c.ready !== true && !isHiggsfieldProvider(input.provider)) ||
+    (!isHiggsfieldProvider(input.provider) && !approvedYardShot && !composedEnemiesVeo && !composedEnemiesPro &&
       (c.animaticLocked !== true || c.timingApproved !== true))
   )
     fail(
@@ -408,7 +408,7 @@ function liveGate(input, provider, env) {
       "Character continuity, shot timing, and scene animatic must be approved.",
     );
   if (
-    c.hasCharacters &&
+    !isHiggsfieldProvider(input.provider) && c.hasCharacters &&
     !input.referenceImages.length &&
     !input.characterReferenceSelection?.selected?.length
   )
@@ -531,7 +531,7 @@ async function create(request, env) {
       "Review and accept the current cost before rendering.",
       409,
     );
-  if (quote.estimatedCost > policy.singleCeiling)
+  if (!isHiggsfieldProvider(input.provider) && quote.estimatedCost > policy.singleCeiling)
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid) authorizeYardJob(input, quote, env);
@@ -635,7 +635,7 @@ async function create(request, env) {
       JSON.stringify(storedInput),
       stamp(),
       stamp(),
-      quote.estimatedCost,
+      isHiggsfieldProvider(input.provider) ? 0 : quote.estimatedCost,
       input.projectId,
       input.projectId,
       quote.estimatedCost,
@@ -674,7 +674,7 @@ async function create(request, env) {
         "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1",
       ).bind(input.projectId, input.shotId).first();
       if ((uncertain?.id || "") !== (body.acknowledgeUncertainRenderId || ""))
-        fail("UNCERTAIN_RETRY_ACK", "A prior take has an unknown Google outcome. Review the possible additional charge and explicitly confirm a new take.", 409);
+        fail("UNCERTAIN_RETRY_ACK", "A prior take may have been accepted by its provider. Review the possible additional charge and explicitly confirm a new take.", 409);
     }
     if (isSeedanceProvider(input.provider)) {
       const used = await db

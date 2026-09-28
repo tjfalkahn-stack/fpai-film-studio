@@ -1,9 +1,18 @@
 import { ProviderError, fail } from "./contract.js";
 
 const ORIGIN = "https://api.higgsfield.ai";
-export const isHiggsfieldProvider = (id) => ["higgsfield-kling-3-standard", "higgsfield-kling-3-pro"].includes(id);
+export const HIGGSFIELD_MODELS = Object.freeze({
+  "higgsfield-kling-3-standard": { model: "kling-video/v3.0/std/image-to-video", label: "Kling 3.0 Standard · image", kind: "image", resolutions: ["720p"], durations: [5, 10], price: "HIGGSFIELD_KLING3_STANDARD" },
+  "higgsfield-kling-3-pro": { model: "kling-video/v3.0/pro/image-to-video", label: "Kling 3.0 Pro · image", kind: "image", resolutions: ["1080p"], durations: [5, 10], price: "HIGGSFIELD_KLING3_PRO" },
+  "higgsfield-kling-3-standard-text": { model: "kling-video/v3.0/std/text-to-video", label: "Kling 3.0 Standard · text", kind: "text", resolutions: ["720p"], durations: [5, 10], price: "HIGGSFIELD_KLING3_STANDARD" },
+  "higgsfield-kling-3-pro-text": { model: "kling-video/v3.0/pro/text-to-video", label: "Kling 3.0 Pro · text", kind: "text", resolutions: ["1080p"], durations: [5, 10], price: "HIGGSFIELD_KLING3_PRO" },
+  "higgsfield-seedance-2.5-text": { model: "bytedance/seedance-2.5/text-to-video", label: "Seedance 2.5 · text", kind: "text", resolutions: ["480p", "720p"], durations: [4, 5, 6, 8, 10, 15, 20, 30], price: "HIGGSFIELD_SEEDANCE25" },
+  "higgsfield-seedance-2.5-image": { model: "bytedance/seedance-2.5/image-to-video", label: "Seedance 2.5 · image", kind: "image", resolutions: ["480p", "720p"], durations: [4, 5, 6, 8, 10, 15, 20, 30], price: "HIGGSFIELD_SEEDANCE25" },
+  "higgsfield-genjutsu-motion": { model: "higgsfield/genjutsu/motion-transfer/v1.0", label: "Genjutsu · motion transfer", kind: "motion", resolutions: ["480p", "720p"], durations: [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 30], price: "HIGGSFIELD_GENJUTSU" },
+});
+export const isHiggsfieldProvider = (id) => Object.hasOwn(HIGGSFIELD_MODELS, id);
 export const higgsfieldConfigured = (env) => /^[^\s:]+:[^\s:]+$/.test(String(env.HF_CREDENTIALS || ""));
-export const higgsfieldLiveEnabled = (env) => env.HIGGSFIELD_LIVE_ENABLED === "true";
+export const higgsfieldLiveEnabled = (env) => higgsfieldConfigured(env);
 
 function safeUrl(value, api = false) {
   let url;
@@ -24,33 +33,55 @@ async function checked(response, stage) {
   return response;
 }
 
-export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, tier = "pro") {
-  if (!["pro", "standard"].includes(tier)) fail("PROVIDER_CONFIG", "Unknown Higgsfield tier.");
-  const id = `higgsfield-kling-3-${tier}`;
-  const model = `kling-video/v3.0/${tier === "pro" ? "pro" : "std"}/image-to-video`;
-  const resolution = tier === "pro" ? "1080p" : "720p";
+export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "pro") {
+  const id = HIGGSFIELD_MODELS[route] ? route : `higgsfield-kling-3-${route}`;
+  const spec = HIGGSFIELD_MODELS[id];
+  if (!spec) fail("PROVIDER_CONFIG", "Unknown Higgsfield model.");
+  const { model } = spec;
   function estimate(input) {
-    if (input.referenceImages?.length !== 1) fail("INVALID_REFERENCES", "Higgsfield requires one composed shot start frame.");
-    const rateKey = `HIGGSFIELD_KLING3_${tier.toUpperCase()}_${input.generateAudio === false ? "SILENT" : "AUDIO"}_RATE_PER_SECOND_USD`;
-    const rate = Number(env[rateKey]);
+    const refs = input.referenceImages || [];
+    if (spec.kind === "image" && refs.length !== 1) fail("INVALID_REFERENCES", "This model requires one composed Shot Start Frame.");
+    if (spec.kind === "text" && refs.length) fail("INVALID_REFERENCES", "Text to video does not take image references.");
+    if (spec.kind === "motion") {
+      if (!refs.length || refs.length > 8) fail("INVALID_REFERENCES", "Motion transfer needs one to eight reference images.");
+      if (input.referenceVideos?.length !== 1) fail("INVALID_REFERENCES", "Motion transfer needs one HTTPS reference video URL.");
+      safeUrl(input.referenceVideos[0]?.url);
+    }
+    const sound = input.generateAudio === false ? "SILENT" : "AUDIO";
+    const rateKey = spec.kind === "motion"
+      ? `${spec.price}_${input.resolution}_RATE_PER_SECOND_USD`.toUpperCase()
+      : spec.price === "HIGGSFIELD_SEEDANCE25"
+        ? `${spec.price}_${input.resolution}_${sound}_RATE_PER_SECOND_USD`.toUpperCase()
+        : `${spec.price}_${sound}_RATE_PER_SECOND_USD`;
+    // Published pre-discount rates provide a usable quote with only HF_CREDENTIALS.
+    // Explicit Worker variables override these when the owner's account differs.
+    const publishedRate = spec.kind === "motion"
+      ? { "480p": 0.318, "720p": 0.681 }[input.resolution]
+      : spec.price === "HIGGSFIELD_SEEDANCE25"
+        ? Number((Math.ceil((input.resolution === "480p" ? 854 * 480 : 1280 * 720) * 24 / 1024) * 0.0214 / 1000).toFixed(5))
+        : spec.price === "HIGGSFIELD_KLING3_PRO"
+          ? (input.generateAudio === false ? 0.112 : 0.168)
+          : (input.generateAudio === false ? 0.084 : 0.126);
+    const rate = Number(env[rateKey] ?? publishedRate);
     if (!Number.isFinite(rate) || rate <= 0) fail("PROVIDER_CONFIG", `${rateKey} must match your current Higgsfield console rate.`, 503);
-    return { estimatedCost: Number((input.duration * rate).toFixed(4)), currency: "USD", ratePerSecond: rate, priceBasis: "operator-configured-higgsfield-rate" };
+    return { estimatedCost: Number((input.duration * rate).toFixed(4)), currency: "USD", ratePerSecond: rate, priceBasis: env[rateKey] == null ? "published-pre-discount-estimate" : "operator-configured-higgsfield-rate" };
   }
   return {
     capabilities: {
-      id, label: `Higgsfield · Kling 3.0 ${tier === "pro" ? "Pro" : "Standard"}`, model,
-      paid: true, providerFamily: "higgsfield", durations: [5, 10], resolutions: [resolution],
-      aspectRatios: ["16:9", "9:16"], maxReferences: 1, referenceImages: true,
-      audio: true, generateAudio: true, cancelRunning: false,
-      ledgerRoutes: { [resolution]: id },
-      uiHint: "One composed start frame. Output framing follows your image; use an image matching the selected aspect ratio. Prices require current audio-specific console rates.",
+      id, label: `Higgsfield · ${spec.label}`, model, inputKind: spec.kind,
+      paid: true, providerFamily: "higgsfield", durations: spec.durations, resolutions: spec.resolutions,
+      aspectRatios: ["16:9", "9:16"], maxReferences: spec.kind === "motion" ? 8 : spec.kind === "image" ? 1 : 0,
+      referenceImages: spec.kind !== "text", requiresStartFrame: spec.kind === "image",
+      requiresVideoUrl: spec.kind === "motion", audio: spec.kind !== "motion", generateAudio: spec.kind !== "motion", cancelRunning: false,
+      ledgerRoutes: Object.fromEntries(spec.resolutions.map(resolution => [resolution, id])),
+      uiHint: spec.kind === "motion" ? "Paste a public HTTPS clip URL and choose character images. Match Source duration to the clip for the cost quote." : spec.kind === "image" ? "One composed Shot Start Frame. Match its framing to the aspect ratio." : "Text only; no start frame is sent.",
     },
     estimate,
     async start(input) {
-      if (!higgsfieldLiveEnabled(env)) fail("LIVE_DISABLED", "Higgsfield live rendering is disabled.", 403);
       const headers = auth(env);
       estimate(input);
-      const ref = input.referenceImages[0];
+      const imageUrls = [];
+      for (const ref of input.referenceImages || []) {
       const upload = await (await checked(await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
         method: "POST", headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ content_type: ref.mimeType }), redirect: "error",
@@ -61,19 +92,29 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, tier = "pr
       for (const name of Object.keys(uploadHeaders)) if (/authorization|cookie/i.test(name)) delete uploadHeaders[name];
       await checked(await fetchImpl(uploadUrl, { method: "PUT", headers: uploadHeaders,
         body: Uint8Array.from(atob(ref.data), c => c.charCodeAt(0)), redirect: "error" }), "image upload");
+      imageUrls.push(imageUrl);
+      }
+      const payload = spec.kind === "motion"
+        ? { prompt: input.prompt, video_url: safeUrl(input.referenceVideos[0].url), image_urls: imageUrls, resolution: input.resolution }
+        : spec.price === "HIGGSFIELD_SEEDANCE25"
+          ? { prompt: input.prompt, duration: input.duration, resolution: input.resolution,
+              ...(spec.kind === "image" ? { image_url: imageUrls[0] } : { aspect_ratio: input.aspectRatio }),
+              output_format: "mp4", generate_audio: input.generateAudio !== false }
+          : { ...(spec.kind === "image" ? { image_url: imageUrls[0] } : { aspect_ratio: input.aspectRatio }),
+              prompt: input.prompt, duration: input.duration, sound: input.generateAudio === false ? "off" : "on",
+              cfg_scale: 0.5, multi_shots: false };
       // A lost or malformed submission response may still represent a billed job.
       try {
         const response = await fetchImpl(`${ORIGIN}/${model}`, {
           method: "POST", headers: { ...headers, "Content-Type": "application/json" }, redirect: "error",
-          body: JSON.stringify({ image_url: imageUrl, prompt: input.prompt, duration: input.duration,
-            sound: input.generateAudio === false ? "off" : "on", cfg_scale: 0.5, multi_shots: false }),
+          body: JSON.stringify(payload),
         });
         if (!response.ok && response.status >= 400 && response.status < 500) await checked(response, "submission");
         if (!response.ok) throw new Error("Unknown submission outcome");
-        const payload = await response.json();
-        if (!/^[a-f0-9-]{36}$/i.test(payload.request_id)) throw new Error("Missing request ID");
-        const statusUrl = safeUrl(payload.status_url, true);
-        if (new URL(statusUrl).pathname !== `/requests/${payload.request_id}/status`) throw new Error("Mismatched status URL");
+        const result = await response.json();
+        if (!/^[a-f0-9-]{36}$/i.test(result.request_id)) throw new Error("Missing request ID");
+        const statusUrl = safeUrl(result.status_url, true);
+        if (new URL(statusUrl).pathname !== `/requests/${result.request_id}/status`) throw new Error("Mismatched status URL");
         return { operationId: statusUrl, costBasis: "higgsfield-configured-rate-estimate" };
       } catch (error) {
         if (error.code === "HIGGSFIELD_API_ERROR") throw error;

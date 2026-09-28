@@ -109,8 +109,11 @@ export default function RenderPanel({
   const isYardVeo = project.id === YARD_PROJECT_ID && provider === "veo-fast";
   const isVeoStartFrame = provider === "veo-fast" && Boolean(shot.startFrame?.key);
   const [higgsfieldAudio, setHiggsfieldAudio] = useState(false);
+  const [referenceVideoUrl, setReferenceVideoUrl] = useState("");
   const isHiggsfield = String(provider).startsWith("higgsfield-");
-  const usesStartFrame = isHiggsfield || isLtx || isYardVeo || isVeoStartFrame;
+  const isHiggsfieldMotion = capabilities?.inputKind === "motion";
+  const isHiggsfieldText = capabilities?.inputKind === "text";
+  const usesStartFrame = Boolean(capabilities?.requiresStartFrame) || isLtx || isYardVeo || isVeoStartFrame;
   const enemiesVeo = project.id === "enemies-closer-ep01" && provider === "veo-fast";
   const enemiesPro = project.id === "enemies-closer-ep01" && provider === "ltx-2.5-pro";
   const remainingYardShot = ["LAMAR", "SOUTHERN", "DRONE", "ALCORN", "SPK"].includes(shot.id);
@@ -140,9 +143,10 @@ export default function RenderPanel({
     if (usesStartFrame && shot.startFrame?.key) setSelected([shot.startFrame.key]);
   }, [usesStartFrame, shot.startFrame?.key]);
   async function input() {
-    if (isHiggsfield && !shot.startFrame?.key) throw new Error("Upload a composed Shot Start Frame for Higgsfield.");
+    if (capabilities?.requiresStartFrame && !shot.startFrame?.key) throw new Error("Upload a composed Shot Start Frame for this model.");
+    if (isHiggsfieldMotion && !/^https:\/\/[^\s]+$/i.test(referenceVideoUrl)) throw new Error("Paste a public HTTPS reference video URL.");
     // Fail closed when local metadata points to missing blobs before any paid submission.
-    if (capabilities?.paid) {
+    if (capabilities?.paid && !isHiggsfield) {
       for (const c of characters)
         for (const r of Object.values(c.refs || {})) {
           if (r.assetUrl || String(r.key || "").startsWith("library:")) continue;
@@ -175,6 +179,7 @@ export default function RenderPanel({
       resolution,
       aspectRatio,
       referenceImages: inline,
+      ...(isHiggsfieldMotion ? { referenceVideos: [{ url: referenceVideoUrl.trim() }] } : {}),
       ...(provider === "veo-fast" ? { referenceMode: usesStartFrame ? "start-frame" : "reference-images" } : {}),
       generateAudio: isHiggsfield ? higgsfieldAudio : String(provider).startsWith("seedance-") ? true : undefined,
       characterIds: characters.map((c) => c.id),
@@ -225,6 +230,7 @@ export default function RenderPanel({
   }, [
     provider,
     higgsfieldAudio,
+    referenceVideoUrl,
     duration,
     resolution,
     aspectRatio,
@@ -278,26 +284,26 @@ export default function RenderPanel({
         : String(provider).startsWith("ltx-2.5-")
           ? "LTX live rendering is disabled on the server."
         : "Live rendering is disabled on the server."
-      : !continuity.ready
+      : !continuity.ready && !isHiggsfield
         ? "Complete and lock the Character Bible first."
-        : !(project.id === YARD_PROJECT_ID && remainingYardShot) &&
+        : !isHiggsfield && !(project.id === YARD_PROJECT_ID && remainingYardShot) &&
             !(enemiesVeo && isVeoStartFrame) &&
             !enemiesPro &&
             (!scene?.animaticLocked || !shot.economy?.animaticApproved)
           ? "Approve shot timing and lock the scene animatic first."
-          : (project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro) && pendingPaidTake
+          : (project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro || isHiggsfield) && pendingPaidTake
             ? "A paid take is still in progress for this shot. Check its result before another submission."
-          : (project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro) && uncertainTake && acknowledgedUncertainId !== uncertainTake.id
+          : (project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro || isHiggsfield) && uncertainTake && acknowledgedUncertainId !== uncertainTake.id
             ? "Review the uncertain take and acknowledge the possible additional charge before submitting another."
           : usesStartFrame && !shot.startFrame?.key
             ? "Upload a composed Shot Start Frame before submitting image-to-video."
-          : characters.length &&
+          : !isHiggsfieldText && characters.length &&
               !selected.length &&
               !quote?.debug?.selectedAssetIds?.length
             ? "Select character reference images."
-            : paidAttempts >= (shot.economy?.maxAttempts || 2)
+            : !isHiggsfield && paidAttempts >= (shot.economy?.maxAttempts || 2)
               ? "Shot attempt limit reached."
-              : shotSpend + (quote?.estimatedCost || 0) >
+              : !isHiggsfield && shotSpend + (quote?.estimatedCost || 0) >
                   (shot.economy?.shotCap ?? 0)
                 ? "Shot cost ceiling would be exceeded."
                 : "";
@@ -487,7 +493,8 @@ export default function RenderPanel({
   return (
     <section className="renderPanel">
       <h3>Generate Take</h3>
-      {isHiggsfield && <label><input type="checkbox" checked={higgsfieldAudio} onChange={(e) => setHiggsfieldAudio(e.target.checked)} /> Generate audio with Higgsfield</label>}
+      {isHiggsfield && capabilities?.audio && <label><input type="checkbox" checked={higgsfieldAudio} onChange={(e) => setHiggsfieldAudio(e.target.checked)} /> Generate audio with Higgsfield</label>}
+      {isHiggsfieldMotion && <label>Reference video URL <input type="url" aria-label="Reference video URL" placeholder="https://…/clip.mp4" value={referenceVideoUrl} onChange={(e) => setReferenceVideoUrl(e.target.value)} /></label>}
       <div className="formGrid two">
         <label>
           Renderer
@@ -567,6 +574,10 @@ export default function RenderPanel({
         Final edit: {shot.sec}s. {isDrawThingsLocal ? "Still-image source. " : `Source clip: ${duration}s. `}
         {usesStartFrame
           ? "This renderer sends the composed Shot Start Frame as the opening image. Character Bible photos remain continuity references."
+          : isHiggsfieldText
+          ? "This model generates video from the shot prompt without sending character images."
+          : isHiggsfieldMotion
+          ? "This model transfers motion from the reference clip using the selected character images."
           : "The worker selects the Primary Identity image plus supporting library photos for this shot. Manual PNG/JPEG boxes remain for older Bible uploads."}
         {isDrawThingsLocal
           ? " Draw Things can use up to three identity and wardrobe references. The files are downloaded to this Mac and never transmitted by the adapter."
@@ -576,7 +587,7 @@ export default function RenderPanel({
           ? usesStartFrame
             ? " Google Veo Fast uses the composed Shot Start Frame as frame one. Its 1080p output requires an 8-second source; select the best moments in the edit."
             : " Upload a composed Shot Start Frame for image-to-video. Without one, Veo uses up to 3 selected PNG/JPEG images as references, not frame one."
-          : isHiggsfield
+          : isHiggsfield && usesStartFrame
             ? " Higgsfield animates your composed start frame. Match its framing to the selected aspect ratio."
           : isLtx
             ? " LTX uses the dedicated composed Shot Start Frame as frame one. Character Bible portraits remain continuity references and are not substituted for the opening frame."
@@ -587,7 +598,7 @@ export default function RenderPanel({
       {enemiesVeo && (shot.characters || []).includes("mikey") && (
         <p className="sub">Google Veo image-based people generation is limited to adults. Use LTX Pro with the approved start frame for Mikey shots.</p>
       )}
-      {refs.map((ref) => (
+      {!isHiggsfieldText && refs.map((ref) => (
         <label key={ref.key} className="checkLabel">
           <input
             type="checkbox"
@@ -645,12 +656,12 @@ export default function RenderPanel({
       <p aria-live="polite">
         {isManualProvider ? "Film Studio charge: " : "Estimated render cost: "}
         <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : "Checking…"}</b>
-        {quote && !isManualProvider &&
+      {quote && !isManualProvider && !isHiggsfield &&
           (project.id === YARD_PROJECT_ID
             ? ` · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`
             : ` · Session ceiling $${quote.policy.sessionCeiling.toFixed(2)} · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`)}
       </p>
-      {(project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro) && uncertainTake && (
+      {(project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro || isHiggsfield) && uncertainTake && (
         <label className="checkLabel">
           <input
             type="checkbox"
