@@ -551,6 +551,7 @@ test("Veo adapter maps prompt, reference bytes, duration, aspect, resolution and
   assert.equal(payload.parameters.durationSeconds, 8);
   assert.equal(payload.parameters.aspectRatio, "16:9");
   assert.equal(payload.parameters.resolution, "720p");
+  assert.equal(calls[0].init.redirect, "manual");
   assert.equal(calls[0].url.includes("fake"), false);
   await assert.rejects(p.cancel({}), /does not guarantee cancellation/);
   assert.throws(
@@ -651,6 +652,7 @@ test("Yard uncertain Google take keeps its reservation and requires explicit ack
 test("paused Veo rejects paid starts while the read-only connectivity probe checks Google", async (t) => {
   const network = t.mock.method(globalThis, "fetch", async (_url, init) => {
     assert.equal(init.method, "GET");
+    assert.equal(init.redirect, "manual");
     return Response.json({ models: [] });
   });
   const previous = { ...env };
