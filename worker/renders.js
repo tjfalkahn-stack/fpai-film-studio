@@ -374,7 +374,7 @@ function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
   if (input.provider === "veo-fast" && env.VEO_NEW_SUBMISSIONS_PAUSED === "true")
     fail("VEO_PAUSED", "New Google Veo submissions are paused while two uncertain outcomes are investigated. LTX Pro remains available.", 503);
-  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && !yardTrialFor(input.shotId, input.provider))
+  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && !isHiggsfieldProvider(input.provider) && !yardTrialFor(input.shotId, input.provider))
     fail("YARD_RENDER_GATE", "The Yard paid renderer is gated until its controlled test and current spend quote are approved.", 403);
   if (provider.capabilities.manual)
     fail(
@@ -534,7 +534,7 @@ async function create(request, env) {
   if (!isHiggsfieldProvider(input.provider) && quote.estimatedCost > policy.singleCeiling)
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
-  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid) authorizeYardJob(input, quote, env);
+  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && !isHiggsfieldProvider(input.provider)) authorizeYardJob(input, quote, env);
   if (isLtxProvider(input.provider)) authorizeLtxJob(input, quote, env);
   const hash = await sha(JSON.stringify(input));
   // Yard takes share the project ceiling. The session ceiling for the other
