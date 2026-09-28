@@ -51,6 +51,16 @@ test("ambiguous submissions retain spending reservations; rejection does not lea
   }
   await assert.rejects(createHiggsfieldProvider(env,mock(async()=>new Response("secret",{status:401}))).start(input), e=>!e.uncertain&&!e.message.includes("secret"));
 });
+test("successful submissions poll by validated request ID even when status URL differs", async () => {
+  for (const status_url of [undefined, "https://other.example/requests/private/status", "https://api.higgsfield.ai/requests/other/status"]) {
+    const provider = createHiggsfieldProvider(env, mock(async () => Response.json({ request_id: requestId, status_url })));
+    assert.equal((await provider.start(input)).operationId, statusUrl);
+  }
+  await assert.rejects(
+    createHiggsfieldProvider(env, mock(async () => Response.json({ request_id: "../../private", status_url: statusUrl }))).start(input),
+    error => error.uncertain === true && error.message.includes("without a valid request ID"),
+  );
+});
 test("image upload transport failure does not mark an unsubmitted video as billable", async () => {
   let submissions = 0;
   const provider = createHiggsfieldProvider(env, async (url) => {
