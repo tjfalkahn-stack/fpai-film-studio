@@ -80,6 +80,7 @@ import { DEFAULT_SEEDANCE_RATES } from "./seedancePricing.js";
 import "./styles.css";
 import { approveTakeState, updateTakeState } from "./takeReview.js";
 import RenderPanel from "./RenderPanel.jsx";
+import QuickCreate from "./QuickCreate.jsx";
 import { renderRequest, mergeRender } from "./renderClient.js";
 import FilmEngine from "./FilmEngine.jsx";
 import ReferenceLibrary from "./ReferenceLibrary.jsx";
@@ -396,7 +397,7 @@ function Media({ mediaKey, type = "image", remoteUrl, assetUrl }) {
 
 function App() {
   const [data, setData, switchProduction] = useData();
-  const [tab, setTab] = useState("Overview");
+  const [tab, setTab] = useState("Create Video");
   const [characterId, setCharacterId] = useState(null);
   const [shotId, setShotId] = useState(null);
   const [packageShotId, setPackageShotId] = useState(null);
@@ -434,8 +435,8 @@ function App() {
   }, [data.project.id]);
 
   const tabs = data.project.id === YARD_PROJECT_ID
-    ? ["Overview", "Economy", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"]
-    : ["Overview", "Film Engine", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
+    ? ["Create Video", "Overview", "Economy", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"]
+    : ["Create Video", "Overview", "Film Engine", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
   const character = data.characters.find((item) => item.id === characterId) || null;
   const shot = data.shots.find((item) => item.id === shotId) || null;
   const packageShot = data.shots.find((item) => item.id === packageShotId) || null;
@@ -826,6 +827,7 @@ function App() {
 
   const navIcon = (name) => {
     const icons = {
+      "Create Video": Video,
       Overview: Film,
       Economy: PiggyBank,
       Characters: Users,
@@ -849,7 +851,7 @@ function App() {
           <div><b>FPAI</b><span>FILM STUDIO v1.2</span></div>
         </div>
         <label className="productionPicker">PRODUCTION
-          <select value={data.project.id} onChange={(event) => { setShotId(null); setCharacterId(null); setPackageShotId(null); setRenders([]); setTab("Overview"); switchProduction(event.target.value); }}>
+          <select value={data.project.id} onChange={(event) => { setShotId(null); setCharacterId(null); setPackageShotId(null); setRenders([]); setTab("Create Video"); switchProduction(event.target.value); }}>
             <option value={PROJECT_ID}>Enemies Closer</option>
             <option value={YARD_PROJECT_ID}>The Yard Is Home</option>
           </select>
@@ -868,7 +870,7 @@ function App() {
       </aside>
 
       <main className="workspace">
-        <header className="topbar">
+        {tab !== "Create Video" && <header className="topbar">
           <div>
             <span className="eyebrow">ACTIVE PRODUCTION</span>
             <h1>{data.project.title}</h1>
@@ -878,9 +880,9 @@ function App() {
             <button className="ghost" onClick={() => setTab("Shots")}><Search /> Find shot</button>
             <button className="primary" onClick={() => setTab("Shots")}><Camera /> Open Shots</button>
           </div>
-        </header>
+        </header>}
 
-        {tab !== "Economy" && tab !== "Overview" && (
+        {tab !== "Create Video" && tab !== "Economy" && tab !== "Overview" && (
           <section className="metrics">
             <Metric label={data.project.id === YARD_PROJECT_ID ? "START FRAMES" : "CAST LOCKED"} value={data.project.id === YARD_PROJECT_ID ? `${data.shots.filter(item => item.startFrame?.key).length}/${data.shots.length}` : `${lockedCast}/4`} detail={data.project.id === YARD_PROJECT_ID ? "Ready for shot review" : "Principal cast"} />
             <Metric label="GENERATION FORECAST" value={formatMoney(economySummary.forecast.forecast)} detail={`${economySummary.forecast.savingsPercent}% below naive`} tone="economy" />
@@ -889,6 +891,7 @@ function App() {
           </section>
         )}
 
+        {tab === "Create Video" && <QuickCreate key={data.project.id} projectId={data.project.id} renders={renders} onRender={receiveRender} />}
         {tab === "Film Engine" && <FilmEngine production={data} onCast={() => setTab('Characters')} />}
         {tab === "Overview" && data.project.id === YARD_PROJECT_ID && (
           <section className="panel">

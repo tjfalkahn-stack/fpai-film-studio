@@ -135,6 +135,36 @@ test("live disabled blocks both render API and legacy paid route before network;
   );
   assert.equal(network.mock.callCount(), 0);
 });
+test("a direct photo render queues without a preset shot or Yard trial", async (t) => {
+  const network = noNetwork(t);
+  const created = [];
+  env.HF_CREDENTIALS = "test-id:test-secret";
+  try {
+    for (const projectId of ["enemies-closer-ep01", YARD_PROJECT_ID]) {
+      const request = body(undefined, {
+        projectId, sceneId: "CREATE", shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`,
+        provider: "higgsfield-kling-3-standard", duration: 5,
+        referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+        generateAudio: false,
+        continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+      });
+      const quote = await call("/api/renders", { ...request, estimateOnly: true });
+      assert.equal(quote.response.status, 200);
+      const submitted = await call("/api/renders", { ...request, acceptedCost: quote.data.estimatedCost });
+      assert.equal(submitted.response.status, 202);
+      assert.equal(submitted.data.render.status, "queued");
+      assert.equal(submitted.data.render.sceneId, "CREATE");
+      created.push(submitted.data.render.id);
+    }
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    for (const id of created) {
+      await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
+      await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
+    }
+    delete env.HF_CREDENTIALS;
+  }
+});
 test("Enemies Closer Veo quotes an explicit composed start frame and rejects ambiguous inputs before spend", async (t) => {
   const network = noNetwork(t);
   const request = body(undefined, {
