@@ -49,7 +49,7 @@ jobs:
           RENDER_SESSION_CEILING_USD = "1.10"
           RENDER_SESSION_ID = "ltx-first-controlled-test"
           MAX_SINGLE_JOB_USD = "1.10"
-          VEO_NEW_SUBMISSIONS_PAUSED = "true"
+          VEO_NEW_SUBMISSIONS_PAUSED = "false"
           LTX_FAST_720P_RATE_PER_SECOND_USD = "0.09"
           LTX_FAST_1080P_RATE_PER_SECOND_USD = "0.13"
           LTX_PRO_720P_RATE_PER_SECOND_USD = "0.12"
@@ -90,18 +90,6 @@ jobs:
 
       - name: Deploy video adapter
         run: npx wrangler deploy --config wrangler.deploy.toml --keep-vars
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
-
-      - name: Reconcile two pre-submit Lamar Veo rows
-        run: |
-          npx wrangler d1 execute fpai-film-studio-generation --remote --config wrangler.deploy.toml \
-            --command "SELECT id,status,reserved_cost,operation_id FROM renders WHERE id IN ('dbaab1be-09ea-4980-bb6e-951d673a2fa3','7e558685-ccb4-4a73-b804-5a414cdc7848')"
-          npx wrangler d1 execute fpai-film-studio-generation --remote --config wrangler.deploy.toml \
-            --file scripts/reconcile-yard-veo-preflight-20260927.sql
-          npx wrangler d1 execute fpai-film-studio-generation --remote --config wrangler.deploy.toml \
-            --command "SELECT id,status,reserved_cost,actual_cost,cost_basis FROM renders WHERE id IN ('dbaab1be-09ea-4980-bb6e-951d673a2fa3','7e558685-ccb4-4a73-b804-5a414cdc7848')"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"

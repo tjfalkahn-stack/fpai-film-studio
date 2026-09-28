@@ -576,6 +576,27 @@ test("Yard Veo uses its single composed still as the initial frame", async () =>
   assert.equal(payload.parameters.durationSeconds, 8);
   assert.equal(payload.parameters.resolution, "1080p");
 });
+test("Veo video download follows only a validated Google redirect using Workers manual mode", async () => {
+  const calls = [];
+  const provider = createVeoProvider(
+    { LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", GEMINI_API_KEY: "fake" },
+    async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (calls.length === 1)
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://video.googleusercontent.com/download/test" },
+        });
+      return new Response(new Uint8Array([0, 1, 2]), { status: 200 });
+    },
+  );
+  const response = await provider.asset({ asset_json: JSON.stringify({ uri: "https://generativelanguage.googleapis.com/v1beta/files/test" }) });
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].init.redirect, "manual");
+  assert.equal(calls[1].init.redirect, "manual");
+  assert.equal(calls[1].init.headers, undefined);
+});
 test("ambiguous Veo start retains reservation and cannot be retried or canceled as free", async (t) => {
   t.mock.method(globalThis, "fetch", () => {
     throw new Error("simulated lost response");
