@@ -412,6 +412,7 @@ test("remaining Yard shots allow reviewed retakes across Pro and Google within t
     const spokesperson = await call("/api/renders", {
       ...base, shotId: "SPK", provider: "ltx-2.5-pro", duration: 6,
       acceptedCost: 1.02, requestKey: crypto.randomUUID(),
+      continuity: { ready: true, animaticLocked: false, timingApproved: false, hasCharacters: false },
     });
     assert.equal(spokesperson.response.status, 202, JSON.stringify(spokesperson.data));
     assert.equal(network.mock.callCount(), 0);

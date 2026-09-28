@@ -367,11 +367,12 @@ function liveGate(input, provider, env) {
       403,
     );
   const c = input.continuity;
+  const approvedYardShot = input.projectId === YARD_PROJECT_ID &&
+    YARD_REMAINING_SHOTS.includes(input.shotId) && Boolean(yardTrialFor(input.shotId, input.provider));
   if (
     !c ||
     c.ready !== true ||
-    c.animaticLocked !== true ||
-    c.timingApproved !== true
+    (!approvedYardShot && (c.animaticLocked !== true || c.timingApproved !== true))
   )
     fail(
       "CONTINUITY_BLOCKED",
