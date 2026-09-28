@@ -5,6 +5,15 @@ const BASE = "https://generativelanguage.googleapis.com/v1beta/";
 const MODEL = "veo-3.1-fast-generate-preview";
 const RATES = { "720p": 0.1, "1080p": 0.12 };
 
+function httpHint(status) {
+  if (status === 400) return "Check the selected input mode, images, duration, and resolution.";
+  if (status === 401 || status === 403) return "Check the Gemini key, project access, billing, and region eligibility.";
+  if (status === 404) return "Check that this Google model or operation is available to the configured project.";
+  if (status === 429) return "Google quota or rate limit was reached. Check quota before another take.";
+  if (status >= 500) return "Google has a service error; reconcile a submitted take before retrying.";
+  return "Check the Google provider connection.";
+}
+
 export function createVeoProvider(env, fetchImpl = fetch) {
   const enabled = () => {
     if (
@@ -32,7 +41,7 @@ export function createVeoProvider(env, fetchImpl = fetch) {
       if (!response.ok)
         throw new ProviderError(
           "PROVIDER_HTTP",
-          `Google returned HTTP ${response.status}.`,
+          `Google returned HTTP ${response.status}. ${httpHint(response.status)}`,
           {
             httpStatus: 502,
             retryable: response.status === 429 || response.status >= 500,
@@ -44,7 +53,9 @@ export function createVeoProvider(env, fetchImpl = fetch) {
       if (error instanceof ProviderError) throw error;
       throw new ProviderError(
         "PROVIDER_TRANSPORT",
-        "Google's submission response was lost. This take may still be charged; a new take could add another charge.",
+        init.method === "POST"
+          ? "Google's submission response was lost. This take may still be charged; a new take could add another charge."
+          : "Google's status response could not be read. Retry status for the existing take; do not submit a replacement.",
         { httpStatus: 502, retryable: true, uncertain: init.method === "POST" },
       );
     }
@@ -60,6 +71,7 @@ export function createVeoProvider(env, fetchImpl = fetch) {
       resolutions: ["720p", "1080p"],
       aspectRatios: ["16:9", "9:16"],
       maxReferences: 3,
+      referenceModes: ["reference-images", "start-frame"],
       cancelRunning: false,
       forceEightSecondSource: true,
     },
@@ -71,7 +83,13 @@ export function createVeoProvider(env, fetchImpl = fetch) {
     }),
     async start(input) {
       const instance = { prompt: input.prompt };
-      if (input.projectId === YARD_PROJECT_ID && input.referenceImages.length === 1) {
+      if (input.referenceMode && !["reference-images", "start-frame"].includes(input.referenceMode))
+        fail("UNSUPPORTED_INPUT", "Unsupported Veo image input mode.");
+      const usesStartFrame = input.referenceMode === "start-frame" ||
+        (input.projectId === YARD_PROJECT_ID && input.referenceImages.length === 1);
+      if (usesStartFrame && input.referenceImages.length !== 1)
+        fail("INVALID_REFERENCES", "Veo start-frame mode requires exactly one composed shot image.");
+      if (usesStartFrame) {
         const ref = input.referenceImages[0];
         instance.image = { inlineData: { mimeType: ref.mimeType, data: ref.data } };
       } else if (input.referenceImages.length)
