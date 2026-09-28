@@ -12,7 +12,7 @@ export const HIGGSFIELD_MODELS = Object.freeze({
   "higgsfield-genjutsu-motion": { model: "higgsfield/genjutsu/motion-transfer/v1.0", label: "Genjutsu · motion transfer", kind: "motion", resolutions: ["720p", "480p", "1080p"], durations: seconds(1, 30), price: "HIGGSFIELD_GENJUTSU" },
 });
 export const isHiggsfieldProvider = (id) => Object.hasOwn(HIGGSFIELD_MODELS, id);
-export const higgsfieldConfigured = (env) => /^[^\s:]+:[^\s:]+$/.test(String(env.HF_CREDENTIALS || ""));
+export const higgsfieldConfigured = (env) => /^[^\s:]+:[^\s:]+$/.test(String(env.HF_CREDENTIALS || "").trim());
 export const higgsfieldLiveEnabled = (env) => higgsfieldConfigured(env);
 
 function safeUrl(value, api = false) {
@@ -27,7 +27,7 @@ function safeUrl(value, api = false) {
 }
 function auth(env) {
   if (!higgsfieldConfigured(env)) fail("PROVIDER_CONFIG", "Set the server HF_CREDENTIALS secret to KEY_ID:KEY_SECRET.", 503);
-  return { Authorization: `Key ${env.HF_CREDENTIALS}` };
+  return { Authorization: `Key ${String(env.HF_CREDENTIALS).trim()}` };
 }
 async function checked(response, stage) {
   if (!response.ok) throw new ProviderError("HIGGSFIELD_API_ERROR", `Higgsfield ${stage} failed (HTTP ${response.status}).`, { httpStatus: 502, retryable: response.status >= 500 });
