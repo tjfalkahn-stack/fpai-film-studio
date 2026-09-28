@@ -25,10 +25,11 @@ test("Higgsfield registers model-specific routes and separates audio pricing", (
   assert.equal(providerLiveEnabled(p.capabilities.id, {...env, HF_CREDENTIALS:" test-id:test-secret\n"}), true);
   assert.deepEqual(renderReferenceKeys({provider:p.capabilities.id, startFrameKey:"shot", selected:["portrait"]}), ["shot"]);
 });
-test("readiness distinguishes a missing credential from a malformed existing secret", () => {
+test("readiness accepts a complete opaque API key and rejects whitespace", () => {
   assert.equal(config({}).higgsfieldCredentialPresent, false);
   assert.equal(config({ HF_CREDENTIALS: "one-key-only" }).higgsfieldCredentialPresent, true);
-  assert.equal(config({ HF_CREDENTIALS: "one-key-only" }).higgsfieldConfigured, false);
+  assert.equal(config({ HF_CREDENTIALS: "one-key-only" }).higgsfieldConfigured, true);
+  assert.equal(config({ HF_CREDENTIALS: "Key one-key-only" }).higgsfieldConfigured, false);
   assert.equal(config({ HF_CREDENTIALS: "test-id:test-secret" }).higgsfieldConfigured, true);
 });
 test("Higgsfield uploads bytes without credential forwarding and submits documented body", async () => {
@@ -40,8 +41,8 @@ test("Higgsfield uploads bytes without credential forwarding and submits documen
   assert.equal(calls[2].headers.Authorization,"Key test-id:test-secret");
   assert.deepEqual(JSON.parse(calls[2].body),{image_url:"https://cdn.example.com/input.png",prompt:"Cinema shot",duration:5,sound:"off",cfg_scale:0.5,multi_shots:false});
   const pastedCalls=[];
-  await createHiggsfieldProvider({...env,HF_CREDENTIALS:" test-id:test-secret\n"},mock(async()=>Response.json({request_id:requestId,status_url:statusUrl}),pastedCalls)).start(input);
-  assert.equal(pastedCalls[2].headers.Authorization,"Key test-id:test-secret");
+  await createHiggsfieldProvider({...env,HF_CREDENTIALS:" one-key-only\n"},mock(async()=>Response.json({request_id:requestId,status_url:statusUrl}),pastedCalls)).start(input);
+  assert.equal(pastedCalls[2].headers.Authorization,"Key one-key-only");
 });
 test("ambiguous submissions retain spending reservations; rejection does not leak response", async () => {
   for(const run of [async()=>{throw Error("lost")},async()=>new Response("bad",{status:502}),async()=>Response.json({})]) {

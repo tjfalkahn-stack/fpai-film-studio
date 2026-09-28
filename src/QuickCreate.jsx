@@ -170,7 +170,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
           </div>
           {isMotion && <small>The reference clip must be publicly reachable. Set the length to that clip’s rounded-up duration.</small>}
           {catalog && !catalog.policy?.higgsfieldConfigured && <p className="validation">{catalog.policy?.higgsfieldCredentialPresent
-            ? <>The video adapter has <b>HF_CREDENTIALS</b>, but its value is not in <b>KEY_ID:KEY_SECRET</b> format. Edit the existing secret and deploy the change.</>
+            ? <>The video adapter has <b>HF_CREDENTIALS</b>, but its value contains spaces or is otherwise unusable. Edit the existing secret to the complete key copied from Higgsfield and deploy the change.</>
             : <>The video adapter cannot see <b>HF_CREDENTIALS</b>. Check that the existing secret is on <b>fpai-film-studio-video-adapter</b>, then deploy the change in Cloudflare.</>}</p>}
           {catalog?.policy?.higgsfieldConfigured && !catalog.policy?.executionStorageReady && <p className="validation">Higgsfield is configured, but render storage or the adapter control token is unavailable.</p>}
           {uncertain && <label className="checkLabel"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> A previous request has an uncertain provider outcome. I understand a new render may add another charge.</label>}
