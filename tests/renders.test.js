@@ -165,6 +165,70 @@ test("a direct photo render queues without a preset shot or Yard trial", async (
     delete env.HF_CREDENTIALS;
   }
 });
+test("unavailable stored picture releases the quote before any paid provider call", async (t) => {
+  const network = noNetwork(t);
+  const bucket = env.GENERATION_MEDIA;
+  env.HF_CREDENTIALS = "test-id:test-secret";
+  let id;
+  try {
+    const request = body(undefined, {
+      sceneId: "CREATE", shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`,
+      provider: "higgsfield-seedance-2.5-image", duration: 5,
+      referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+      generateAudio: true,
+      continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+    });
+    const quote = await call("/api/renders", { ...request, estimateOnly: true });
+    const created = await call("/api/renders", { ...request, acceptedCost: quote.data.estimatedCost });
+    assert.equal(created.response.status, 202);
+    id = created.data.render.id;
+    env.GENERATION_MEDIA = { get: async () => { throw new Error("storage unavailable"); } };
+    const checked = await call(`/api/renders/${id}`);
+    assert.equal(checked.data.render.status, "failed");
+    assert.equal(checked.data.render.actualCost, 0);
+    assert.equal(checked.data.render.reservedCost, 0);
+    assert.equal(checked.data.render.error.code, "RENDER_INPUT_UNAVAILABLE");
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    env.GENERATION_MEDIA = bucket;
+    if (id) {
+      await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
+      await bucket.delete(`render-inputs/${id}.json`);
+    }
+    delete env.HF_CREDENTIALS;
+  }
+});
+test("direct video acknowledgement allows a new shot after an unrelated uncertain take", async (t) => {
+  const network = noNetwork(t);
+  env.HF_CREDENTIALS = "test-id:test-secret";
+  const created = [];
+  try {
+    const first = body(undefined, {
+      sceneId: "CREATE", shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`,
+      provider: "higgsfield-seedance-2.5-image", duration: 5,
+      referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+      generateAudio: true,
+      continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+    });
+    const quote = await call("/api/renders", { ...first, estimateOnly: true });
+    const original = await call("/api/renders", { ...first, acceptedCost: quote.data.estimatedCost });
+    assert.equal(original.response.status, 202);
+    created.push(original.data.render.id);
+    await db.prepare("UPDATE renders SET status='uncertain' WHERE id=?").bind(original.data.render.id).run();
+    const second = { ...first, shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`, requestKey: crypto.randomUUID(), acknowledgeUncertainRenderId: original.data.render.id };
+    const retried = await call("/api/renders", { ...second, acceptedCost: quote.data.estimatedCost });
+    assert.equal(retried.response.status, 202, JSON.stringify(retried.data));
+    assert.equal(retried.data.render.status, "queued");
+    created.push(retried.data.render.id);
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    for (const id of created) {
+      await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
+      await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
+    }
+    delete env.HF_CREDENTIALS;
+  }
+});
 test("Enemies Closer Veo quotes an explicit composed start frame and rejects ambiguous inputs before spend", async (t) => {
   const network = noNetwork(t);
   const request = body(undefined, {
