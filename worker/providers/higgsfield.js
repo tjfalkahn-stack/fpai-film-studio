@@ -1,4 +1,5 @@
 import { ProviderError, fail } from "./contract.js";
+import { signedHiggsfieldInputUrl } from "./higgsfieldInput.js";
 
 const ORIGIN = "https://api.higgsfield.ai";
 const seconds = (minimum, maximum) => Array.from({ length: maximum - minimum + 1 }, (_, index) => minimum + index);
@@ -85,7 +86,11 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
       const imageUrls = [];
       let uploadStage = "image preparation";
       try {
-        for (const ref of input.referenceImages || []) {
+        if (spec.kind === "image" && input.renderId) {
+          uploadStage = "signed input link creation";
+          imageUrls.push(await signedHiggsfieldInputUrl(env, input.renderId));
+        }
+        for (const ref of spec.kind === "image" && input.renderId ? [] : input.referenceImages || []) {
           uploadStage = "upload initialization";
           const upload = await (await checked(await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
             method: "POST", headers: { ...headers, "Content-Type": "application/json" },
