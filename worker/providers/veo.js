@@ -175,7 +175,7 @@ export function createVeoProvider(env, fetchImpl = fetch) {
         )
           fail("UNSAFE_ASSET_URL", "Unexpected download redirect.", 502);
         response = await fetchImpl(target, {
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(30000),
         });
       }
