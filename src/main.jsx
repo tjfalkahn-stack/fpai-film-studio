@@ -1570,7 +1570,7 @@ function RouterPage({ data, performance }) {
     };
   }, []);
   const productionProviders = (catalog?.providers || []).filter((provider) =>
-    ["ltx-2.5-fast", "ltx-2.5-pro", "veo-fast"].includes(provider.id),
+    ["ltx-2.5-fast", "ltx-2.5-pro", "veo-fast"].includes(provider.id) || provider.id.startsWith("higgsfield-"),
   );
   return (
     <>

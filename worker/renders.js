@@ -1,3 +1,4 @@
+import { isHiggsfieldProvider, higgsfieldConfigured, higgsfieldLiveEnabled } from "./providers/higgsfield.js";
 import { providers, providerFor } from "./providers/index.js";
 import { fail, validateInput, ProviderError } from "./providers/contract.js";
 import { seedanceLiveEnabled } from "./providers/seedance.js";
@@ -100,6 +101,9 @@ export function config(env) {
     veoExecutionReady: liveMaster && geminiConfigured && executionStorageReady && !veoSubmissionsPaused,
     seedanceLiveEnabled: seedanceLiveEnabled(env),
     ltxLiveEnabled: ltxLiveEnabled(env),
+    higgsfieldLiveEnabled: higgsfieldLiveEnabled(env),
+    higgsfieldConfigured: higgsfieldConfigured(env),
+    higgsfieldExecutionReady: higgsfieldLiveEnabled(env) && higgsfieldConfigured(env) && executionStorageReady,
     ltxConfigured,
     ltxExecutionReady:
       ltxLiveEnabled(env) && ltxConfigured && executionStorageReady,
@@ -142,6 +146,12 @@ function providerAvailability(provider, policy, env) {
       return { state: "blocked", label: "BLOCKED", detail: "Render storage or control token is missing" };
     return { state: "ready", label: "READY", detail: "Veo API and protected render queue are ready" };
   }
+  if (isHiggsfieldProvider(id)) {
+    if (!policy.higgsfieldConfigured) return { state: "key-needed", label: "KEY NEEDED", detail: "Higgsfield credentials are missing" };
+    if (!policy.higgsfieldLiveEnabled) return { state: "configured", label: "CONFIGURED", detail: "Higgsfield live gate is off" };
+    if (!policy.executionStorageReady) return { state: "blocked", label: "BLOCKED", detail: "Render storage or control token is missing" };
+    return { state: "ready", label: "READY", detail: "Higgsfield connected; quote validates configured audio pricing" };
+  }
   if (isLtxProvider(id)) {
     if (!policy.ltxConfigured)
       return { state: "key-needed", label: "KEY NEEDED", detail: "LTX API key is missing" };
@@ -174,6 +184,7 @@ function providerAvailability(provider, policy, env) {
 }
 export function providerLiveEnabled(provider, env) {
   if (provider === "mock") return true;
+  if (isHiggsfieldProvider(provider)) return higgsfieldLiveEnabled(env) && higgsfieldConfigured(env);
   if (providerFor(provider, env).capabilities.manual) return false;
   if (isSeedanceProvider(provider)) return seedanceLiveEnabled(env);
   if (isLtxProvider(provider)) return ltxLiveEnabled(env);
@@ -289,6 +300,9 @@ async function attachCharacterReferences(body, input, provider, env) {
     return input;
   }
   const hasInlineBytes = (input.referenceImages || []).some((ref) => ref?.data);
+  if (!hasInlineBytes && isHiggsfieldProvider(input.provider)) {
+    fail("INVALID_REFERENCES", "Upload a composed Shot Start Frame for Higgsfield.");
+  }
   if (!hasInlineBytes && selection.transmitted.length) {
     input.referenceImages = await resolveProviderReferenceImages(
       env,
@@ -532,7 +546,7 @@ async function create(request, env) {
     : enemiesProShot(input)
       ? `enemies-pro-${input.sceneId}-${input.shotId}`
     : policy.sessionId;
-  const reviewedShot = input.projectId === YARD_PROJECT_ID || enemiesVeoShot(input) || enemiesProShot(input);
+  const reviewedShot = input.projectId === YARD_PROJECT_ID || enemiesVeoShot(input) || enemiesProShot(input) || isHiggsfieldProvider(input.provider);
   const db = dbOf(env);
   const existing = await db
     .prepare("SELECT * FROM renders WHERE project_id=? AND request_key=?")
@@ -601,8 +615,8 @@ async function create(request, env) {
       AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE session_id=?) + ? <= ?))
       AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE provider LIKE 'seedance-%') < ?)
       AND (?=0 OR (
-        (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status IN ('queued','starting','running')) = 0
-        AND COALESCE((SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ?
+        (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running')) = 0
+        AND COALESCE((SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ?
       ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
@@ -653,11 +667,11 @@ async function create(request, env) {
   if (!row) {
     if (reviewedShot && provider.capabilities.paid) {
       const pending = await db.prepare(
-        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status IN ('queued','starting','running') LIMIT 1",
+        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running') LIMIT 1",
       ).bind(input.projectId, input.shotId).first();
       if (pending) fail("RENDER_IN_PROGRESS", "A paid take is already in progress for this shot.", 409);
       const uncertain = await db.prepare(
-        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1",
       ).bind(input.projectId, input.shotId).first();
       if ((uncertain?.id || "") !== (body.acknowledgeUncertainRenderId || ""))
         fail("UNCERTAIN_RETRY_ACK", "A prior take has an unknown Google outcome. Review the possible additional charge and explicitly confirm a new take.", 409);

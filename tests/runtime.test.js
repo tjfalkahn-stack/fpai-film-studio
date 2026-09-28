@@ -52,6 +52,8 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
       "ltx-2.5-fast",
       "ltx-2.5-pro",
       "veo-fast",
+      "higgsfield-kling-3-standard",
+      "higgsfield-kling-3-pro",
     ]);
     assert.equal(catalog.policy.liveEnabled, false);
     assert.equal(catalog.policy.seedanceLiveEnabled, false);

@@ -24,6 +24,6 @@ export function validateShotStartFrame(file) {
 }
 
 export function renderReferenceKeys({ provider, startFrameKey, selected = [], forceStartFrame = false }) {
-  if ((isLtxProviderId(provider) || forceStartFrame) && startFrameKey) return [startFrameKey];
+  if ((isLtxProviderId(provider) || String(provider).startsWith("higgsfield-") || forceStartFrame) && startFrameKey) return [startFrameKey];
   return [...selected];
 }

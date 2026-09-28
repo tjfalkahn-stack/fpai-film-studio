@@ -108,7 +108,9 @@ export default function RenderPanel({
   const isLtx = isLtxProviderId(provider);
   const isYardVeo = project.id === YARD_PROJECT_ID && provider === "veo-fast";
   const isVeoStartFrame = provider === "veo-fast" && Boolean(shot.startFrame?.key);
-  const usesStartFrame = isLtx || isYardVeo || isVeoStartFrame;
+  const [higgsfieldAudio, setHiggsfieldAudio] = useState(false);
+  const isHiggsfield = String(provider).startsWith("higgsfield-");
+  const usesStartFrame = isHiggsfield || isLtx || isYardVeo || isVeoStartFrame;
   const enemiesVeo = project.id === "enemies-closer-ep01" && provider === "veo-fast";
   const enemiesPro = project.id === "enemies-closer-ep01" && provider === "ltx-2.5-pro";
   const remainingYardShot = ["LAMAR", "SOUTHERN", "DRONE", "ALCORN", "SPK"].includes(shot.id);
@@ -138,6 +140,7 @@ export default function RenderPanel({
     if (usesStartFrame && shot.startFrame?.key) setSelected([shot.startFrame.key]);
   }, [usesStartFrame, shot.startFrame?.key]);
   async function input() {
+    if (isHiggsfield && !shot.startFrame?.key) throw new Error("Upload a composed Shot Start Frame for Higgsfield.");
     // Fail closed when local metadata points to missing blobs before any paid submission.
     if (capabilities?.paid) {
       for (const c of characters)
@@ -173,7 +176,7 @@ export default function RenderPanel({
       aspectRatio,
       referenceImages: inline,
       ...(provider === "veo-fast" ? { referenceMode: usesStartFrame ? "start-frame" : "reference-images" } : {}),
-      generateAudio: String(provider).startsWith("seedance-") ? true : undefined,
+      generateAudio: isHiggsfield ? higgsfieldAudio : String(provider).startsWith("seedance-") ? true : undefined,
       characterIds: characters.map((c) => c.id),
       characters: characters.map((c) => ({
         id: c.id,
@@ -221,6 +224,7 @@ export default function RenderPanel({
     };
   }, [
     provider,
+    higgsfieldAudio,
     duration,
     resolution,
     aspectRatio,
@@ -241,7 +245,9 @@ export default function RenderPanel({
   const shotSpend = active
     .filter((r) => r.provider !== "mock")
     .reduce((s, r) => s + (r.actualCost || 0) + (r.reservedCost || 0), 0);
-  const providerLiveReady = isSeedanceProvider(provider)
+  const providerLiveReady = isHiggsfield
+    ? Boolean(catalog?.policy?.higgsfieldExecutionReady)
+    : isSeedanceProvider(provider)
     ? Boolean(catalog?.policy?.seedanceLiveEnabled)
     : String(provider).startsWith("ltx-2.5-")
       ? Boolean(catalog?.policy?.ltxLiveEnabled)
@@ -481,6 +487,7 @@ export default function RenderPanel({
   return (
     <section className="renderPanel">
       <h3>Generate Take</h3>
+      {isHiggsfield && <label><input type="checkbox" checked={higgsfieldAudio} onChange={(e) => setHiggsfieldAudio(e.target.checked)} /> Generate audio with Higgsfield</label>}
       <div className="formGrid two">
         <label>
           Renderer
@@ -569,6 +576,8 @@ export default function RenderPanel({
           ? usesStartFrame
             ? " Google Veo Fast uses the composed Shot Start Frame as frame one. Its 1080p output requires an 8-second source; select the best moments in the edit."
             : " Upload a composed Shot Start Frame for image-to-video. Without one, Veo uses up to 3 selected PNG/JPEG images as references, not frame one."
+          : isHiggsfield
+            ? " Higgsfield animates your composed start frame. Match its framing to the selected aspect ratio."
           : isLtx
             ? " LTX uses the dedicated composed Shot Start Frame as frame one. Character Bible portraits remain continuity references and are not substituted for the opening frame."
           : provider?.startsWith("seedance-")
