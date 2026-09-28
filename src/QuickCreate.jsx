@@ -187,6 +187,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
         <small>{new Date(job.createdAt).toLocaleString()} · {job.actualCost == null ? "Cost pending" : `$${Number(job.actualCost).toFixed(2)}`}</small>
         {job.outputAsset?.url && <><video src={job.outputAsset.url} controls preload="metadata" /><a className="ghost" href={job.outputAsset.url} download={`fpai-video-${job.id}.mp4`}>Download video</a></>}
         {job.error && <p className="validation">{job.error.message}</p>}
+        {job.status === "uncertain" && <p className="validation">No video is available, and the charge is unconfirmed. Check Higgsfield Requests and Billing for the time shown above before starting another render.</p>}
       </div>)}</div>
     </section>
   );
