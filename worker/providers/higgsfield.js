@@ -83,18 +83,24 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
       const headers = auth(env);
       estimate(input);
       const imageUrls = [];
-      for (const ref of input.referenceImages || []) {
-      const upload = await (await checked(await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
-        method: "POST", headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ content_type: ref.mimeType }), redirect: "error",
-      }), "upload initialization")).json();
-      const uploadUrl = safeUrl(upload.upload_url);
-      const imageUrl = safeUrl(upload.public_url);
-      const uploadHeaders = { ...(upload.upload_headers || {}), "Content-Type": ref.mimeType };
-      for (const name of Object.keys(uploadHeaders)) if (/authorization|cookie/i.test(name)) delete uploadHeaders[name];
-      await checked(await fetchImpl(uploadUrl, { method: "PUT", headers: uploadHeaders,
-        body: Uint8Array.from(atob(ref.data), c => c.charCodeAt(0)), redirect: "error" }), "image upload");
-      imageUrls.push(imageUrl);
+      try {
+        for (const ref of input.referenceImages || []) {
+          const upload = await (await checked(await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
+            method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ content_type: ref.mimeType }), redirect: "error",
+          }), "upload initialization")).json();
+          const uploadUrl = safeUrl(upload.upload_url);
+          const imageUrl = safeUrl(upload.public_url);
+          const uploadHeaders = { ...(upload.upload_headers || {}), "Content-Type": ref.mimeType };
+          for (const name of Object.keys(uploadHeaders)) if (/authorization|cookie/i.test(name)) delete uploadHeaders[name];
+          await checked(await fetchImpl(uploadUrl, { method: "PUT", headers: uploadHeaders,
+            body: Uint8Array.from(atob(ref.data), c => c.charCodeAt(0)), redirect: "error" }), "image upload");
+          imageUrls.push(imageUrl);
+        }
+      } catch (error) {
+        if (error instanceof ProviderError) throw error;
+        // Nothing has been sent to the paid generation endpoint yet.
+        throw new ProviderError("HIGGSFIELD_IMAGE_PREPARATION", "The reference image could not be uploaded to Higgsfield. No video request was submitted.", { httpStatus: 502, retryable: true });
       }
       const payload = spec.kind === "motion"
         ? { prompt: input.prompt, video_url: safeUrl(input.referenceVideos[0].url), image_urls: imageUrls, resolution: input.resolution }
