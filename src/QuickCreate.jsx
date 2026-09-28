@@ -51,6 +51,8 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [quote, setQuote] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [probeBusy, setProbeBusy] = useState(false);
+  const [probeResult, setProbeResult] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const pending = useRef(null);
@@ -173,6 +175,14 @@ export default function QuickCreate({ projectId, renders, onRender }) {
             ? <>The video adapter has <b>HF_CREDENTIALS</b>, but its value contains spaces or is otherwise unusable. Edit the existing secret to the complete key copied from Higgsfield and deploy the change.</>
             : <>The video adapter cannot see <b>HF_CREDENTIALS</b>. Check that the existing secret is on <b>fpai-film-studio-video-adapter</b>, then deploy the change in Cloudflare.</>}</p>}
           {catalog?.policy?.higgsfieldConfigured && !catalog.policy?.executionStorageReady && <p className="validation">Higgsfield is configured, but render storage or the adapter control token is unavailable.</p>}
+          <button className="ghost" disabled={probeBusy} onClick={async () => {
+            setProbeBusy(true);
+            setProbeResult(null);
+            try { setProbeResult((await renderRequest("/api/higgsfield/probe", {})).probe); }
+            catch (cause) { setProbeResult({ transport: "error", errorDetail: cause.message }); }
+            finally { setProbeBusy(false); }
+          }}>{probeBusy ? "Checking connection…" : "Test Higgsfield connection · no video charge"}</button>
+          {probeResult && <p className="sub" role="status">Higgsfield connection: {probeResult.transport === "response" ? `HTTP ${probeResult.httpStatus}${probeResult.redirect ? " redirect" : ""}` : probeResult.transport === "error" ? `${probeResult.errorType || "Error"}: ${probeResult.errorDetail}` : "not configured"}. No video was submitted.</p>}
           {uncertain && <label className="checkLabel"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> A previous request has an uncertain provider outcome. I understand a new render may add another charge.</label>}
           {error && <p className="validation" role="alert">{error}</p>}
           {pending.current && <button className="ghost" onClick={() => { pending.current = null; localStorage.removeItem(`fpai-direct-render:${projectId}`); setError(""); }}>Clear unresolved request after checking recent videos</button>}
