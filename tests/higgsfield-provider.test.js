@@ -46,8 +46,8 @@ test("Higgsfield uploads bytes without credential forwarding and submits documen
   assert.equal(pastedCalls[2].headers.Authorization,"Key one-key-only");
 });
 test("ambiguous submissions retain spending reservations; rejection does not leak response", async () => {
-  for(const run of [async()=>{throw Error("lost")},async()=>new Response("bad",{status:502}),async()=>Response.json({})]) {
-    await assert.rejects(createHiggsfieldProvider(env,mock(run)).start(input),e=>e.uncertain===true);
+  for(const [run,detail] of [[async()=>{throw Error("lost secret")},"transport error"],[async()=>new Response("bad secret",{status:502}),"HTTP 502"],[async()=>Response.json({}),"HTTP 2xx without a valid request ID"],[async()=>new Response(null,{status:307,headers:{location:"https://secret.example/path"}}),"HTTP 307"]]) {
+    await assert.rejects(createHiggsfieldProvider(env,mock(run)).start(input),e=>e.uncertain===true&&e.message.includes(detail)&&!e.message.includes("secret"));
   }
   await assert.rejects(createHiggsfieldProvider(env,mock(async()=>new Response("secret",{status:401}))).start(input), e=>!e.uncertain&&!e.message.includes("secret"));
 });
