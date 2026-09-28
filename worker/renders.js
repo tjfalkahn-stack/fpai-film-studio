@@ -64,7 +64,7 @@ const err = (error) => ({
   message:
     error instanceof ProviderError
       ? error.message
-      : "Render storage or service error. Retry status before submitting again.",
+      : "Unexpected render service error. Check provider requests before starting another render.",
   retryable: Boolean(error.retryable),
   uncertain: Boolean(error.uncertain),
 });
@@ -617,7 +617,7 @@ async function create(request, env) {
       AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE provider LIKE 'seedance-%') < ?)
       AND (?=0 OR (
         (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running')) = 0
-        AND COALESCE((SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ?
+        AND COALESCE((SELECT CASE WHEN id=? THEN '' ELSE id END FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ''
       ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
@@ -652,9 +652,9 @@ async function create(request, env) {
       reviewedShot && provider.capabilities.paid ? 1 : 0,
       input.projectId,
       input.shotId,
+      body.acknowledgeUncertainRenderId || "",
       input.projectId,
       input.shotId,
-      body.acknowledgeUncertainRenderId || "",
     )
     .run();
   const row = await db
@@ -674,7 +674,7 @@ async function create(request, env) {
       const uncertain = await db.prepare(
         "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1",
       ).bind(input.projectId, input.shotId).first();
-      if ((uncertain?.id || "") !== (body.acknowledgeUncertainRenderId || ""))
+      if (uncertain && uncertain.id !== (body.acknowledgeUncertainRenderId || ""))
         fail("UNCERTAIN_RETRY_ACK", "A prior take may have been accepted by its provider. Review the possible additional charge and explicitly confirm a new take.", 409);
     }
     if (isSeedanceProvider(input.provider)) {
@@ -737,8 +737,9 @@ export async function advance(env, row) {
       .bind(stamp(), row.id)
       .run();
     if (!claim.meta.changes) return get(env, row.id);
+    let input;
     try {
-      let input = JSON.parse(row.input_json);
+      input = JSON.parse(row.input_json);
       const stored = await env.GENERATION_MEDIA.get(
         `render-inputs/${row.id}.json`,
       );
@@ -768,6 +769,21 @@ export async function advance(env, row) {
           );
         }
       }
+    } catch (error) {
+      // The provider cannot have accepted a billable request yet.
+      await db.prepare(
+        "UPDATE renders SET status='failed',reserved_cost=0,actual_cost=0,error_json=?,updated_at=? WHERE id=? AND status='starting'",
+      ).bind(JSON.stringify({
+        code: error instanceof ProviderError ? error.code : "RENDER_INPUT_UNAVAILABLE",
+        message: error instanceof ProviderError
+          ? `${error.message} No video request was submitted.`
+          : "The uploaded picture could not be read from render storage. No video request was submitted.",
+        retryable: true,
+        uncertain: false,
+      }), stamp(), row.id).run();
+      return get(env, row.id);
+    }
+    try {
       const started = await provider.start(input);
       if (started.completedResponse) {
         const key = `renders/${row.project_id}/${row.id}.mp4`;
