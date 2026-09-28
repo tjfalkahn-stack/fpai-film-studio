@@ -107,7 +107,10 @@ export default function RenderPanel({
   const isDrawThingsLocal = provider === DRAW_THINGS_LOCAL_PROVIDER_ID;
   const isLtx = isLtxProviderId(provider);
   const isYardVeo = project.id === YARD_PROJECT_ID && provider === "veo-fast";
-  const usesStartFrame = isLtx || isYardVeo;
+  const isVeoStartFrame = provider === "veo-fast" && Boolean(shot.startFrame?.key);
+  const usesStartFrame = isLtx || isYardVeo || isVeoStartFrame;
+  const enemiesVeo = project.id === "enemies-closer-ep01" && provider === "veo-fast";
+  const enemiesPro = project.id === "enemies-closer-ep01" && provider === "ltx-2.5-pro";
   const remainingYardShot = ["LAMAR", "SOUTHERN", "DRONE", "ALCORN", "SPK"].includes(shot.id);
   useEffect(() => {
     if (project.id !== YARD_PROJECT_ID || !remainingYardShot) return;
@@ -152,7 +155,7 @@ export default function RenderPanel({
         provider,
         startFrameKey: shot.startFrame?.key,
         selected,
-        forceStartFrame: isYardVeo,
+        forceStartFrame: isYardVeo || isVeoStartFrame,
       });
       for (const key of referenceKeys) {
         const file = await getMedia(key);
@@ -169,6 +172,7 @@ export default function RenderPanel({
       resolution,
       aspectRatio,
       referenceImages: inline,
+      ...(provider === "veo-fast" ? { referenceMode: usesStartFrame ? "start-frame" : "reference-images" } : {}),
       generateAudio: String(provider).startsWith("seedance-") ? true : undefined,
       characterIds: characters.map((c) => c.id),
       characters: characters.map((c) => ({
@@ -221,6 +225,7 @@ export default function RenderPanel({
     resolution,
     aspectRatio,
     selected,
+    shot.startFrame?.key,
     generationPrompt,
     characters.map((c) => JSON.stringify(c.refs)).join("|"),
     continuity.ready,
@@ -257,6 +262,8 @@ export default function RenderPanel({
     : project.id === YARD_PROJECT_ID && remainingYardShot &&
         (duration !== (isYardVeo ? 8 : 6) || resolution !== "1080p" || aspectRatio !== "9:16")
       ? `This Yard ${isYardVeo ? "Google Veo Fast" : "LTX Pro"} take requires ${isYardVeo ? 8 : 6} seconds, 1080p, and 9:16 portrait.`
+    : enemiesPro && (duration !== 6 || resolution !== "1080p" || aspectRatio !== "16:9")
+      ? "Enemies Closer LTX Pro requires 6 seconds, 1080p, and 16:9 landscape."
     : provider === "veo-fast" && catalog?.policy?.veoSubmissionsPaused
       ? "Google Veo submissions are paused after two uncertain responses. Choose LTX Pro for this shot while the provider connection is checked."
     : !providerLiveReady
@@ -268,11 +275,13 @@ export default function RenderPanel({
       : !continuity.ready
         ? "Complete and lock the Character Bible first."
         : !(project.id === YARD_PROJECT_ID && remainingYardShot) &&
+            !(enemiesVeo && isVeoStartFrame) &&
+            !enemiesPro &&
             (!scene?.animaticLocked || !shot.economy?.animaticApproved)
           ? "Approve shot timing and lock the scene animatic first."
-          : project.id === YARD_PROJECT_ID && pendingPaidTake
+          : (project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro) && pendingPaidTake
             ? "A paid take is still in progress for this shot. Check its result before another submission."
-          : project.id === YARD_PROJECT_ID && uncertainTake && acknowledgedUncertainId !== uncertainTake.id
+          : (project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro) && uncertainTake && acknowledgedUncertainId !== uncertainTake.id
             ? "Review the uncertain take and acknowledge the possible additional charge before submitting another."
           : usesStartFrame && !shot.startFrame?.key
             ? "Upload a composed Shot Start Frame before submitting image-to-video."
@@ -481,10 +490,14 @@ export default function RenderPanel({
             onChange={(e) => {
               const next = catalog?.providers.find((item) => item.id === e.target.value);
               setProvider(e.target.value);
-              setDuration(project.id === YARD_PROJECT_ID && remainingYardShot && e.target.value === "veo-fast"
+              setDuration(e.target.value === "veo-fast"
                 ? 8
+                : project.id === "enemies-closer-ep01" && e.target.value === "ltx-2.5-pro"
+                  ? 6
                 : next?.durations?.[0] ?? 8);
-              setResolution(project.id === YARD_PROJECT_ID && remainingYardShot && ["ltx-2.5-pro", "veo-fast"].includes(e.target.value)
+              setResolution(e.target.value === "veo-fast" ||
+                (project.id === "enemies-closer-ep01" && e.target.value === "ltx-2.5-pro") ||
+                (project.id === YARD_PROJECT_ID && remainingYardShot && e.target.value === "ltx-2.5-pro")
                 ? "1080p"
                 : next?.resolutions?.[0] ?? "720p");
               setAspect(project.id === YARD_PROJECT_ID && (e.target.value.startsWith("ltx-2.5-") || e.target.value === "veo-fast")
@@ -553,15 +566,18 @@ export default function RenderPanel({
           : isVibesManual
           ? " Vibes uses one primary reference image. Film Studio preserves the full Character Bible and prepares a manual handoff; no Vibes credentials or production secrets are stored."
           : provider === "veo-fast"
-          ? isYardVeo
-            ? " Google Veo Fast uses the dedicated composed Shot Start Frame as frame one. Its 1080p output requires an 8-second source; select the best 3 seconds in the edit."
-            : " Veo Fast transmits at most 3 PNG/JPEG images; the full selected set is preserved in the render manifest and is not implied to have been sent."
+          ? usesStartFrame
+            ? " Google Veo Fast uses the composed Shot Start Frame as frame one. Its 1080p output requires an 8-second source; select the best moments in the edit."
+            : " Upload a composed Shot Start Frame for image-to-video. Without one, Veo uses up to 3 selected PNG/JPEG images as references, not frame one."
           : isLtx
             ? " LTX uses the dedicated composed Shot Start Frame as frame one. Character Bible portraits remain continuity references and are not substituted for the opening frame."
           : provider?.startsWith("seedance-")
             ? " Seedance consumes the Character Bible selection automatically (Marcus, Jasmine, Turner, Mikey) plus optional scene references. Audio is available at the same quoted video rate. Up to 9 images."
             : " Mock records the full selected set in debug output. Live providers still honor their own reference limits."}
       </p>
+      {enemiesVeo && (shot.characters || []).includes("mikey") && (
+        <p className="sub">Google Veo image-based people generation is limited to adults. Use LTX Pro with the approved start frame for Mikey shots.</p>
+      )}
       {refs.map((ref) => (
         <label key={ref.key} className="checkLabel">
           <input
@@ -625,7 +641,7 @@ export default function RenderPanel({
             ? ` · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`
             : ` · Session ceiling $${quote.policy.sessionCeiling.toFixed(2)} · Project ceiling $${quote.policy.projectCeiling.toFixed(2)}`)}
       </p>
-      {project.id === YARD_PROJECT_ID && uncertainTake && (
+      {(project.id === YARD_PROJECT_ID || enemiesVeo || enemiesPro) && uncertainTake && (
         <label className="checkLabel">
           <input
             type="checkbox"

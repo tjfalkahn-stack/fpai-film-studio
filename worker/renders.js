@@ -27,6 +27,10 @@ const LTX_CONTROLLED_TEST = Object.freeze({
   aspectRatio: "16:9",
   maxEstimatedCostUsd: 1.04,
 });
+const ENEMIES_VEO_SHOT_CEILING_USD = 1.92;
+const enemiesVeoShot = (input) => input.projectId === LTX_CONTROLLED_TEST.projectId && input.provider === "veo-fast";
+const ENEMIES_PRO_SHOT_CEILING_USD = 2.04;
+const enemiesProShot = (input) => input.projectId === LTX_CONTROLLED_TEST.projectId && input.provider === "ltx-2.5-pro";
 const YARD_LTX_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "PV", provider: "ltx-2.5-fast", duration: 6, resolution: "720p", aspectRatio: "9:16", maxEstimatedCostUsd: 0.54 });
 const YARD_TSU_PRO_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "TSU", provider: "ltx-2.5-pro", duration: 6, resolution: "720p", aspectRatio: "9:16", maxEstimatedCostUsd: 0.72 });
 const YARD_LAMAR_PRO_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "LAMAR", provider: "ltx-2.5-pro", duration: 6, resolution: "1080p", aspectRatio: "9:16", maxEstimatedCostUsd: 1.02 });
@@ -308,6 +312,7 @@ async function inputFrom(body, env) {
       "resolution",
       "aspectRatio",
       "referenceImages",
+      "referenceMode",
       "continuity",
     ].map((k) => [k, body[k]]),
   );
@@ -342,6 +347,13 @@ async function inputFrom(body, env) {
     );
   await attachCharacterReferences(body, input, provider, env);
   validateInput(input, provider.capabilities);
+  if (input.referenceMode != null) {
+    if (input.provider !== "veo-fast" ||
+        !["reference-images", "start-frame"].includes(input.referenceMode))
+      fail("UNSUPPORTED_INPUT", "Unsupported image input mode.");
+    if (input.referenceMode === "start-frame" && input.referenceImages.length !== 1)
+      fail("INVALID_REFERENCES", "Veo start-frame mode requires exactly one composed shot image.");
+  }
   return { input, provider };
 }
 function liveGate(input, provider, env) {
@@ -369,10 +381,13 @@ function liveGate(input, provider, env) {
   const c = input.continuity;
   const approvedYardShot = input.projectId === YARD_PROJECT_ID &&
     YARD_REMAINING_SHOTS.includes(input.shotId) && Boolean(yardTrialFor(input.shotId, input.provider));
+  const composedEnemiesVeo = enemiesVeoShot(input) && input.referenceMode === "start-frame";
+  const composedEnemiesPro = enemiesProShot(input) && input.referenceImages.length === 1;
   if (
     !c ||
     c.ready !== true ||
-    (!approvedYardShot && (c.animaticLocked !== true || c.timingApproved !== true))
+    (!approvedYardShot && !composedEnemiesVeo && !composedEnemiesPro &&
+      (c.animaticLocked !== true || c.timingApproved !== true))
   )
     fail(
       "CONTINUITY_BLOCKED",
@@ -412,6 +427,13 @@ function authorizeLtxJob(input, quote, env) {
   if (input.projectId === YARD_PROJECT_ID) return;
   if (!String(env.LTX_API_KEY || "").trim())
     fail("PROVIDER_CONFIG", "LTX_API_KEY is not configured.", 503);
+  if (enemiesProShot(input)) {
+    if (input.duration !== 6 || input.resolution !== "1080p" ||
+        input.aspectRatio !== "16:9" || input.referenceImages.length !== 1 ||
+        quote.estimatedCost > 1.02)
+      fail("LTX_PLAN_DENIED", "Enemies Closer LTX Pro requires one composed start frame, 6 seconds, 1080p landscape, and at most $1.02 per take.", 403);
+    return;
+  }
   const mismatches = [
     "projectId",
     "sceneId",
@@ -478,6 +500,7 @@ async function create(request, env) {
         referenceImagesTransmitted: provider.capabilities.manual
           ? 0
           : input.referenceImages.length,
+        referenceMode: input.referenceMode || null,
         generateAudio: input.generateAudio !== false,
         rationale: quote.rationale || null,
       },
@@ -504,7 +527,12 @@ async function create(request, env) {
   // controlled render tests remains unchanged.
   const reservationSessionId = input.projectId === YARD_PROJECT_ID
     ? (["TSU", ...YARD_REMAINING_SHOTS].includes(input.shotId) ? `yard-${input.shotId.toLowerCase()}-pro-first-test` : policy.sessionId)
+    : enemiesVeoShot(input)
+      ? `enemies-veo-${input.sceneId}-${input.shotId}`
+    : enemiesProShot(input)
+      ? `enemies-pro-${input.sceneId}-${input.shotId}`
     : policy.sessionId;
+  const reviewedShot = input.projectId === YARD_PROJECT_ID || enemiesVeoShot(input) || enemiesProShot(input);
   const db = dbOf(env);
   const existing = await db
     .prepare("SELECT * FROM renders WHERE project_id=? AND request_key=?")
@@ -600,13 +628,16 @@ async function create(request, env) {
       policy.projectCeiling,
       reservationSessionId,
       quote.estimatedCost,
-      input.projectId === YARD_PROJECT_ID ? policy.projectCeiling : policy.sessionCeiling,
+      input.projectId === YARD_PROJECT_ID ? policy.projectCeiling
+        : enemiesVeoShot(input) ? Math.min(ENEMIES_VEO_SHOT_CEILING_USD, policy.projectCeiling)
+        : enemiesProShot(input) ? Math.min(ENEMIES_PRO_SHOT_CEILING_USD, policy.projectCeiling)
+        : policy.sessionCeiling,
       isSeedanceProvider(input.provider) ? 1 : 0,
       SEEDANCE_CONTROLLED_TEST.maxJobs,
-      input.projectId === YARD_PROJECT_ID && provider.capabilities.paid ? 1 : 0,
-      YARD_PROJECT_ID,
+      reviewedShot && provider.capabilities.paid ? 1 : 0,
+      input.projectId,
       input.shotId,
-      YARD_PROJECT_ID,
+      input.projectId,
       input.shotId,
       body.acknowledgeUncertainRenderId || "",
     )
@@ -620,14 +651,14 @@ async function create(request, env) {
       await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
   }
   if (!row) {
-    if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid) {
+    if (reviewedShot && provider.capabilities.paid) {
       const pending = await db.prepare(
         "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status IN ('queued','starting','running') LIMIT 1",
-      ).bind(YARD_PROJECT_ID, input.shotId).first();
+      ).bind(input.projectId, input.shotId).first();
       if (pending) fail("RENDER_IN_PROGRESS", "A paid take is already in progress for this shot.", 409);
       const uncertain = await db.prepare(
         "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1",
-      ).bind(YARD_PROJECT_ID, input.shotId).first();
+      ).bind(input.projectId, input.shotId).first();
       if ((uncertain?.id || "") !== (body.acknowledgeUncertainRenderId || ""))
         fail("UNCERTAIN_RETRY_ACK", "A prior take has an unknown Google outcome. Review the possible additional charge and explicitly confirm a new take.", 409);
     }
