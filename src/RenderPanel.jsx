@@ -267,7 +267,8 @@ export default function RenderPanel({
         : "Live rendering is disabled on the server."
       : !continuity.ready
         ? "Complete and lock the Character Bible first."
-        : !scene?.animaticLocked || !shot.economy?.animaticApproved
+        : !(project.id === YARD_PROJECT_ID && remainingYardShot) &&
+            (!scene?.animaticLocked || !shot.economy?.animaticApproved)
           ? "Approve shot timing and lock the scene animatic first."
           : project.id === YARD_PROJECT_ID && pendingPaidTake
             ? "A paid take is still in progress for this shot. Check its result before another submission."
