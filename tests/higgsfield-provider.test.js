@@ -50,6 +50,21 @@ test("ambiguous submissions retain spending reservations; rejection does not lea
   }
   await assert.rejects(createHiggsfieldProvider(env,mock(async()=>new Response("secret",{status:401}))).start(input), e=>!e.uncertain&&!e.message.includes("secret"));
 });
+test("image upload transport failure does not mark an unsubmitted video as billable", async () => {
+  let submissions = 0;
+  const provider = createHiggsfieldProvider(env, async (url) => {
+    if (url.endsWith("generate-upload-url")) throw new Error("transport unavailable");
+    submissions++;
+    return Response.json({ request_id: requestId, status_url: statusUrl });
+  });
+  await assert.rejects(provider.start(input), (error) => {
+    assert.equal(error.code, "HIGGSFIELD_IMAGE_PREPARATION");
+    assert.equal(error.uncertain, false);
+    assert.match(error.message, /No video request was submitted/);
+    return true;
+  });
+  assert.equal(submissions, 0);
+});
 test("polling and private asset retrieval work without an extra live switch",async()=>{
   const calls=[];
   const p=createHiggsfieldProvider({...env,HIGGSFIELD_LIVE_ENABLED:"false"},async(url,init)=>{
