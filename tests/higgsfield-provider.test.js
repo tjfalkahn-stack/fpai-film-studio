@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHiggsfieldProvider } from "../worker/providers/higgsfield.js";
 import { providerFor } from "../worker/providers/index.js";
-import { providerLiveEnabled } from "../worker/renders.js";
+import { config, providerLiveEnabled } from "../worker/renders.js";
 import { renderReferenceKeys } from "../src/shotStartFrame.js";
 const env = { HF_CREDENTIALS: "test-id:test-secret", HIGGSFIELD_KLING3_PRO_SILENT_RATE_PER_SECOND_USD: "0.0616", HIGGSFIELD_KLING3_PRO_AUDIO_RATE_PER_SECOND_USD: "0.0924", HIGGSFIELD_SEEDANCE25_720P_SILENT_RATE_PER_SECOND_USD: "0.4622", HIGGSFIELD_GENJUTSU_720P_RATE_PER_SECOND_USD: "0.681" };
 const input = { duration: 5, resolution: "1080p", aspectRatio: "16:9", prompt: "Cinema shot", generateAudio: false, referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }] };
@@ -24,6 +24,12 @@ test("Higgsfield registers model-specific routes and separates audio pricing", (
   assert.equal(providerLiveEnabled(p.capabilities.id, {...env, HF_CREDENTIALS:""}), false);
   assert.equal(providerLiveEnabled(p.capabilities.id, {...env, HF_CREDENTIALS:" test-id:test-secret\n"}), true);
   assert.deepEqual(renderReferenceKeys({provider:p.capabilities.id, startFrameKey:"shot", selected:["portrait"]}), ["shot"]);
+});
+test("readiness distinguishes a missing credential from a malformed existing secret", () => {
+  assert.equal(config({}).higgsfieldCredentialPresent, false);
+  assert.equal(config({ HF_CREDENTIALS: "one-key-only" }).higgsfieldCredentialPresent, true);
+  assert.equal(config({ HF_CREDENTIALS: "one-key-only" }).higgsfieldConfigured, false);
+  assert.equal(config({ HF_CREDENTIALS: "test-id:test-secret" }).higgsfieldConfigured, true);
 });
 test("Higgsfield uploads bytes without credential forwarding and submits documented body", async () => {
   const calls=[];

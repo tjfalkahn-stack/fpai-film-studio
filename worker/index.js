@@ -359,6 +359,7 @@ export default {
         falKeyConfigured: Boolean(env.FAL_KEY),
         ltxKeyConfigured: Boolean(env.LTX_API_KEY),
         higgsfieldConfigured: renderConfig(env).higgsfieldConfigured,
+        higgsfieldCredentialPresent: renderConfig(env).higgsfieldCredentialPresent,
         controlTokenConfigured: Boolean(env.FPAI_CONTROL_TOKEN),
         d1Configured: Boolean(env.GENERATION_DB),
         r2Configured: Boolean(env.GENERATION_MEDIA),

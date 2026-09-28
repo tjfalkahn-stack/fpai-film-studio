@@ -102,6 +102,7 @@ export function config(env) {
     seedanceLiveEnabled: seedanceLiveEnabled(env),
     ltxLiveEnabled: ltxLiveEnabled(env),
     higgsfieldLiveEnabled: higgsfieldLiveEnabled(env),
+    higgsfieldCredentialPresent: Boolean(String(env.HF_CREDENTIALS || "").trim()),
     higgsfieldConfigured: higgsfieldConfigured(env),
     higgsfieldExecutionReady: higgsfieldLiveEnabled(env) && higgsfieldConfigured(env) && executionStorageReady,
     ltxConfigured,
