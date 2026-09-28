@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHiggsfieldProvider } from "../worker/providers/higgsfield.js";
+import { serveHiggsfieldInput, signedHiggsfieldInputUrl } from "../worker/providers/higgsfieldInput.js";
 import { providerFor } from "../worker/providers/index.js";
 import { config, providerLiveEnabled } from "../worker/renders.js";
 import { renderReferenceKeys } from "../src/shotStartFrame.js";
@@ -85,6 +86,30 @@ test("Higgsfield reports storage upload stage without leaking signed URLs", asyn
     return true;
   });
   assert.equal(submissions, 0);
+});
+test("direct image renders use a signed Studio URL without Higgsfield upload initialization", async () => {
+  const renderId = requestId;
+  const directEnv = { ...env, FPAI_CONTROL_TOKEN: "test-control-token" };
+  const calls = [];
+  const provider = createHiggsfieldProvider(directEnv, async (url, init) => {
+    calls.push({ url, init });
+    return Response.json({ request_id: requestId, status_url: statusUrl });
+  });
+  await provider.start({ ...input, renderId });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /kling-video\/v3\.0\/pro\/image-to-video$/);
+  const imageUrl = JSON.parse(calls[0].init.body).image_url;
+  const stored = JSON.stringify(input);
+  const media = { get: async key => key === `render-inputs/${renderId}.json` ? { json: async () => JSON.parse(stored) } : null };
+  const served = await serveHiggsfieldInput(new Request(imageUrl), { ...directEnv, GENERATION_MEDIA: media });
+  assert.equal(served.status, 200);
+  assert.equal(served.headers.get("content-type"), "image/png");
+  assert.deepEqual(new Uint8Array(await served.arrayBuffer()), Uint8Array.from(atob(input.referenceImages[0].data), char => char.charCodeAt(0)));
+  const tampered = new URL(imageUrl);
+  tampered.searchParams.set("signature", "0".repeat(64));
+  assert.equal((await serveHiggsfieldInput(new Request(tampered), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
+  const expired = await signedHiggsfieldInputUrl(directEnv, renderId, Date.now() - 3700_000);
+  assert.equal((await serveHiggsfieldInput(new Request(expired), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
 });
 test("polling and private asset retrieval work without an extra live switch",async()=>{
   const calls=[];

@@ -2,6 +2,7 @@ import { renderRoutes, config as renderConfig, advance as advanceRender } from "
 import { characterReferenceRoutes } from "./characterReferences.js";
 import { filmRoutes } from "./filmEngine.js";
 import { createCharacterFactoryRuntime } from "./characterFactoryRuntime.js";
+import { serveHiggsfieldInput } from "./providers/higgsfieldInput.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -349,6 +350,8 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
+    if (/^\/api\/renders\/[a-f0-9-]{36}\/input$/i.test(url.pathname) && request.method === "GET")
+      return serveHiggsfieldInput(request, env);
     if (url.pathname === "/health/veo" && request.method === "GET")
       return json({ ok: true, probe: await probeVeoConnection(env) }, 200, cors);
     if (url.pathname === "/health") {

@@ -784,7 +784,7 @@ export async function advance(env, row) {
       return get(env, row.id);
     }
     try {
-      const started = await provider.start(input);
+      const started = await provider.start({ ...input, renderId: row.id });
       if (started.completedResponse) {
         const key = `renders/${row.project_id}/${row.id}.mp4`;
         await env.GENERATION_MEDIA.put(key, started.completedResponse.body, {
