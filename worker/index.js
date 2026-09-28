@@ -14,7 +14,7 @@ async function probeVeoConnection(env) {
     const response = await fetch(`${GOOGLE_BASE}/models?pageSize=1`, {
       method: "GET",
       headers: { "x-goog-api-key": env.GEMINI_API_KEY },
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(10000),
     });
     return { transport: "response", httpStatus: response.status, elapsedMs: Date.now() - startedAt };

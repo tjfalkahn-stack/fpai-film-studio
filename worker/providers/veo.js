@@ -20,7 +20,9 @@ export function createVeoProvider(env, fetchImpl = fetch) {
     try {
       const response = await fetchImpl(new URL(path, BASE), {
         ...init,
-        redirect: "error",
+        // Workers rejects redirect: "error" before contacting Google.
+        // Manual mode returns a 3xx without forwarding the API key elsewhere.
+        redirect: "manual",
         signal: AbortSignal.timeout(init.method === "POST" ? 90000 : 30000),
         headers: {
           "content-type": "application/json",
@@ -34,7 +36,7 @@ export function createVeoProvider(env, fetchImpl = fetch) {
           {
             httpStatus: 502,
             retryable: response.status === 429 || response.status >= 500,
-            uncertain: init.method === "POST" && response.status >= 500,
+            uncertain: init.method === "POST" && (response.status >= 500 || (response.status >= 300 && response.status < 400)),
           },
         );
       return await response.json();
