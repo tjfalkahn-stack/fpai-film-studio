@@ -246,6 +246,11 @@ test("render API quotes Seedance, rejects live submit, and rejects over-ceiling 
       "veo-fast",
       "higgsfield-kling-3-standard",
       "higgsfield-kling-3-pro",
+      "higgsfield-kling-3-standard-text",
+      "higgsfield-kling-3-pro-text",
+      "higgsfield-seedance-2.5-text",
+      "higgsfield-seedance-2.5-image",
+      "higgsfield-genjutsu-motion",
     ],
   );
   assert.equal(JSON.stringify(catalogBody).includes("must-not-leak"), false);

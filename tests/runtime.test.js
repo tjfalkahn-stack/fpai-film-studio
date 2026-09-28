@@ -54,6 +54,11 @@ test("actual Worker runtime: mock persists across restart, completes and serves 
       "veo-fast",
       "higgsfield-kling-3-standard",
       "higgsfield-kling-3-pro",
+      "higgsfield-kling-3-standard-text",
+      "higgsfield-kling-3-pro-text",
+      "higgsfield-seedance-2.5-text",
+      "higgsfield-seedance-2.5-image",
+      "higgsfield-genjutsu-motion",
     ]);
     assert.equal(catalog.policy.liveEnabled, false);
     assert.equal(catalog.policy.seedanceLiveEnabled, false);

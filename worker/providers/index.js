@@ -1,4 +1,4 @@
-import { createHiggsfieldProvider } from "./higgsfield.js";
+import { createHiggsfieldProvider, HIGGSFIELD_MODELS } from "./higgsfield.js";
 import { createMockProvider } from "./mock.js";
 import { createVeoProvider } from "./veo.js";
 import { createComfyProvider } from "./comfy.js";
@@ -22,8 +22,7 @@ export function providers(env) {
     createLtxFastProvider(env),
     createLtxProProvider(env),
     createVeoProvider(env),
-    createHiggsfieldProvider(env, fetch, "standard"),
-    createHiggsfieldProvider(env, fetch, "pro"),
+    ...Object.keys(HIGGSFIELD_MODELS).map((id) => createHiggsfieldProvider(env, fetch, id)),
   ];
 }
 export function providerFor(id, env) {

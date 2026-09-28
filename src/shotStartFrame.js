@@ -24,6 +24,7 @@ export function validateShotStartFrame(file) {
 }
 
 export function renderReferenceKeys({ provider, startFrameKey, selected = [], forceStartFrame = false }) {
-  if ((isLtxProviderId(provider) || String(provider).startsWith("higgsfield-") || forceStartFrame) && startFrameKey) return [startFrameKey];
+  if ((isLtxProviderId(provider) || ["higgsfield-kling-3-standard", "higgsfield-kling-3-pro", "higgsfield-seedance-2.5-image"].includes(provider) || forceStartFrame) && startFrameKey) return [startFrameKey];
+  if (["higgsfield-kling-3-standard-text", "higgsfield-kling-3-pro-text", "higgsfield-seedance-2.5-text"].includes(provider)) return [];
   return [...selected];
 }

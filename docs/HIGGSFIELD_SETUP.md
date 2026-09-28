@@ -1,6 +1,6 @@
 # Higgsfield video provider
 
-Adds Kling 3.0 Standard and Pro image-to-video to Generate Take and the production connection status panel. Both use exactly one composed Shot Start Frame, 5 or 10 seconds, portrait or landscape. The model endpoint determines output tier; framing follows the input image. Character Bible references are not silently substituted for the start frame.
+Adds Kling 3.0 Standard and Pro (text or image), Seedance 2.5 (text or image), and Genjutsu Motion Transfer to Generate Take. Image routes use exactly one composed Shot Start Frame. Text routes send no image. Motion Transfer uses a public HTTPS reference video URL and one to eight selected images. The model selector determines the endpoint and input shape.
 
 ## Server setup
 
@@ -8,27 +8,34 @@ In Cloudflare, open Workers & Pages → `fpai-film-studio-video-adapter` → Set
 
 Add a **secret** named `HF_CREDENTIALS` with the full `KEY_ID:KEY_SECRET` value from Higgsfield. Never place this value in frontend variables, source, screenshots, or a PR.
 
-Configure these plain variables with the current rates for the exact model and sound setting shown in your account (USD per output second):
+The app can quote with the published pre-discount rates using only the secret. These plain variables optionally override that estimate with your account's current rates (USD per output second):
 
 - `HIGGSFIELD_KLING3_STANDARD_SILENT_RATE_PER_SECOND_USD`
 - `HIGGSFIELD_KLING3_STANDARD_AUDIO_RATE_PER_SECOND_USD`
 - `HIGGSFIELD_KLING3_PRO_SILENT_RATE_PER_SECOND_USD`
 - `HIGGSFIELD_KLING3_PRO_AUDIO_RATE_PER_SECOND_USD`
+- `HIGGSFIELD_SEEDANCE25_480P_SILENT_RATE_PER_SECOND_USD`
+- `HIGGSFIELD_SEEDANCE25_480P_AUDIO_RATE_PER_SECOND_USD`
+- `HIGGSFIELD_SEEDANCE25_720P_SILENT_RATE_PER_SECOND_USD`
+- `HIGGSFIELD_SEEDANCE25_720P_AUDIO_RATE_PER_SECOND_USD`
+- `HIGGSFIELD_GENJUTSU_480P_RATE_PER_SECOND_USD`
+- `HIGGSFIELD_GENJUTSU_720P_RATE_PER_SECOND_USD`
+- `HIGGSFIELD_GENJUTSU_1080P_RATE_PER_SECOND_USD`
 
-Unset prices reject quotes for that setting. Do not substitute a promotional starting price for an unverified audio price. Audio defaults off in the UI.
+Audio defaults off in the UI. Published rates are estimates, not guaranteed provider charges. Confirm the amount in Higgsfield billing after a render; the ledger retains its estimate until reconciled.
 
-After configuration and deployment, set `HIGGSFIELD_LIVE_ENABLED=true` when ready to enable submissions. The existing project/session/job caps, authentication, continuity approvals and Yard trial restrictions still apply. Integration alone does not authorize or start a paid render. Existing provider gates and secrets are unchanged.
+The same four Kling rates apply to the corresponding text and image routes. Set only the rates for modes you intend to use. The owner explicitly accepts the quoted estimate before each submission. The separate `HIGGSFIELD_LIVE_ENABLED` switch and fixed shot, session, and project cost ceilings do not block Higgsfield; a pending job or unacknowledged uncertain job still prevents duplicate submission for the same shot. Other providers retain their own controls. The Yard trial routes remain separate.
 
 ## Behavior and limits
 
-- Server uploads the selected image using Higgsfield presigned storage, then submits the documented Kling endpoint.
+- Server uploads selected images using Higgsfield presigned storage, then submits the selected model endpoint. Text routes make no upload.
 - Queue stores the returned status URL and polls it; API credentials only go to api.higgsfield.ai.
 - Lost responses, server errors and malformed successful submissions remain uncertain; their budget reservation is retained. No automatic resubmission.
 - Duplicate pending shots and unacknowledged uncertain jobs block another paid attempt across LTX, Veo and Higgsfield.
 - Completed video passes through the existing R2 output persistence and shot download workflow.
 - Ledger amounts are configured-rate estimates, not invoiced charges. Failed/moderated/canceled jobs conservatively retain the estimated charge until reconciled against Higgsfield billing.
 - Studio does not expose provider-side cancellation after submission. Polling and downloads continue if the live gate is turned off.
-- Initial scope: Kling 3.0 Standard/Pro image-to-video. Other Higgsfield catalog models are not yet integrated.
+- Genjutsu quotes use the Source duration chosen in Film Studio. Enter the reference clip's rounded-up length; the provider charges for its actual input duration. Use the Higgsfield Playground if you need a route outside the seven choices currently listed.
 
 ## Verification
 
@@ -37,5 +44,10 @@ Mocked provider tests exercise audio-specific quotes, start-frame selection, cre
 Sources checked 2026-09-28:
 - https://open.higgsfield.ai/models/kling-video/v3.0/pro/image-to-video/api-reference
 - https://open.higgsfield.ai/models/kling-video/v3.0/std/image-to-video/api-reference
+- https://open.higgsfield.ai/models/kling-video/v3.0/std/text-to-video/api-reference
+- https://open.higgsfield.ai/models/kling-video/v3.0/pro/text-to-video/api-reference
+- https://open.higgsfield.ai/models/bytedance/seedance-2.5/text-to-video/api-reference
+- https://open.higgsfield.ai/models/bytedance/seedance-2.5/image-to-video/api-reference
+- https://open.higgsfield.ai/models/higgsfield/genjutsu/motion-transfer/v1.0/playground
 - https://docs.higgsfield.ai/docs/concepts/file-uploads
 - https://docs.higgsfield.ai/docs/concepts/requests
