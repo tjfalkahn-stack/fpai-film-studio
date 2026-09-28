@@ -145,21 +145,26 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
               prompt: input.prompt, duration: input.duration, sound: input.generateAudio === false ? "off" : "on",
               cfg_scale: 0.5, multi_shots: false };
       // A lost or malformed submission response may still represent a billed job.
+      let submissionDetail = "transport error";
       try {
         const response = await fetchImpl(`${ORIGIN}/${model}`, {
-          method: "POST", headers: { ...headers, "Content-Type": "application/json" }, redirect: "error",
+          method: "POST", headers: { ...headers, "Content-Type": "application/json" }, redirect: "manual",
           body: JSON.stringify(payload),
         });
         if (!response.ok && response.status >= 400 && response.status < 500) await checked(response, "submission");
+        submissionDetail = `HTTP ${response.status}`;
         if (!response.ok) throw new Error("Unknown submission outcome");
+        submissionDetail = "HTTP 2xx with unreadable JSON";
         const result = await response.json();
+        submissionDetail = "HTTP 2xx without a valid request ID";
         if (!/^[a-f0-9-]{36}$/i.test(result.request_id)) throw new Error("Missing request ID");
+        submissionDetail = "HTTP 2xx with an invalid status URL";
         const statusUrl = safeUrl(result.status_url, true);
         if (new URL(statusUrl).pathname !== `/requests/${result.request_id}/status`) throw new Error("Mismatched status URL");
         return { operationId: statusUrl, costBasis: "higgsfield-configured-rate-estimate" };
       } catch (error) {
         if (error.code === "HIGGSFIELD_API_ERROR") throw error;
-        throw new ProviderError("HIGGSFIELD_SUBMISSION_UNKNOWN", "Higgsfield submission outcome is unknown. Check provider usage before retrying.", { uncertain: true, httpStatus: 502 });
+        throw new ProviderError("HIGGSFIELD_SUBMISSION_UNKNOWN", `Higgsfield submission outcome is unknown (${submissionDetail}). Check provider usage before retrying.`, { uncertain: true, httpStatus: 502 });
       }
     },
     async status(row) {
