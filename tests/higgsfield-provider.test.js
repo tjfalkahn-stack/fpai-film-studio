@@ -151,6 +151,21 @@ test("polling and private asset retrieval work without an extra live switch",asy
   await assert.rejects(p.status({operation_id:"https://evil.example/requests/x/status"}),/Unsafe/);
   assert.equal(providerLiveEnabled(p.capabilities.id,{...env,HIGGSFIELD_LIVE_ENABLED:"false"}),true);
 });
+test("status transport failures give a safe recovery message without submitting another job", async () => {
+  let calls = 0;
+  const provider = createHiggsfieldProvider(env, async () => {
+    calls++;
+    throw new TypeError(`private connection detail ${env.HF_CREDENTIALS}`);
+  });
+  await assert.rejects(provider.status({ operation_id: statusUrl }), error => {
+    assert.equal(error.code, "HIGGSFIELD_STATUS_UNAVAILABLE");
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /No new video was submitted/);
+    assert.doesNotMatch(error.message, /private|test-secret/);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
 test("terminal failures keep conservative cost until billing is reconciled",async()=>{
   for(const status of ["failed","nsfw","canceled"]){
     const p=createHiggsfieldProvider(env,async()=>Response.json({status}));

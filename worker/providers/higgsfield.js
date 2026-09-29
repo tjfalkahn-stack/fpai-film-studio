@@ -170,8 +170,14 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
     },
     async status(row) {
       // Polling remains possible when new submissions are disabled.
-      const response = await checked(await fetchImpl(safeUrl(row.operation_id, true), { headers: auth(env), redirect: "error" }), "status");
-      const result = await response.json();
+      let result;
+      try {
+        const response = await checked(await fetchImpl(safeUrl(row.operation_id, true), { headers: auth(env), redirect: "error" }), "status");
+        result = await response.json();
+      } catch (error) {
+        if (error instanceof ProviderError) throw error;
+        throw new ProviderError("HIGGSFIELD_STATUS_UNAVAILABLE", "Studio could not read this job from Higgsfield. No new video was submitted. Retry recovery later or download it from Higgsfield Requests.", { httpStatus: 502, retryable: true });
+      }
       if (["queued", "in_progress"].includes(result.status)) return { status: "running" };
       if (["failed", "nsfw", "canceled"].includes(result.status)) return {
         status: "failed", actualCost: Number(row.estimated_cost), costBasis: "reserved-estimate-pending-provider-reconciliation",
