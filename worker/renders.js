@@ -936,17 +936,27 @@ async function recoverHiggsfield(request, env, row) {
     fail("INVALID_CHARGE", "Enter the amount charged shown by Higgsfield.");
   const operationId = `https://api.higgsfield.ai/requests/${jobId}/status`;
   const db = dbOf(env);
-  const other = await db.prepare("SELECT id FROM renders WHERE operation_id=? AND id<>?").bind(operationId, row.id).first();
+  let other;
+  try {
+    other = await db.prepare("SELECT id FROM renders WHERE operation_id=? AND id<>?").bind(operationId, row.id).first();
+  } catch {
+    fail("RECOVERY_STORAGE_UNAVAILABLE", "Studio could not check its render records. The Higgsfield video is still available in Requests; retry recovery later.", 503);
+  }
   if (other) fail("JOB_ALREADY_TRACKED", "That Higgsfield job is already tracked in Studio.", 409);
   // Verify the job with the account credential before attaching it. No generation is submitted.
   const provider = providerFor(row.provider, env);
   const result = await provider.status({ ...row, operation_id: operationId });
   const status = result.status === "completed" ? "completed" : result.status === "failed" ? "failed" : "running";
-  const claim = await db.prepare(
-    "UPDATE renders SET status=?,operation_id=?,actual_cost=?,reserved_cost=0,cost_basis=?,asset_json=?,error_json=?,updated_at=? WHERE id=? AND status='uncertain' AND operation_id IS NULL",
-  ).bind(status, operationId, chargedAmount, "operator-confirmed-provider-charge",
-    result.asset ? JSON.stringify(result.asset) : null, result.error ? JSON.stringify(result.error) : null,
-    stamp(), row.id).run();
+  let claim;
+  try {
+    claim = await db.prepare(
+      "UPDATE renders SET status=?,operation_id=?,actual_cost=?,reserved_cost=0,cost_basis=?,asset_json=?,error_json=?,updated_at=? WHERE id=? AND status='uncertain' AND operation_id IS NULL",
+    ).bind(status, operationId, chargedAmount, "operator-confirmed-provider-charge",
+      result.asset ? JSON.stringify(result.asset) : null, result.error ? JSON.stringify(result.error) : null,
+      stamp(), row.id).run();
+  } catch {
+    fail("RECOVERY_STORAGE_UNAVAILABLE", "Studio verified the Higgsfield job but could not save it. No new video was submitted; retry recovery later.", 503);
+  }
   if (!claim.meta.changes) fail("RECOVERY_CONFLICT", "This render changed during recovery. Refresh your videos.", 409);
   return advance(env, await get(env, row.id));
 }
