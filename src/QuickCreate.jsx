@@ -2,12 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { renderIdentity, renderRequest, renderRequestKey } from "./renderClient.js";
 import { START_FRAME_PROVIDER_LIMIT } from "./shotStartFrame.js";
 
-const IMAGE_MODELS = [
-  "higgsfield-kling-3-standard",
-  "higgsfield-kling-3-pro",
-  "higgsfield-seedance-2.5-image",
-  "higgsfield-genjutsu-motion",
-];
+const DEFAULT_MODEL = "higgsfield-kling-3-standard";
 
 async function encodePhoto(file) {
   if (!["image/png", "image/jpeg"].includes(file.type)) throw new Error("Choose a PNG or JPEG picture.");
@@ -61,7 +56,7 @@ function RecoverPaidJob({ job, onRender }) {
 
 export default function QuickCreate({ projectId, renders, onRender }) {
   const [catalog, setCatalog] = useState(null);
-  const [provider, setProvider] = useState(IMAGE_MODELS[0]);
+  const [provider, setProvider] = useState(DEFAULT_MODEL);
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState("");
   const [reference, setReference] = useState(null);
@@ -79,9 +74,10 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [dragging, setDragging] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const pending = useRef(null);
-  const options = (catalog?.providers || []).filter((item) => IMAGE_MODELS.includes(item.id));
+  const options = (catalog?.providers || []).filter((item) => item.id.startsWith("higgsfield-"));
   const selected = options.find((item) => item.id === provider);
   const isMotion = selected?.inputKind === "motion";
+  const isText = selected?.inputKind === "text";
   const jobs = renders.filter((item) => item.projectId === projectId && item.sceneId === "CREATE" && item.provider.startsWith("higgsfield-"));
   const uncertain = jobs.find((item) => item.status === "uncertain");
 
@@ -111,7 +107,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
     return {
       projectId, sceneId: "CREATE", shotId, provider,
       prompt: prompt.trim(), duration, resolution, aspectRatio,
-      referenceImages: reference ? [reference] : [],
+      referenceImages: !isText && reference ? [reference] : [],
       ...(isMotion ? { referenceVideos: [{ url: videoUrl.trim() }] } : {}),
       generateAudio: isMotion ? false : audio,
       continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
@@ -121,7 +117,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   useEffect(() => {
     let canceled = false;
     setQuote(null);
-    if (!catalog || !prompt.trim() || !reference || (isMotion && !/^https:\/\/[^\s]+$/i.test(videoUrl.trim()))) return;
+    if (!catalog || !prompt.trim() || (!isText && !reference) || (isMotion && !/^https:\/\/[^\s]+$/i.test(videoUrl.trim()))) return;
     const timer = setTimeout(() => {
       renderRequest("/api/renders", { ...input("DIRECT_PREVIEW"), estimateOnly: true })
         .then((result) => { if (!canceled) { setQuote(result); setError(""); } })
@@ -168,15 +164,15 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   return (
     <section className="panel quickCreate">
       <span className="eyebrow">DIRECT VIDEO CREATION</span>
-      <h2>Drop in your picture. Make a video.</h2>
-      <p className="sub">Use your own finished picture as the opening image. No shot list, Character Bible, or start-frame approval needed.</p>
+      <h2>{isText ? "Describe it. Make a video." : "Drop in your picture. Make a video."}</h2>
+      <p className="sub">{isText ? "Generate from your prompt without an opening image." : "Use your own finished picture as the opening image. No shot list, Character Bible, or start-frame approval needed."}</p>
       <div className="quickCreateGrid">
         <div>
-          <label className={`quickCreateDrop ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); choosePhoto(event.dataTransfer.files?.[0]); }}>
+          {!isText && <label className={`quickCreateDrop ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); choosePhoto(event.dataTransfer.files?.[0]); }}>
             {preview ? <img src={preview} alt="Your uploaded picture" /> : <strong>Drop your picture here</strong>}
             <span>{photo ? `${photo.name} · Change picture` : "or click to choose a PNG or JPEG"}</span>
             <input type="file" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0])} />
-          </label>
+          </label>}
           <label>What should happen in the video?<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the action, camera movement, and mood…" rows={5} /></label>
         </div>
         <div className="quickCreateControls">
@@ -209,7 +205,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
           {uncertain && <label className="checkLabel"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> A previous request has an uncertain provider outcome. I understand a new render may add another charge.</label>}
           {error && <p className="validation" role="alert">{error}</p>}
           {pending.current && <button className="ghost" onClick={() => { pending.current = null; localStorage.removeItem(`fpai-direct-render:${projectId}`); setError(""); }}>Clear unresolved request after checking recent videos</button>}
-          <p>Estimated cost: <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : "Enter a prompt and picture to see a quote"}</b></p>
+          <p>Estimated cost: <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : isText ? "Enter a prompt to see a quote" : "Enter a prompt and picture to see a quote"}</b></p>
           <button className="primary full" disabled={!quote || busy || (uncertain && !acknowledged) || !catalog?.policy?.higgsfieldExecutionReady} onClick={generate}>{busy ? "Submitting…" : quote ? `Create video · $${quote.estimatedCost.toFixed(2)}` : "Create video"}</button>
         </div>
       </div>
