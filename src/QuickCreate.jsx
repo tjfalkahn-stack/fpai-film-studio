@@ -36,6 +36,29 @@ async function encodePhoto(file) {
   return { mimeType: image.type, data };
 }
 
+function RecoverPaidJob({ job, onRender }) {
+  const [jobId, setJobId] = useState("");
+  const [chargedAmount, setChargedAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function recover() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await renderRequest(`/api/renders/${job.id}/recover`, { jobId: jobId.trim(), chargedAmount });
+      onRender(result.render);
+    } catch (cause) { setError(cause.message); }
+    finally { setBusy(false); }
+  }
+  return <div className="quickCreateControls">
+    <p className="sub">Already paid for this video? Find its Job ID and exact amount charged in Higgsfield Requests. Recovering it checks that job without submitting another video.</p>
+    <label>Higgsfield Job ID<input value={jobId} onChange={(event) => setJobId(event.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /></label>
+    <label>Amount charged (USD)<input type="number" min="0" max="100" step="0.0001" value={chargedAmount} onChange={(event) => setChargedAmount(event.target.value)} placeholder="0.3465" /></label>
+    <button className="ghost" disabled={busy || !jobId.trim() || chargedAmount === ""} onClick={recover}>{busy ? "Recovering…" : "Recover paid video · no new generation"}</button>
+    {error && <p className="validation" role="alert">{error}</p>}
+  </div>;
+}
+
 export default function QuickCreate({ projectId, renders, onRender }) {
   const [catalog, setCatalog] = useState(null);
   const [provider, setProvider] = useState(IMAGE_MODELS[0]);
@@ -197,7 +220,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
         <small>{new Date(job.createdAt).toLocaleString()} · {job.actualCost == null ? "Cost pending" : `$${Number(job.actualCost).toFixed(2)}`}</small>
         {job.outputAsset?.url && <><video src={job.outputAsset.url} controls preload="metadata" /><a className="ghost" href={job.outputAsset.url} download={`fpai-video-${job.id}.mp4`}>Download video</a></>}
         {job.error && <p className="validation">{job.error.message}</p>}
-        {job.status === "uncertain" && <p className="validation">No video is available, and the charge is unconfirmed. Check Higgsfield Requests and Billing for the time shown above before starting another render.</p>}
+        {job.status === "uncertain" && <><p className="validation">Studio lost track of this request. Check Higgsfield Requests for its outcome before starting another render.</p><RecoverPaidJob job={job} onRender={onRender} /></>}
       </div>)}</div>
     </section>
   );
