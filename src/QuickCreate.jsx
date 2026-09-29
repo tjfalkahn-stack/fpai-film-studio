@@ -60,6 +60,9 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState("");
   const [reference, setReference] = useState(null);
+  const [endPhoto, setEndPhoto] = useState(null);
+  const [endPreview, setEndPreview] = useState("");
+  const [endReference, setEndReference] = useState(null);
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(5);
   const [resolution, setResolution] = useState("720p");
@@ -78,6 +81,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const selected = options.find((item) => item.id === provider);
   const isMotion = selected?.inputKind === "motion";
   const isText = selected?.inputKind === "text";
+  const supportsEndFrame = Boolean(selected?.supportsEndFrame);
   const jobs = renders.filter((item) => item.projectId === projectId && item.sceneId === "CREATE" && item.provider.startsWith("higgsfield-"));
   const uncertain = jobs.find((item) => item.status === "uncertain");
 
@@ -85,19 +89,18 @@ export default function QuickCreate({ projectId, renders, onRender }) {
     renderRequest("/api/renderers").then(setCatalog).catch((cause) => setError(cause.message));
   }, []);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+  useEffect(() => () => { if (endPreview) URL.revokeObjectURL(endPreview); }, [endPreview]);
 
-  async function choosePhoto(file) {
+  async function choosePhoto(file, end = false) {
     if (!file) return;
     setError("");
     setQuote(null);
-    setPhoto(null);
-    setPreview("");
-    setReference(null);
+    if (end) { setEndPhoto(null); setEndPreview(""); setEndReference(null); }
+    else { setPhoto(null); setPreview(""); setReference(null); }
     try {
       const encoded = await encodePhoto(file);
-      setPhoto(file);
-      setReference(encoded);
-      setPreview(URL.createObjectURL(file));
+      if (end) { setEndPhoto(file); setEndReference(encoded); setEndPreview(URL.createObjectURL(file)); }
+      else { setPhoto(file); setReference(encoded); setPreview(URL.createObjectURL(file)); }
     } catch (cause) {
       setError(cause.message);
     }
@@ -108,6 +111,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
       projectId, sceneId: "CREATE", shotId, provider,
       prompt: prompt.trim(), duration, resolution, aspectRatio,
       referenceImages: !isText && reference ? [reference] : [],
+      ...(supportsEndFrame && endReference ? { endFrameImage: endReference } : {}),
       ...(isMotion ? { referenceVideos: [{ url: videoUrl.trim() }] } : {}),
       generateAudio: isMotion ? false : audio,
       continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
@@ -124,7 +128,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
         .catch((cause) => { if (!canceled) setError(cause.message); });
     }, 350);
     return () => { canceled = true; clearTimeout(timer); };
-  }, [catalog, projectId, provider, reference, prompt, duration, resolution, aspectRatio, audio, videoUrl]);
+  }, [catalog, projectId, provider, reference, endReference, prompt, duration, resolution, aspectRatio, audio, videoUrl]);
 
   async function generate() {
     if (!quote || busy || !catalog?.policy?.higgsfieldExecutionReady) return;
@@ -164,15 +168,25 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   return (
     <section className="panel quickCreate">
       <span className="eyebrow">DIRECT VIDEO CREATION</span>
-      <h2>{isText ? "Describe it. Make a video." : "Drop in your picture. Make a video."}</h2>
-      <p className="sub">{isText ? "Generate from your prompt without an opening image." : "Use your own finished picture as the opening image. No shot list, Character Bible, or start-frame approval needed."}</p>
+      <h2>{isText ? "Describe it. Make a video." : "Upload your shot frames. Make a video."}</h2>
+      <p className="sub">{isText ? "Generate from your prompt without an opening image." : supportsEndFrame ? "Upload the start frame and optionally the end frame. Both are sent to the selected model." : isMotion ? "Upload a reference image and provide a source video for motion transfer. This route does not use start and end frames." : "Use your finished picture as the opening image."}</p>
       <div className="quickCreateGrid">
         <div>
-          {!isText && <label className={`quickCreateDrop ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); choosePhoto(event.dataTransfer.files?.[0]); }}>
-            {preview ? <img src={preview} alt="Your uploaded picture" /> : <strong>Drop your picture here</strong>}
-            <span>{photo ? `${photo.name} · Change picture` : "or click to choose a PNG or JPEG"}</span>
-            <input type="file" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0])} />
-          </label>}
+          {!isText && <div className={supportsEndFrame ? "quickCreateFrames" : ""}>
+            <label className={`quickCreateDrop ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); choosePhoto(event.dataTransfer.files?.[0]); }}>
+              {preview ? <img src={preview} alt={isMotion ? "Reference image preview" : "Start frame preview"} /> : <strong>{isMotion ? "Reference image" : "Start frame"}</strong>}
+              <span>{photo ? `${photo.name} · Change image` : "Drop or choose a PNG or JPEG"}</span>
+              <input type="file" aria-label={isMotion ? "Reference image" : "Start frame"} accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0])} />
+            </label>
+            {supportsEndFrame && <div>
+              <label className="quickCreateDrop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); choosePhoto(event.dataTransfer.files?.[0], true); }}>
+                {endPreview ? <img src={endPreview} alt="End frame preview" /> : <strong>End frame · optional</strong>}
+                <span>{endPhoto ? `${endPhoto.name} · Change image` : "Drop or choose a PNG or JPEG"}</span>
+                <input type="file" aria-label="End frame" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0], true)} />
+              </label>
+              {endReference && <button className="ghost" type="button" onClick={() => { setEndPhoto(null); setEndReference(null); setEndPreview(""); setQuote(null); }}>Remove end frame</button>}
+            </div>}
+          </div>}
           <label>What should happen in the video?<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the action, camera movement, and mood…" rows={5} /></label>
         </div>
         <div className="quickCreateControls">

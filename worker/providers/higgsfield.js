@@ -65,6 +65,7 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
   function estimate(input) {
     const refs = input.referenceImages || [];
     if (spec.kind === "image" && refs.length !== 1) fail("INVALID_REFERENCES", "This model requires one composed Shot Start Frame.");
+    if (input.endFrameImage && spec.kind !== "image") fail("INVALID_REFERENCES", "This model does not accept an end frame.");
     if (spec.kind === "text" && refs.length) fail("INVALID_REFERENCES", "Text to video does not take image references.");
     if (spec.kind === "motion") {
       if (!refs.length || refs.length > 8) fail("INVALID_REFERENCES", "Motion transfer needs one to eight reference images.");
@@ -95,10 +96,11 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
       id, label: `Higgsfield · ${spec.label}`, model, inputKind: spec.kind,
       paid: true, providerFamily: "higgsfield", durations: spec.durations, resolutions: spec.resolutions,
       aspectRatios: ["16:9", "9:16"], maxReferences: spec.kind === "motion" ? 8 : spec.kind === "image" ? 1 : 0,
+      supportsEndFrame: spec.kind === "image",
       referenceImages: spec.kind !== "text", requiresStartFrame: spec.kind === "image",
       requiresVideoUrl: spec.kind === "motion", audio: spec.kind !== "motion", generateAudio: spec.kind !== "motion", cancelRunning: false,
       ledgerRoutes: Object.fromEntries(spec.resolutions.map(resolution => [resolution, id])),
-      uiHint: spec.kind === "motion" ? "Paste a public HTTPS clip URL and choose character images. Match Source duration to the clip for the cost quote." : spec.kind === "image" ? "One composed Shot Start Frame. Match its framing to the aspect ratio." : "Text only; no start frame is sent.",
+      uiHint: spec.kind === "motion" ? "Paste a public HTTPS clip URL and choose character images. Match Source duration to the clip for the cost quote." : spec.kind === "image" ? "Upload a start frame and, optionally, an end frame. Match their aspect ratios." : "Text only; no frames are sent.",
     },
     estimate,
     async start(input) {
@@ -110,8 +112,13 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
         if (spec.kind === "image" && input.renderId) {
           uploadStage = "signed input link creation";
           imageUrls.push(await signedHiggsfieldInputUrl(env, input.renderId));
+          if (input.endFrameImage) imageUrls.push(await signedHiggsfieldInputUrl(env, input.renderId, Date.now(), "end"));
         }
-        for (const ref of spec.kind === "image" && input.renderId ? [] : input.referenceImages || []) {
+        const uploadRefs = spec.kind === "image" && input.renderId ? [] : [
+          ...(input.referenceImages || []),
+          ...(spec.kind === "image" && input.endFrameImage ? [input.endFrameImage] : []),
+        ];
+        for (const ref of uploadRefs) {
           uploadStage = "upload initialization";
           const upload = await (await checked(await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
             method: "POST", headers: { ...headers, "Content-Type": "application/json" },
@@ -139,9 +146,9 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
         ? { prompt: input.prompt, video_url: safeUrl(input.referenceVideos[0].url), image_urls: imageUrls, resolution: input.resolution }
         : spec.price === "HIGGSFIELD_SEEDANCE25"
           ? { prompt: input.prompt, duration: input.duration, resolution: input.resolution,
-              ...(spec.kind === "image" ? { image_url: imageUrls[0] } : { aspect_ratio: input.aspectRatio }),
+              ...(spec.kind === "image" ? { image_url: imageUrls[0], ...(input.endFrameImage ? { end_image_url: imageUrls[1] } : {}) } : { aspect_ratio: input.aspectRatio }),
               output_format: "mp4", generate_audio: input.generateAudio !== false }
-          : { ...(spec.kind === "image" ? { image_url: imageUrls[0] } : { aspect_ratio: input.aspectRatio }),
+          : { ...(spec.kind === "image" ? { image_url: imageUrls[0], ...(input.endFrameImage ? { last_image_url: imageUrls[1] } : {}) } : { aspect_ratio: input.aspectRatio }),
               prompt: input.prompt, duration: input.duration, sound: input.generateAudio === false ? "off" : "on",
               cfg_scale: 0.5, multi_shots: false };
       // A lost or malformed submission response may still represent a billed job.
