@@ -714,6 +714,21 @@ function App() {
     updateShot(targetShot.id, { startFrame: null });
   }
 
+  async function setShotEndFrame(targetShot, file) {
+    if (!file) return;
+    const metadata = validateShotStartFrame(file);
+    const key = `shot:${targetShot.id}:end-frame:${Date.now()}`;
+    await putMedia(key, file);
+    const previousKey = targetShot.endFrame?.key;
+    updateShot(targetShot.id, { endFrame: { key, ...metadata, uploadedAt: new Date().toISOString() } });
+    if (previousKey && previousKey !== key) await deleteMedia(previousKey);
+  }
+
+  async function clearShotEndFrame(targetShot) {
+    if (targetShot.endFrame?.key) await deleteMedia(targetShot.endFrame.key);
+    updateShot(targetShot.id, { endFrame: null });
+  }
+
   function updateTake(targetShot, takeId, patch) {
     setData(current => updateTakeState(current, targetShot.id, takeId, patch));
   }
@@ -1062,6 +1077,8 @@ function App() {
           addTake={addTake}
           setShotStartFrame={setShotStartFrame}
           clearShotStartFrame={clearShotStartFrame}
+          setShotEndFrame={setShotEndFrame}
+          clearShotEndFrame={clearShotEndFrame}
           updateTake={updateTake}
           approveTake={approveTake}
           reusableTakes={data.shots.flatMap((sourceShot) => (sourceShot.takes || [])
@@ -1790,7 +1807,7 @@ function CharacterDrawer({ character, projectId, dragTarget, setDragTarget, addR
   );
 }
 
-function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy, plan, packet, setPackageShotId, addTake, setShotStartFrame, clearShotStartFrame, updateTake, approveTake, reusableTakes, close }) {
+function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy, plan, packet, setPackageShotId, addTake, setShotStartFrame, clearShotStartFrame, setShotEndFrame, clearShotEndFrame, updateTake, approveTake, reusableTakes, close }) {
   const economy = normalizeShotEconomy(shot, project);
   return (
     <div className="overlay">
@@ -1823,6 +1840,26 @@ function ShotDrawer({ shot, renderPanel, project, updateShot, updateShotEconomy,
             </div>
           ) : (
             <label className="primary uploadButton">Upload Shot Start Frame<input type="file" accept="image/png,image/jpeg" onChange={(event) => setShotStartFrame(shot, event.target.files?.[0])} /></label>
+          )}
+        </div>
+
+        <div className="shotStartFrame">
+          <div className="sectionTitle"><ImageIcon /><span>SHOT END FRAME</span></div>
+          <p className="sub">Optional final image for Kling 3 and Higgsfield Seedance 2.5 image-to-video.</p>
+          {shot.endFrame?.key ? (
+            <div className="shotStartFrameCard">
+              <div className="takeMedia"><Media mediaKey={shot.endFrame.key} /></div>
+              <div>
+                <b>{shot.endFrame.name}</b>
+                <small>{(Number(shot.endFrame.size || 0) / 1024 / 1024).toFixed(2)} MB · final frame</small>
+                <div className="buttonRow">
+                  <label className="primary uploadButton">Replace End Frame<input type="file" accept="image/png,image/jpeg" onChange={(event) => setShotEndFrame(shot, event.target.files?.[0])} /></label>
+                  <button className="ghost" onClick={() => clearShotEndFrame(shot)}>Remove</button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <label className="primary uploadButton">Upload Shot End Frame<input type="file" accept="image/png,image/jpeg" onChange={(event) => setShotEndFrame(shot, event.target.files?.[0])} /></label>
           )}
         </div>
 

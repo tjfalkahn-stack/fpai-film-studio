@@ -169,6 +169,10 @@ export default function RenderPanel({
         if (file) inline.push(await encodeImage(file));
       }
     }
+    const endFrameFile = capabilities?.supportsEndFrame && shot.endFrame?.key
+      ? await getMedia(shot.endFrame.key) : null;
+    if (capabilities?.supportsEndFrame && shot.endFrame?.key && !endFrameFile)
+      throw new Error("Shot End Frame is missing from browser storage. Upload it again before rendering.");
     return {
       projectId: project.id,
       sceneId: shot.scene,
@@ -179,6 +183,7 @@ export default function RenderPanel({
       resolution,
       aspectRatio,
       referenceImages: inline,
+      ...(endFrameFile ? { endFrameImage: await encodeImage(endFrameFile) } : {}),
       ...(isHiggsfieldMotion ? { referenceVideos: [{ url: referenceVideoUrl.trim() }] } : {}),
       ...(provider === "veo-fast" ? { referenceMode: usesStartFrame ? "start-frame" : "reference-images" } : {}),
       generateAudio: isHiggsfield ? higgsfieldAudio : String(provider).startsWith("seedance-") ? true : undefined,
@@ -236,6 +241,7 @@ export default function RenderPanel({
     aspectRatio,
     selected,
     shot.startFrame?.key,
+    shot.endFrame?.key,
     generationPrompt,
     characters.map((c) => JSON.stringify(c.refs)).join("|"),
     continuity.ready,
@@ -590,7 +596,7 @@ export default function RenderPanel({
             ? " Google Veo Fast uses the composed Shot Start Frame as frame one. Its 1080p output requires an 8-second source; select the best moments in the edit."
             : " Upload a composed Shot Start Frame for image-to-video. Without one, Veo uses up to 3 selected PNG/JPEG images as references, not frame one."
           : isHiggsfield && usesStartFrame
-            ? " Higgsfield animates your composed start frame. Match its framing to the selected aspect ratio."
+            ? ` Higgsfield animates your composed start frame${shot.endFrame?.key && capabilities?.supportsEndFrame ? " toward the uploaded end frame" : ""}. Match both frames to the selected aspect ratio.`
           : isLtx
             ? " LTX uses the dedicated composed Shot Start Frame as frame one. Character Bible portraits remain continuity references and are not substituted for the opening frame."
           : provider?.startsWith("seedance-")

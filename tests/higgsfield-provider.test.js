@@ -121,6 +121,39 @@ test("direct image renders use a signed Studio URL without Higgsfield upload ini
   const expired = await signedHiggsfieldInputUrl(directEnv, renderId, Date.now() - 3700_000);
   assert.equal((await serveHiggsfieldInput(new Request(expired), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
 });
+test("two-frame image renders send the correct end field and serve distinct signed frames", async () => {
+  const renderId = requestId;
+  const directEnv = { ...env, FPAI_CONTROL_TOKEN: "test-control-token" };
+  const endFrameImage = { mimeType: "image/jpeg", data: "/9j/AA==" };
+  const twoFrames = { ...input, endFrameImage, renderId };
+  const media = { get: async key => key === `render-inputs/${renderId}.json` ? { json: async () => twoFrames } : null };
+  for (const [route, field, resolution] of [
+    ["higgsfield-kling-3-pro", "last_image_url", "1080p"],
+    ["higgsfield-seedance-2.5-image", "end_image_url", "720p"],
+  ]) {
+    const calls = [];
+    await createHiggsfieldProvider(directEnv, async (url, init) => {
+      calls.push({ url, init });
+      return Response.json({ request_id: requestId });
+    }, route).start({ ...twoFrames, resolution });
+    assert.equal(calls.length, 1, "signed frames should not be re-uploaded");
+    const payload = JSON.parse(calls[0].init.body);
+    assert.ok(payload.image_url);
+    assert.ok(payload[field]);
+    assert.notEqual(payload.image_url, payload[field]);
+    const start = await serveHiggsfieldInput(new Request(payload.image_url), { ...directEnv, GENERATION_MEDIA: media });
+    const end = await serveHiggsfieldInput(new Request(payload[field]), { ...directEnv, GENERATION_MEDIA: media });
+    assert.equal(start.status, 200);
+    assert.equal(end.status, 200);
+    assert.equal(end.headers.get("content-type"), "image/jpeg");
+    assert.deepEqual(new Uint8Array(await end.arrayBuffer()), Uint8Array.from(atob(endFrameImage.data), char => char.charCodeAt(0)));
+    const swapped = new URL(payload.image_url);
+    swapped.searchParams.set("frame", "end");
+    assert.equal((await serveHiggsfieldInput(new Request(swapped), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
+  }
+  assert.throws(() => createHiggsfieldProvider(env, undefined, "higgsfield-kling-3-pro-text")
+    .estimate({ ...twoFrames, referenceImages: [] }), /does not accept an end frame/);
+});
 test("Higgsfield connection probe never submits video or exposes upload URLs", async () => {
   const calls = [];
   const response = await probeHiggsfieldUploadConnection(env, async (url, init) => {

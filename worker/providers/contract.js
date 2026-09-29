@@ -56,7 +56,9 @@ export function validateInput(input, capabilities) {
       "INVALID_REFERENCES",
       `Choose at most ${capabilities.maxReferences} reference images.`,
     );
-  for (const ref of refs) {
+  for (const ref of [...refs, ...(input.endFrameImage ? [input.endFrameImage] : [])]) {
+    if (!ref || typeof ref !== "object")
+      fail("INVALID_REFERENCES", "A frame must be a PNG or JPEG image.");
     const libraryRef =
       typeof ref.assetId === "string" &&
       /^[a-f0-9-]{36}$/i.test(ref.assetId) &&
