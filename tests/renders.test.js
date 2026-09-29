@@ -165,6 +165,44 @@ test("a direct photo render queues without a preset shot or Yard trial", async (
     delete env.HF_CREDENTIALS;
   }
 });
+test("recover a paid Higgsfield job into its uncertain Studio render without generation", async (t) => {
+  env.HF_CREDENTIALS = "test-id:test-secret";
+  const jobId = "4c987926-a7d5-443a-b1a8-a7c8703cd284";
+  const request = body(undefined, {
+    sceneId: "CREATE", shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`,
+    provider: "higgsfield-kling-3-standard", duration: 5,
+    referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    generateAudio: false,
+    continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+  });
+  const quote = await call("/api/renders", { ...request, estimateOnly: true });
+  const id = (await call("/api/renders", { ...request, acceptedCost: quote.data.estimatedCost })).data.render.id;
+  await db.prepare("UPDATE renders SET status='uncertain',actual_cost=NULL,error_json=? WHERE id=?")
+    .bind(JSON.stringify({ code: "HIGGSFIELD_SUBMISSION_UNKNOWN", message: "Lost status URL" }), id).run();
+  const network = t.mock.method(globalThis, "fetch", async (url, init) => {
+    assert.equal(init?.method, undefined);
+    if (String(url).endsWith(`/requests/${jobId}/status`)) return Response.json({ status: "completed", video: { url: "https://cdn.example.com/recovered.mp4" } });
+    if (String(url) === "https://cdn.example.com/recovered.mp4") return new Response("video", { headers: { "content-type": "video/mp4" } });
+    throw new Error("Unexpected provider request");
+  });
+  try {
+    assert.equal((await call(`/api/renders/${id}/recover`, { jobId: "bad", chargedAmount: "0.3465" })).response.status, 400);
+    assert.equal((await call(`/api/renders/${id}/recover`, { jobId, chargedAmount: "0.3465" }, false)).response.status, 401);
+    const recovered = await call(`/api/renders/${id}/recover`, { jobId, chargedAmount: "0.3465" });
+    assert.equal(recovered.response.status, 200);
+    assert.equal(recovered.data.render.status, "completed");
+    assert.equal(recovered.data.render.actualCost, 0.3465);
+    assert.equal(recovered.data.render.costBasis, "operator-confirmed-provider-charge");
+    assert.equal(recovered.data.render.outputAsset?.url, `/api/renders/${id}/asset`, JSON.stringify(recovered.data.render));
+    assert.equal(network.mock.callCount(), 2);
+    assert.equal((await call(`/api/renders/${id}/recover`, { jobId, chargedAmount: "0.3465" })).response.status, 409);
+  } finally {
+    await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
+    await env.GENERATION_MEDIA.delete(`renders/enemies-closer-ep01/${id}.mp4`);
+    await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
+    delete env.HF_CREDENTIALS;
+  }
+});
 test("unavailable stored picture releases the quote before any paid provider call", async (t) => {
   const network = noNetwork(t);
   const bucket = env.GENERATION_MEDIA;

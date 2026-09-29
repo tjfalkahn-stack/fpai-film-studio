@@ -852,8 +852,8 @@ export async function advance(env, row) {
         )
         .bind(
           result.status,
-          result.actualCost ?? 0,
-          result.costBasis || null,
+          row.cost_basis === "operator-confirmed-provider-charge" ? row.actual_cost : result.actualCost ?? 0,
+          row.cost_basis === "operator-confirmed-provider-charge" ? row.cost_basis : result.costBasis || null,
           result.asset ? JSON.stringify(result.asset) : null,
           result.error ? JSON.stringify(result.error) : null,
           stamp(),
@@ -868,7 +868,7 @@ export async function advance(env, row) {
       const key = `renders/${row.project_id}/${row.id}.mp4`;
       await env.GENERATION_MEDIA.put(
         key,
-        row.provider === "mock" ? await response.arrayBuffer() : response.body,
+        row.provider === "mock" || isHiggsfieldProvider(row.provider) ? await response.arrayBuffer() : response.body,
         { httpMetadata: { contentType: "video/mp4" } },
       );
       await db
@@ -923,6 +923,32 @@ async function cancel(env, row) {
     "Submission has started. This operation must remain tracked until the provider outcome is known.",
     409,
   );
+}
+async function recoverHiggsfield(request, env, row) {
+  if (!isHiggsfieldProvider(row.provider) || row.status !== "uncertain" || row.operation_id)
+    fail("RECOVERY_UNAVAILABLE", "Only an uncertain Higgsfield render can be recovered.", 409);
+  const body = await readBody(request);
+  const jobId = body.jobId;
+  if (typeof jobId !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(jobId))
+    fail("INVALID_JOB_ID", "Enter the Higgsfield Job ID shown in Requests.");
+  const chargedAmount = Number(body.chargedAmount);
+  if (body.chargedAmount === "" || body.chargedAmount == null || !Number.isFinite(chargedAmount) || chargedAmount < 0 || chargedAmount > 100)
+    fail("INVALID_CHARGE", "Enter the amount charged shown by Higgsfield.");
+  const operationId = `https://api.higgsfield.ai/requests/${jobId}/status`;
+  const db = dbOf(env);
+  const other = await db.prepare("SELECT id FROM renders WHERE operation_id=? AND id<>?").bind(operationId, row.id).first();
+  if (other) fail("JOB_ALREADY_TRACKED", "That Higgsfield job is already tracked in Studio.", 409);
+  // Verify the job with the account credential before attaching it. No generation is submitted.
+  const provider = providerFor(row.provider, env);
+  const result = await provider.status({ ...row, operation_id: operationId });
+  const status = result.status === "completed" ? "completed" : result.status === "failed" ? "failed" : "running";
+  const claim = await db.prepare(
+    "UPDATE renders SET status=?,operation_id=?,actual_cost=?,reserved_cost=0,cost_basis=?,asset_json=?,error_json=?,updated_at=? WHERE id=? AND status='uncertain' AND operation_id IS NULL",
+  ).bind(status, operationId, chargedAmount, "operator-confirmed-provider-charge",
+    result.asset ? JSON.stringify(result.asset) : null, result.error ? JSON.stringify(result.error) : null,
+    stamp(), row.id).run();
+  if (!claim.meta.changes) fail("RECOVERY_CONFLICT", "This render changed during recovery. Refresh your videos.", 409);
+  return advance(env, await get(env, row.id));
 }
 async function asset(request, env, row) {
   if (!row.output_key)
@@ -997,7 +1023,7 @@ export async function renderRoutes(request, env) {
       return json({ renders: rows.results.map(publicRender) });
     }
     const match = url.pathname.match(
-      /^\/api\/renders\/([a-f0-9-]{36})(?:\/(cancel|asset))?$/,
+      /^\/api\/renders\/([a-f0-9-]{36})(?:\/(cancel|asset|recover))?$/,
     );
     if (!match)
       return json({ error: { code: "NOT_FOUND", message: "Not found." } }, 404);
@@ -1006,7 +1032,9 @@ export async function renderRoutes(request, env) {
       fail("NOT_FOUND", "Render not found.", 404);
     if (match[2] === "asset" && request.method === "GET")
       return await asset(request, env, row);
-    if (match[2] === "cancel" && request.method === "POST")
+    if (match[2] === "recover" && request.method === "POST")
+      row = await recoverHiggsfield(request, env, row);
+    else if (match[2] === "cancel" && request.method === "POST")
       row = await cancel(env, row);
     else if (!match[2] && request.method === "GET")
       row = await advance(env, row);
