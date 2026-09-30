@@ -211,8 +211,8 @@ export default function QuickCreate({ projectId, renders, onRender }) {
               {endReference && <button className="ghost" type="button" onClick={() => { setEndPhoto(null); setEndReference(null); setEndPreview(""); setQuote(null); }}>Remove end frame</button>}
             </div>
           </div>
-          <div className="quickCreateAudio" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); chooseAudio(event.dataTransfer.files?.[0]); }}><label>Own audio · dialogue, vocals, or rap (MP3, M4A, OGG; up to 3 MB, 20 seconds)
-            <input type="file" accept=".mp3,.m4a,.ogg,audio/mpeg,audio/mp4,audio/ogg" onChange={(event) => chooseAudio(event.target.files?.[0])} /></label>
+          <div className="quickCreateAudio" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); chooseAudio(event.dataTransfer.files?.[0]); }}><label>Own audio · dialogue, vocals, or rap (WAV, MP3, M4A, OGG; up to 3 MB, 20 seconds)
+            <input type="file" accept=".wav,.mp3,.m4a,.ogg,audio/wav,audio/x-wav,audio/mpeg,audio/mp4,audio/ogg" onChange={(event) => chooseAudio(event.target.files?.[0])} /></label>
             <small>Drop a track here or choose a file.</small>
             {sourceAudio && <><audio controls src={`data:${sourceAudio.mimeType};base64,${sourceAudio.data}`} /><small>{sourceAudioName} · {sourceAudio.duration}s · Select LTX to use this track.</small><button type="button" className="ghost" onClick={() => { setSourceAudio(null); setSourceAudioName(""); setQuote(null); }}>Remove audio</button></>}
           </div>

@@ -25,7 +25,7 @@ const TIERS = {
 export const isLtxProvider = (id) =>
   id === TIERS.fast.id || id === TIERS.pro.id;
 
-export const ltxLiveEnabled = (env = {}) => env.LTX_LIVE_ENABLED === "true";
+// A configured API key is the live authorization for LTX. Direct Create still\n// enforces quoted cost acceptance, job ceilings, ledger reservations, and\n// uncertain-submission protection before any paid request is submitted.\nexport const ltxLiveEnabled = (env = {}) => Boolean(String(env.LTX_API_KEY || "").trim());
 
 function metaFor(tier) {
   const meta = TIERS[tier];
