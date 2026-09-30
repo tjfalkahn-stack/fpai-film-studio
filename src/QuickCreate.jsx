@@ -3,7 +3,7 @@ import { renderIdentity, renderRequest, renderRequestKey } from "./renderClient.
 import { START_FRAME_PROVIDER_LIMIT } from "./shotStartFrame.js";
 import { encodeSourceAudio } from "./audioInput.js";
 
-const DEFAULT_MODEL = "higgsfield-kling-3-standard";
+const DEFAULT_MODEL = "veo-fast";
 
 async function encodePhoto(file) {
   if (!["image/png", "image/jpeg"].includes(file.type)) throw new Error("Choose a PNG or JPEG picture.");
@@ -80,14 +80,21 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [dragging, setDragging] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const pending = useRef(null);
-  const options = (catalog?.providers || []).filter((item) => item.id.startsWith("higgsfield-") || item.audioInput);
+  const options = (catalog?.providers || []).filter((item) => item.id.startsWith("higgsfield-") || item.audioInput || item.id.startsWith("veo-"));
   const selected = options.find((item) => item.id === provider);
+  const isVeo = provider.startsWith("veo-");
   const isLtx = Boolean(selected?.audioInput);
   const isMotion = selected?.inputKind === "motion";
   const isText = selected?.inputKind === "text";
   const supportsEndFrame = Boolean(selected?.supportsEndFrame);
-  const jobs = renders.filter((item) => item.projectId === projectId && item.sceneId === "CREATE" && (item.provider.startsWith("higgsfield-") || item.provider.startsWith("ltx-")));
+  const jobs = renders.filter((item) => item.projectId === projectId && item.sceneId === "CREATE" && (item.provider.startsWith("higgsfield-") || item.provider.startsWith("ltx-") || item.provider.startsWith("veo-")));
   const uncertain = jobs.find((item) => item.status === "uncertain");
+  const incompatibleInput = sourceAudio && !isLtx ? "Your uploaded audio needs LTX 2.5 Fast or Pro. Choose LTX to use this track, or remove it." :
+    endReference && !supportsEndFrame ? "Your end frame needs a model that accepts start and end frames. Choose Google Veo or a Higgsfield image model, or remove the end frame." :
+    reference && isText ? "This text model does not use your start frame. Choose an image model or remove the start frame." :
+    sourceAudio && provider === "ltx-2.5-pro" && sourceAudio.duration > 10 ? "LTX Pro accepts up to 10 seconds of audio. Choose Fast or trim the track." :
+    endReference && !reference ? "Add a start frame to use the end frame." : "";
+  const ready = isVeo ? catalog?.policy?.veoExecutionReady : isLtx ? catalog?.policy?.ltxExecutionReady : catalog?.policy?.higgsfieldExecutionReady;
 
   useEffect(() => {
     renderRequest("/api/renderers").then(setCatalog).catch((cause) => setError(cause.message));
@@ -104,21 +111,32 @@ export default function QuickCreate({ projectId, renders, onRender }) {
     try {
       const encoded = await encodePhoto(file);
       if (end) { setEndPhoto(file); setEndReference(encoded); setEndPreview(URL.createObjectURL(file)); }
-      else { setPhoto(file); setReference(encoded); setPreview(URL.createObjectURL(file)); }
+      else { setPhoto(file); setReference(encoded); setPreview(URL.createObjectURL(file)); if (isVeo) setDuration(8); }
     } catch (cause) {
       setError(cause.message);
     }
+  }
+
+  async function chooseAudio(file) {
+    if (!file) return;
+    setSourceAudio(null); setSourceAudioName(""); setQuote(null); setError("");
+    try {
+      const encoded = await encodeSourceAudio(file);
+      setSourceAudio(encoded); setSourceAudioName(file.name);
+      if (isLtx) setDuration(encoded.duration);
+    } catch (cause) { setError(cause.message); }
   }
 
   function input(shotId) {
     return {
       projectId, sceneId: "CREATE", shotId, provider,
       prompt: prompt.trim(), duration, resolution, aspectRatio,
-      referenceImages: !isText && reference ? [reference] : [],
+      referenceImages: reference ? [reference] : [],
+      ...(isVeo && reference ? { referenceMode: "start-frame" } : {}),
       ...(supportsEndFrame && endReference ? { endFrameImage: endReference } : {}),
       ...(isMotion ? { referenceVideos: [{ url: videoUrl.trim() }] } : {}),
       ...(isLtx && sourceAudio ? { sourceAudio } : {}),
-      generateAudio: isLtx && sourceAudio ? false : isMotion ? false : audio,
+      generateAudio: isVeo ? true : isLtx && sourceAudio ? false : isMotion ? false : audio,
       continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
     };
   }
@@ -126,17 +144,17 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   useEffect(() => {
     let canceled = false;
     setQuote(null);
-    if (!catalog || !prompt.trim() || (!isText && !reference) || (isLtx && !sourceAudio) || (isMotion && !/^https:\/\/[^\s]+$/i.test(videoUrl.trim()))) return;
+    if (!catalog || incompatibleInput || !prompt.trim() || (!isText && !isVeo && !reference) || (isLtx && !sourceAudio) || (isMotion && !/^https:\/\/[^\s]+$/i.test(videoUrl.trim()))) return;
     const timer = setTimeout(() => {
       renderRequest("/api/renders", { ...input("DIRECT_PREVIEW"), estimateOnly: true })
         .then((result) => { if (!canceled) { setQuote(result); setError(""); } })
         .catch((cause) => { if (!canceled) setError(cause.message); });
     }, 350);
     return () => { canceled = true; clearTimeout(timer); };
-  }, [catalog, projectId, provider, reference, endReference, prompt, duration, resolution, aspectRatio, audio, sourceAudio, videoUrl]);
+  }, [catalog, projectId, provider, reference, endReference, prompt, duration, resolution, aspectRatio, audio, sourceAudio, videoUrl, incompatibleInput]);
 
   async function generate() {
-    if (!quote || busy || !(isLtx ? catalog?.policy?.ltxExecutionReady : catalog?.policy?.higgsfieldExecutionReady)) return;
+    if (!quote || busy || incompatibleInput || !ready) return;
     setBusy(true);
     setError("");
     try {
@@ -173,73 +191,69 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   return (
     <section className="panel quickCreate">
       <span className="eyebrow">DIRECT VIDEO CREATION</span>
-      <h2>{isText ? "Describe it. Make a video." : "Upload your shot frames. Make a video."}</h2>
-      <p className="sub">{isText ? "Generate from your prompt without an opening image." : supportsEndFrame ? "Upload the start frame and optionally the end frame. Both are sent to the selected model." : isMotion ? "Upload a reference image and provide a source video for motion transfer. This route does not use start and end frames." : "Use your finished picture as the opening image."}</p>
+      <h2>Choose your model and drop in what you want</h2>
+      <p className="sub">Add a starting picture, a final picture, or your own dialogue or rap track. The model selector shows what can use each input. Google Veo makes sound from your prompt; LTX follows your uploaded audio.</p>
       <div className="quickCreateGrid">
         <div>
-          {!isText && <div className={supportsEndFrame ? "quickCreateFrames" : ""}>
+          <h3>Your inputs</h3>
+          <div className="quickCreateFrames">
             <label className={`quickCreateDrop ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); choosePhoto(event.dataTransfer.files?.[0]); }}>
               {preview ? <img src={preview} alt={isMotion ? "Reference image preview" : "Start frame preview"} /> : <strong>{isMotion ? "Reference image" : "Start frame"}</strong>}
               <span>{photo ? `${photo.name} · Change image` : "Drop or choose a PNG or JPEG"}</span>
               <input type="file" aria-label={isMotion ? "Reference image" : "Start frame"} accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0])} />
             </label>
-            {supportsEndFrame && <div>
+            <div>
               <label className="quickCreateDrop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); choosePhoto(event.dataTransfer.files?.[0], true); }}>
                 {endPreview ? <img src={endPreview} alt="End frame preview" /> : <strong>End frame · optional</strong>}
                 <span>{endPhoto ? `${endPhoto.name} · Change image` : "Drop or choose a PNG or JPEG"}</span>
                 <input type="file" aria-label="End frame" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0], true)} />
               </label>
               {endReference && <button className="ghost" type="button" onClick={() => { setEndPhoto(null); setEndReference(null); setEndPreview(""); setQuote(null); }}>Remove end frame</button>}
-            </div>}
-          </div>}
+            </div>
+          </div>
+          <div className="quickCreateAudio" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); chooseAudio(event.dataTransfer.files?.[0]); }}><label>Own audio · dialogue, vocals, or rap (MP3, M4A, OGG; up to 3 MB, 20 seconds)
+            <input type="file" accept=".mp3,.m4a,.ogg,audio/mpeg,audio/mp4,audio/ogg" onChange={(event) => chooseAudio(event.target.files?.[0])} /></label>
+            <small>Drop a track here or choose a file.</small>
+            {sourceAudio && <><audio controls src={`data:${sourceAudio.mimeType};base64,${sourceAudio.data}`} /><small>{sourceAudioName} · {sourceAudio.duration}s · Select LTX to use this track.</small><button type="button" className="ghost" onClick={() => { setSourceAudio(null); setSourceAudioName(""); setQuote(null); }}>Remove audio</button></>}
+          </div>
           <label>What should happen in the video?<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the action, camera movement, and mood…" rows={5} /></label>
         </div>
         <div className="quickCreateControls">
-          <label>Model<select value={provider} onChange={(event) => {
+          <label>Video model<select value={provider} onChange={(event) => {
             const next = options.find((item) => item.id === event.target.value);
             setProvider(event.target.value);
-            setSourceAudio(null); setSourceAudioName(""); setQuote(null);
-            setDuration(next?.durations?.includes(5) ? 5 : next?.durations?.[0] || 5);
+            setQuote(null);
+            setDuration(next?.audioInput && sourceAudio ? sourceAudio.duration : next?.id.startsWith("veo-") && reference ? 8 : next?.durations?.includes(5) ? 5 : next?.durations?.[0] || 5);
             setResolution(next?.resolutions?.[0] || "720p");
-          }}>{options.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-          {isLtx && <div><label>Upload dialogue or rap audio (MP3, M4A, OGG; up to {provider === "ltx-2.5-pro" ? 10 : 20} seconds)
-            <input type="file" accept=".mp3,.m4a,.ogg,audio/mpeg,audio/mp4,audio/ogg" onChange={async (event) => {
-              const file = event.target.files?.[0];
-              setSourceAudio(null); setSourceAudioName(""); setQuote(null); setError("");
-              if (!file) return;
-              try {
-                const encoded = await encodeSourceAudio(file);
-                if (provider === "ltx-2.5-pro" && encoded.duration > 10) throw new Error("LTX Pro accepts up to 10 seconds. Trim this clip or choose Fast.");
-                setSourceAudio(encoded); setSourceAudioName(file.name); setDuration(encoded.duration);
-              } catch (cause) { setError(cause.message); }
-            }} /></label>
-            {sourceAudio && <><audio controls src={`data:${sourceAudio.mimeType};base64,${sourceAudio.data}`} /><small>{sourceAudioName} · {sourceAudio.duration}s. The original track drives the video.</small><button type="button" className="ghost" onClick={() => { setSourceAudio(null); setSourceAudioName(""); setQuote(null); }}>Remove audio</button></>}
-          </div>}
+          }}>{["Google Veo", "LTX · use your audio", "Higgsfield"].map((group) => <optgroup key={group} label={group}>{options.filter((item) => group === "Google Veo" ? item.id.startsWith("veo-") : group.startsWith("LTX") ? item.audioInput : item.id.startsWith("higgsfield-")).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</optgroup>)}</select></label>
+          <p className="quickCreateModelHint">{isVeo ? "Google Veo generates speech, music, and effects from the prompt. Start and end frames are optional; it cannot use an uploaded soundtrack." : isLtx ? `LTX syncs the video to your uploaded audio (${provider === "ltx-2.5-pro" ? "10" : "20"} seconds max). Add a start frame if you want.` : isMotion ? "This route uses a reference picture and public motion clip." : isText ? "This route creates from text only." : "This route animates your start frame and can generate sound."}</p>
           {isMotion && <label>Public reference video URL<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://…/clip.mp4" /></label>}
           <div className="formGrid two">
-            <label>Length{isLtx && sourceAudio ? <input value={`${sourceAudio.duration} seconds (from audio)`} readOnly /> : <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{(selected?.durations || [5]).map((value) => <option key={value} value={value}>{value} seconds</option>)}</select>}</label>
-            <label>Resolution<select value={resolution} onChange={(event) => setResolution(event.target.value)}>{(selected?.resolutions || ["720p"]).map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label>Length{isLtx && sourceAudio ? <input value={`${sourceAudio.duration} seconds (from audio)`} readOnly /> : <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{(isVeo && (reference || resolution === "1080p") ? [8] : selected?.durations || [5]).map((value) => <option key={value} value={value}>{value} seconds</option>)}</select>}</label>
+            <label>Resolution<select value={resolution} onChange={(event) => { setResolution(event.target.value); if (isVeo && event.target.value === "1080p") setDuration(8); }}>{(selected?.resolutions || ["720p"]).map((value) => <option key={value}>{value}</option>)}</select></label>
             <label>Frame<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>{(selected?.aspectRatios || ["16:9", "9:16"]).map((value) => <option key={value}>{value}</option>)}</select></label>
-            {!isMotion && !isLtx && <label className="checkLabel"><input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} /> Generate audio</label>}
+            {!isMotion && !isLtx && !isVeo && <label className="checkLabel"><input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} /> Generate audio</label>}
           </div>
           {isMotion && <small>The reference clip must be publicly reachable. Set the length to that clip’s rounded-up duration.</small>}
-          {catalog && !catalog.policy?.higgsfieldConfigured && <p className="validation">{catalog.policy?.higgsfieldCredentialPresent
+          {catalog && provider.startsWith("higgsfield-") && !catalog.policy?.higgsfieldConfigured && <p className="validation">{catalog.policy?.higgsfieldCredentialPresent
             ? <>The video adapter has <b>HF_CREDENTIALS</b>, but its value contains spaces or is otherwise unusable. Edit the existing secret to the complete key copied from Higgsfield and deploy the change.</>
             : <>The video adapter cannot see <b>HF_CREDENTIALS</b>. Check that the existing secret is on <b>fpai-film-studio-video-adapter</b>, then deploy the change in Cloudflare.</>}</p>}
-          {catalog?.policy?.higgsfieldConfigured && !catalog.policy?.executionStorageReady && <p className="validation">Higgsfield is configured, but render storage or the adapter control token is unavailable.</p>}
-          <button className="ghost" disabled={probeBusy} onClick={async () => {
+          {provider.startsWith("higgsfield-") && catalog?.policy?.higgsfieldConfigured && !catalog.policy?.executionStorageReady && <p className="validation">Higgsfield is configured, but render storage or the adapter control token is unavailable.</p>}
+          {provider.startsWith("higgsfield-") && <button className="ghost" disabled={probeBusy} onClick={async () => {
             setProbeBusy(true);
             setProbeResult(null);
             try { setProbeResult((await renderRequest("/api/higgsfield/probe", {})).probe); }
             catch (cause) { setProbeResult({ transport: "error", errorDetail: cause.message }); }
             finally { setProbeBusy(false); }
-          }}>{probeBusy ? "Checking connection…" : "Test Higgsfield connection · no video charge"}</button>
-          {probeResult && <p className="sub" role="status">Higgsfield connection: {probeResult.transport === "response" ? `HTTP ${probeResult.httpStatus}${probeResult.redirect ? " redirect" : ""}` : probeResult.transport === "error" ? `${probeResult.errorType || "Error"}: ${probeResult.errorDetail}` : "not configured"}. No video was submitted.</p>}
+          }}>{probeBusy ? "Checking connection…" : "Test Higgsfield connection · no video charge"}</button>}
+          {provider.startsWith("higgsfield-") && probeResult && <p className="sub" role="status">Higgsfield connection: {probeResult.transport === "response" ? `HTTP ${probeResult.httpStatus}${probeResult.redirect ? " redirect" : ""}` : probeResult.transport === "error" ? `${probeResult.errorType || "Error"}: ${probeResult.errorDetail}` : "not configured"}. No video was submitted.</p>}
           {uncertain && <label className="checkLabel"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> A previous request has an uncertain provider outcome. I understand a new render may add another charge.</label>}
           {error && <p className="validation" role="alert">{error}</p>}
+          {incompatibleInput && <p className="validation" role="alert">{incompatibleInput}</p>}
+          {catalog && !ready && <p className="validation">{selected?.availability?.detail || "This model is not ready to render."}</p>}
           {pending.current && <button className="ghost" onClick={() => { pending.current = null; localStorage.removeItem(`fpai-direct-render:${projectId}`); setError(""); }}>Clear unresolved request after checking recent videos</button>}
-          <p>Estimated cost: <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : isText ? "Enter a prompt to see a quote" : "Enter a prompt and picture to see a quote"}</b></p>
-          <button className="primary full" disabled={!quote || busy || (uncertain && !acknowledged) || !(isLtx ? catalog?.policy?.ltxExecutionReady : catalog?.policy?.higgsfieldExecutionReady)} onClick={generate}>{busy ? "Submitting…" : quote ? `Create video · $${quote.estimatedCost.toFixed(2)}` : "Create video"}</button>
+          <p>Estimated cost: <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : incompatibleInput || isLtx && !sourceAudio ? "Choose compatible inputs to see a quote" : isVeo || isText ? "Enter a prompt to see a quote" : "Enter a prompt and picture to see a quote"}</b></p>
+          <button className="primary full" disabled={!quote || busy || incompatibleInput || (uncertain && !acknowledged) || !ready} onClick={generate}>{busy ? "Submitting…" : quote ? `Create video · $${quote.estimatedCost.toFixed(2)}` : "Create video"}</button>
         </div>
       </div>
       <h3>Your videos</h3>
@@ -249,7 +263,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
         <small>{new Date(job.createdAt).toLocaleString()} · {job.actualCost == null ? "Cost pending" : `$${Number(job.actualCost).toFixed(2)}`}</small>
         {job.outputAsset?.url && <><video src={job.outputAsset.url} controls preload="metadata" /><a className="ghost" href={job.outputAsset.url} download={`fpai-video-${job.id}.mp4`}>Download video</a></>}
         {job.error && <p className="validation">{job.error.message}</p>}
-        {job.status === "uncertain" && <><p className="validation">Studio lost track of this request. Check Higgsfield Requests for its outcome before starting another render.</p><RecoverPaidJob job={job} onRender={onRender} /></>}
+        {job.status === "uncertain" && <><p className="validation">Studio lost track of this request. Check the provider’s request history before starting another render.</p>{job.provider.startsWith("higgsfield-") && <RecoverPaidJob job={job} onRender={onRender} />}</>}
       </div>)}</div>
     </section>
   );
