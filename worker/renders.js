@@ -335,6 +335,7 @@ async function inputFrom(body, env) {
   if (body.generateAudio != null || body.generate_audio != null) {
     input.generateAudio = body.generateAudio ?? body.generate_audio;
   }
+  if (body.sourceAudio != null) input.sourceAudio = body.sourceAudio;
   if (body.seed != null) input.seed = body.seed;
   if (body.bitrateMode || body.bitrate_mode) {
     input.bitrateMode = body.bitrateMode || body.bitrate_mode;
@@ -442,6 +443,7 @@ function authorizeLtxJob(input, quote, env) {
   if (input.projectId === YARD_PROJECT_ID) return;
   if (!String(env.LTX_API_KEY || "").trim())
     fail("PROVIDER_CONFIG", "LTX_API_KEY is not configured.", 503);
+  if (input.sceneId === "CREATE" && input.shotId.startsWith("DIRECT_") && input.sourceAudio) return;
   if (enemiesProShot(input)) {
     if (input.duration !== 6 || input.resolution !== "1080p" ||
         input.aspectRatio !== "16:9" || input.referenceImages.length !== 1 ||
@@ -586,6 +588,10 @@ async function create(request, env) {
           role: "end-frame",
         }
       : undefined,
+    sourceAudio: input.sourceAudio ? {
+      mimeType: input.sourceAudio.mimeType,
+      duration: input.sourceAudio.duration,
+    } : undefined,
     referenceVideos: Array.isArray(input.referenceVideos)
       ? input.referenceVideos.map((ref) => ({
           ...(ref.url ? { url: ref.url } : {}),
@@ -599,6 +605,7 @@ async function create(request, env) {
     input.referenceImages.some((ref) => ref.data) ||
     (input.environmentReferences || []).some((ref) => ref.data) ||
     Boolean(input.endFrameImage?.data) ||
+    Boolean(input.sourceAudio?.data) ||
     (input.referenceVideos || []).some((ref) => ref.data);
   if (hasInlineBytes)
     await env.GENERATION_MEDIA.put(
@@ -753,6 +760,7 @@ export async function advance(env, row) {
             (ref) => ref?.mimeType && !ref.assetId,
           ) ||
           Boolean(input.endFrameImage?.mimeType && !input.endFrameImage?.assetId) ||
+          Boolean(input.sourceAudio?.mimeType && !input.sourceAudio?.data) ||
           (input.referenceVideos || []).some((ref) => ref?.data);
         if (storedInline)
           fail(

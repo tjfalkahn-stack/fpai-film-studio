@@ -117,3 +117,33 @@ test("LTX image-to-video uploads one opening frame before generation", async () 
   assert.equal(request.model, "ltx-2-5-pro");
   assert.equal(request.resolution, "1080x1920");
 });
+
+test("LTX audio-to-video uploads the supplied performance and preserves image conditioning", async () => {
+  const calls = [];
+  let upload = 0;
+  const provider = createLtxFastProvider(liveEnv, async (url, init) => {
+    const target = String(url);
+    calls.push({ target, init });
+    if (target.endsWith("/v1/upload")) {
+      upload++;
+      return Response.json({ upload_url: `https://uploads.ltx.example/${upload}`, storage_uri: `ltx://uploads/${upload}` });
+    }
+    if (target.startsWith("https://uploads.ltx.example/")) return new Response(null, { status: 201 });
+    if (target.endsWith("/v2/audio-to-video")) return Response.json({ id: "audio_job_12345678" }, { status: 202 });
+    throw new Error(`Unexpected URL ${target}`);
+  });
+  const audio = { mimeType: "audio/mpeg", data: Buffer.from("ID3sample").toString("base64"), duration: 7.25 };
+  const request = input({ duration: 7.25, sourceAudio: audio, referenceImages: [png] });
+  validateInput(request, provider.capabilities);
+  assert.equal(provider.estimate(request).estimatedCost, 0.9425);
+  const started = await provider.start(request);
+  assert.equal(started.operationId, "ltx:v2:audio-to-video:audio_job_12345678");
+  assert.equal(calls[3].init.headers["content-type"], "audio/mpeg");
+  const body = JSON.parse(calls[4].init.body);
+  assert.equal(body.audio_uri, "ltx://uploads/2");
+  assert.equal(body.image_uri, "ltx://uploads/1");
+  assert.equal(body.duration, undefined);
+  assert.equal(body.generate_audio, undefined);
+  assert.equal(calls[4].target, "https://api.ltx.io/v2/audio-to-video");
+  assert.throws(() => validateInput({ ...request, provider: "mock" }, { ...provider.capabilities, audioInput: false }), /does not accept uploaded audio/);
+});

@@ -38,11 +38,20 @@ export function validateInput(input, capabilities) {
     input.prompt.length > 12000
   )
     fail("INVALID_INPUT", "Prompt must contain 1–12,000 characters.");
+  if (input.sourceAudio && !capabilities.audioInput)
+    fail("UNSUPPORTED_INPUT", "This model does not accept uploaded audio.");
   for (const [key, allowed] of [
-    ["duration", capabilities.durations],
+    ["duration", input.sourceAudio && capabilities.audioInput ? null : capabilities.durations],
     ["resolution", capabilities.resolutions],
     ["aspectRatio", capabilities.aspectRatios],
   ]) {
+    if (key === "duration" && allowed === null) {
+      const max = capabilities.tier === "fast" ? 20 : 10;
+      if (!Number.isFinite(input.duration) || input.duration < 1 || input.duration > max ||
+          Math.abs(input.duration - input.sourceAudio.duration) > 0.02)
+        fail("UNSUPPORTED_INPUT", `Audio duration must match the clip and be 1–${max} seconds.`);
+      continue;
+    }
     if (!allowed.includes(input[key]))
       fail(
         "UNSUPPORTED_INPUT",
@@ -51,6 +60,21 @@ export function validateInput(input, capabilities) {
   }
   const refs = Array.isArray(input.referenceImages) ? input.referenceImages : [];
   input.referenceImages = refs;
+  if (input.sourceAudio) {
+    const audio = input.sourceAudio;
+    if (!["audio/mpeg", "audio/mp4", "audio/ogg"].includes(audio.mimeType) ||
+        typeof audio.data !== "string" || audio.data.length > 4200000 ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(audio.data) ||
+        !Number.isFinite(audio.duration))
+      fail("INVALID_AUDIO", "Upload a valid MP3, M4A, or OGG clip under 3 MB.");
+    const bytes = Uint8Array.from(atob(audio.data), (c) => c.charCodeAt(0));
+    const mp3 = bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33 ||
+      bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0;
+    const m4a = bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+    const ogg = bytes[0] === 0x4f && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53;
+    if (bytes.byteLength > 3 * 1024 * 1024 || !(audio.mimeType === "audio/mpeg" ? mp3 : audio.mimeType === "audio/mp4" ? m4a : ogg))
+      fail("INVALID_AUDIO", "Audio bytes do not match the selected format or exceed 3 MB.");
+  }
   if (refs.length > capabilities.maxReferences)
     fail(
       "INVALID_REFERENCES",

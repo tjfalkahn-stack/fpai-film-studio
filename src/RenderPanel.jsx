@@ -14,6 +14,7 @@ import {
 } from "./drawThingsWorkflow.js";
 import { withCharacterContinuity } from "./characterContinuity.js";
 import { YARD_PROJECT_ID } from "./yardProduction.js";
+import { encodeSourceAudio } from "./audioInput.js";
 import {
   START_FRAME_PROVIDER_LIMIT,
   isLtxProviderId,
@@ -109,6 +110,8 @@ export default function RenderPanel({
   const isYardVeo = project.id === YARD_PROJECT_ID && provider === "veo-fast";
   const isVeoStartFrame = provider === "veo-fast" && Boolean(shot.startFrame?.key);
   const [higgsfieldAudio, setHiggsfieldAudio] = useState(false);
+  const [sourceAudio, setSourceAudio] = useState(null);
+  const [sourceAudioName, setSourceAudioName] = useState("");
   const [referenceVideoUrl, setReferenceVideoUrl] = useState("");
   const isHiggsfield = String(provider).startsWith("higgsfield-");
   const isHiggsfieldMotion = capabilities?.inputKind === "motion";
@@ -183,6 +186,7 @@ export default function RenderPanel({
       resolution,
       aspectRatio,
       referenceImages: inline,
+      ...(isLtx && sourceAudio ? { sourceAudio } : {}),
       ...(endFrameFile ? { endFrameImage: await encodeImage(endFrameFile) } : {}),
       ...(isHiggsfieldMotion ? { referenceVideos: [{ url: referenceVideoUrl.trim() }] } : {}),
       ...(provider === "veo-fast" ? { referenceMode: usesStartFrame ? "start-frame" : "reference-images" } : {}),
@@ -234,6 +238,7 @@ export default function RenderPanel({
     };
   }, [
     provider,
+    sourceAudio,
     higgsfieldAudio,
     referenceVideoUrl,
     duration,
@@ -510,6 +515,7 @@ export default function RenderPanel({
             onChange={(e) => {
               const next = catalog?.providers.find((item) => item.id === e.target.value);
               setProvider(e.target.value);
+              setSourceAudio(null); setSourceAudioName(""); setQuote(null);
               setDuration(e.target.value === "veo-fast"
                 ? 8
                 : project.id === "enemies-closer-ep01" && e.target.value === "ltx-2.5-pro"
@@ -540,7 +546,7 @@ export default function RenderPanel({
         {!isDrawThingsLocal && (
           <label>
             Source duration
-            <select
+            {isLtx && sourceAudio ? <input aria-label="Source duration" value={`${sourceAudio.duration} seconds (from audio)`} readOnly /> : <select
               aria-label="Source duration"
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
@@ -550,7 +556,7 @@ export default function RenderPanel({
                   {v} seconds
                 </option>
               ))}
-            </select>
+            </select>}
           </label>
         )}
         <label>
@@ -578,6 +584,19 @@ export default function RenderPanel({
           </select>
         </label>
       </div>
+      {isLtx && <div className="formGrid"><label>Upload dialogue or rap audio (MP3, M4A, OGG)
+        <input type="file" accept=".mp3,.m4a,.ogg,audio/mpeg,audio/mp4,audio/ogg" onChange={async (event) => {
+          const file = event.target.files?.[0];
+          setSourceAudio(null); setSourceAudioName(""); setQuote(null); setError("");
+          if (!file) return;
+          try {
+            const encoded = await encodeSourceAudio(file);
+            if (provider === "ltx-2.5-pro" && encoded.duration > 10) throw new Error("LTX Pro accepts up to 10 seconds. Trim the clip or select Fast.");
+            setSourceAudio(encoded); setSourceAudioName(file.name); setDuration(encoded.duration);
+          } catch (cause) { setError(cause.message); }
+        }} /></label>
+        {sourceAudio && <><audio controls src={`data:${sourceAudio.mimeType};base64,${sourceAudio.data}`} /><small>{sourceAudioName} · {sourceAudio.duration}s. This track will drive the performance.</small><button type="button" className="ghost" onClick={() => { setSourceAudio(null); setSourceAudioName(""); setDuration(6); setQuote(null); }}>Remove audio</button></>}
+      </div>}
       <p>
         Final edit: {shot.sec}s. {isDrawThingsLocal ? "Still-image source. " : `Source clip: ${duration}s. `}
         {usesStartFrame

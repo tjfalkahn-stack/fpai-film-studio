@@ -165,6 +165,41 @@ test("a direct photo render queues without a preset shot or Yard trial", async (
     delete env.HF_CREDENTIALS;
   }
 });
+test("a direct LTX audio render stores its clip and quotes from its actual duration", async (t) => {
+  noNetwork(t);
+  const previous = { ...env };
+  Object.assign(env, {
+    LTX_LIVE_ENABLED: "true", LTX_API_KEY: "test",
+    LTX_FAST_720P_RATE_PER_SECOND_USD: "0.09",
+    RENDER_SESSION_CEILING_USD: "10", RENDER_PROJECT_CEILING_USD: "20",
+  });
+  let id;
+  try {
+    const audio = { mimeType: "audio/mpeg", data: Buffer.from("ID3sample").toString("base64"), duration: 7.25 };
+    const request = body(undefined, {
+      sceneId: "CREATE", shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`,
+      provider: "ltx-2.5-fast", duration: 7.25, sourceAudio: audio,
+      referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+      continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+    });
+    const quote = await call("/api/renders", { ...request, estimateOnly: true });
+    assert.equal(quote.response.status, 200, JSON.stringify(quote.data));
+    assert.equal(quote.data.estimatedCost, 0.6525);
+    const result = await call("/api/renders", { ...request, acceptedCost: quote.data.estimatedCost });
+    assert.equal(result.response.status, 202, JSON.stringify(result.data));
+    id = result.data.render.id;
+    const stored = await env.GENERATION_MEDIA.get(`render-inputs/${id}.json`);
+    assert.equal((await stored.json()).sourceAudio.data, audio.data);
+    const dbRow = await db.prepare("SELECT input_json FROM renders WHERE id=?").bind(id).first();
+    assert.equal(JSON.parse(dbRow.input_json).sourceAudio.data, undefined);
+  } finally {
+    if (id) {
+      await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
+      await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
+    }
+    env = previous;
+  }
+});
 test("recover a paid Higgsfield job into its uncertain Studio render without generation", async (t) => {
   env.HF_CREDENTIALS = "test-id:test-secret";
   const jobId = "4c987926-a7d5-443a-b1a8-a7c8703cd284";
