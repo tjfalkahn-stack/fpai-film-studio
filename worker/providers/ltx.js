@@ -142,7 +142,7 @@ function outputResolution(input) {
 
 function operation(value) {
   const match = String(value || "").match(
-    /^ltx:v2:(text-to-video|image-to-video):([A-Za-z0-9_-]{8,128})$/,
+    /^ltx:v2:(text-to-video|image-to-video|audio-to-video):([A-Za-z0-9_-]{8,128})$/,
   );
   if (!match)
     fail("LTX_INVALID_OPERATION", "Stored LTX job identifier is invalid.", 502);
@@ -162,6 +162,7 @@ function capabilities(meta, tier) {
     maxReferences: 1,
     cancelRunning: false,
     audio: true,
+    audioInput: true,
     generateAudio: true,
     referenceImages: true,
     providerFamily: "ltx",
@@ -191,8 +192,18 @@ export function createLtxProvider(env = {}, fetchImpl = fetch, options = {}) {
       const imageUri = references[0]
         ? await uploadReference(env, fetchImpl, references[0])
         : null;
-      const endpoint = imageUri ? "image-to-video" : "text-to-video";
-      const body = {
+      const audioUri = input.sourceAudio
+        ? await uploadReference(env, fetchImpl, input.sourceAudio)
+        : null;
+      const endpoint = audioUri ? "audio-to-video" : imageUri ? "image-to-video" : "text-to-video";
+      const body = audioUri ? {
+        prompt: input.prompt,
+        model: meta.model,
+        resolution: outputResolution(input),
+        fps: 24,
+        audio_uri: audioUri,
+        ...(imageUri ? { image_uri: imageUri } : {}),
+      } : {
         prompt: input.prompt,
         model: meta.model,
         resolution: outputResolution(input),
@@ -221,7 +232,7 @@ export function createLtxProvider(env = {}, fetchImpl = fetch, options = {}) {
         fail("LTX_INVALID_RESPONSE", "LTX returned an invalid async job response.", 502);
       return {
         operationId: `ltx:v2:${endpoint}:${payload.id}`,
-        costBasis: "ltx-output-seconds-at-configured-rate",
+        costBasis: audioUri ? "ltx-input-audio-seconds-at-configured-rate" : "ltx-output-seconds-at-configured-rate",
       };
     },
     async status(row) {
