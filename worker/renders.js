@@ -539,7 +539,7 @@ async function create(request, env) {
   if (!isHiggsfieldProvider(input.provider) && quote.estimatedCost > policy.singleCeiling)
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
-  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && !isHiggsfieldProvider(input.provider)) authorizeYardJob(input, quote, env);
+  if (input.projectId === YARD_PROJECT_ID && input.sceneId !== "CREATE" && provider.capabilities.paid && !isHiggsfieldProvider(input.provider)) authorizeYardJob(input, quote, env);
   if (isLtxProvider(input.provider)) authorizeLtxJob(input, quote, env);
   const hash = await sha(JSON.stringify(input));
   // Yard takes share the project ceiling. The session ceiling for the other
