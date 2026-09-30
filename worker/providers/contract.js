@@ -80,6 +80,8 @@ export function validateInput(input, capabilities) {
       "INVALID_REFERENCES",
       `Choose at most ${capabilities.maxReferences} reference images.`,
     );
+  if (input.endFrameImage && (!capabilities.supportsEndFrame || refs.length !== 1 || (capabilities.id.startsWith("veo-") && input.referenceMode !== "start-frame")))
+    fail("UNSUPPORTED_INPUT", "End frame requires a supported start-frame model and one start image.");
   for (const ref of [...refs, ...(input.endFrameImage ? [input.endFrameImage] : [])]) {
     if (!ref || typeof ref !== "object")
       fail("INVALID_REFERENCES", "A frame must be a PNG or JPEG image.");

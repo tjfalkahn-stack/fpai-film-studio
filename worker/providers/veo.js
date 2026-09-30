@@ -2,8 +2,11 @@ import { ProviderError, fail } from "./contract.js";
 import { YARD_PROJECT_ID } from "../../src/yardProduction.js";
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta/";
-const MODEL = "veo-3.1-fast-generate-preview";
-const RATES = { "720p": 0.1, "1080p": 0.12 };
+const TIERS = {
+  lite: { model: "veo-3.1-lite-generate-preview", rates: { "720p": 0.05, "1080p": 0.08 } },
+  fast: { model: "veo-3.1-fast-generate-preview", rates: { "720p": 0.1, "1080p": 0.12 } },
+  standard: { model: "veo-3.1-generate-preview", rates: { "720p": 0.4, "1080p": 0.4 } },
+};
 
 function httpHint(status) {
   if (status === 400) return "Check the selected input mode, images, duration, and resolution.";
@@ -14,7 +17,8 @@ function httpHint(status) {
   return "Check the Google provider connection.";
 }
 
-export function createVeoProvider(env, fetchImpl = fetch) {
+export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
+  const { model, rates } = TIERS[tier];
   const enabled = () => {
     if (
       env.LIVE_RENDERING_ENABLED !== "true" ||
@@ -62,22 +66,24 @@ export function createVeoProvider(env, fetchImpl = fetch) {
   }
   return {
     capabilities: {
-      id: "veo-fast",
-      label: "Veo 3.1 Fast",
+      id: `veo-${tier}`,
+      label: `Google Veo 3.1 ${tier[0].toUpperCase()}${tier.slice(1)}`,
       paid: true,
-      ledgerRoutes: { "720p": "veo-fast-720", "1080p": "veo-fast-1080" },
-      model: MODEL,
+      ledgerRoutes: { "720p": `veo-${tier}-720`, "1080p": `veo-${tier}-1080` },
+      model,
       durations: [4, 6, 8],
       resolutions: ["720p", "1080p"],
       aspectRatios: ["16:9", "9:16"],
-      maxReferences: 3,
-      referenceModes: ["reference-images", "start-frame"],
+      maxReferences: tier === "lite" ? 1 : 3,
+      referenceModes: tier === "lite" ? ["start-frame"] : ["reference-images", "start-frame"],
       cancelRunning: false,
       forceEightSecondSource: true,
+      supportsEndFrame: true,
+      nativeAudio: true,
     },
     estimate: (input) => ({
       estimatedCost:
-        Math.round(input.duration * RATES[input.resolution] * 10000) / 10000,
+        Math.round(input.duration * rates[input.resolution] * 10000) / 10000,
       currency: "USD",
       priceBasis: "published-rate-2026-09-07",
     }),
@@ -85,19 +91,25 @@ export function createVeoProvider(env, fetchImpl = fetch) {
       const instance = { prompt: input.prompt };
       if (input.referenceMode && !["reference-images", "start-frame"].includes(input.referenceMode))
         fail("UNSUPPORTED_INPUT", "Unsupported Veo image input mode.");
+      if (tier === "lite" && input.referenceMode === "reference-images" && input.referenceImages.length)
+        fail("UNSUPPORTED_INPUT", "Veo Lite accepts a start frame, not character reference images.");
       const usesStartFrame = input.referenceMode === "start-frame" ||
         (input.projectId === YARD_PROJECT_ID && input.referenceImages.length === 1);
       if (usesStartFrame && input.referenceImages.length !== 1)
         fail("INVALID_REFERENCES", "Veo start-frame mode requires exactly one composed shot image.");
+      if (input.endFrameImage && !usesStartFrame)
+        fail("INVALID_REFERENCES", "Veo end frame requires one start frame.");
       if (usesStartFrame) {
         const ref = input.referenceImages[0];
         instance.image = { inlineData: { mimeType: ref.mimeType, data: ref.data } };
+        if (input.endFrameImage)
+          instance.lastFrame = { inlineData: { mimeType: input.endFrameImage.mimeType, data: input.endFrameImage.data } };
       } else if (input.referenceImages.length)
         instance.referenceImages = input.referenceImages.map((ref) => ({
           image: { inlineData: { mimeType: ref.mimeType, data: ref.data } },
           referenceType: "asset",
         }));
-      const operation = await google(`models/${MODEL}:predictLongRunning`, {
+      const operation = await google(`models/${model}:predictLongRunning`, {
         method: "POST",
         body: JSON.stringify({
           instances: [instance],

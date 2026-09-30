@@ -135,6 +135,20 @@ test("live disabled blocks both render API and legacy paid route before network;
   );
   assert.equal(network.mock.callCount(), 0);
 });
+test("direct Google model quotes accept prompt, start frame, and optional end frame", async () => {
+  const frame = { mimeType: "image/png", data: "iVBORw0KGgo=" };
+  for (const [provider, cost] of [["veo-lite", 0.4], ["veo-fast", 0.8], ["veo-standard", 3.2]]) {
+    const request = body(undefined, {
+      sceneId: "CREATE", shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`,
+      provider, referenceMode: "start-frame", referenceImages: [frame], endFrameImage: frame,
+      continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+      estimateOnly: true,
+    });
+    const quote = await call("/api/renders", request);
+    assert.equal(quote.response.status, 200);
+    assert.equal(quote.data.estimatedCost, cost);
+  }
+});
 test("a direct photo render queues without a preset shot or Yard trial", async (t) => {
   const network = noNetwork(t);
   const created = [];

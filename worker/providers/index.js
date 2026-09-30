@@ -22,6 +22,8 @@ export function providers(env) {
     createLtxFastProvider(env),
     createLtxProProvider(env),
     createVeoProvider(env),
+    createVeoProvider(env, fetch, "lite"),
+    createVeoProvider(env, fetch, "standard"),
     ...Object.keys(HIGGSFIELD_MODELS).map((id) => createHiggsfieldProvider(env, fetch, id)),
   ];
 }

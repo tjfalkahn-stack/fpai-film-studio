@@ -18,6 +18,24 @@ test("Enemies Closer explicit start-frame mode animates the composed still", asy
   assert.equal(payload.parameters.personGeneration, "allow_adult");
 });
 
+test("Google Lite and Standard send the chosen start and end frames to their own model routes", async () => {
+  for (const [tier, expectedModel, expectedCost] of [
+    ["lite", "veo-3.1-lite-generate-preview", 0.4],
+    ["standard", "veo-3.1-generate-preview", 3.2],
+  ]) {
+    let request;
+    const provider = createVeoProvider(env, async (url, init) => {
+      request = { url: String(url), payload: JSON.parse(init.body) };
+      return Response.json({ name: `models/${expectedModel}/operations/example` });
+    }, tier);
+    assert.equal(provider.estimate({ duration: 8, resolution: "720p" }).estimatedCost, expectedCost);
+    await provider.start({ ...input, referenceMode: "start-frame", endFrameImage: reference });
+    assert.match(request.url, new RegExp(`models/${expectedModel}:predictLongRunning`));
+    assert.deepEqual(request.payload.instances[0].image.inlineData, reference);
+    assert.deepEqual(request.payload.instances[0].lastFrame.inlineData, reference);
+  }
+});
+
 test("character reference mode preserves multiple references without making one the opening frame", async () => {
   let payload;
   const provider = createVeoProvider(env, async (_url, init) => {

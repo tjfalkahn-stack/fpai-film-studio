@@ -29,7 +29,9 @@ const LTX_CONTROLLED_TEST = Object.freeze({
   maxEstimatedCostUsd: 1.04,
 });
 const ENEMIES_VEO_SHOT_CEILING_USD = 1.92;
+const isVeoProvider = (id) => id === "veo-fast" || id === "veo-lite" || id === "veo-standard";
 const enemiesVeoShot = (input) => input.projectId === LTX_CONTROLLED_TEST.projectId && input.provider === "veo-fast";
+const directVeoShot = (input) => isVeoProvider(input.provider) && input.sceneId === "CREATE" && input.shotId.startsWith("DIRECT_");
 const ENEMIES_PRO_SHOT_CEILING_USD = 2.04;
 const enemiesProShot = (input) => input.projectId === LTX_CONTROLLED_TEST.projectId && input.provider === "ltx-2.5-pro";
 const YARD_LTX_TEST = Object.freeze({ projectId: YARD_PROJECT_ID, sceneId: "YARD", shotId: "PV", provider: "ltx-2.5-fast", duration: 6, resolution: "720p", aspectRatio: "9:16", maxEstimatedCostUsd: 0.54 });
@@ -136,7 +138,7 @@ function providerAvailability(provider, policy, env) {
         ? "Runs outside the cloud adapter"
         : "Handoff workflow, no API submission",
     };
-  if (id === "veo-fast") {
+  if (isVeoProvider(id)) {
     if (policy.veoSubmissionsPaused)
       return { state: "blocked", label: "PAUSED", detail: "Google submissions are paused while the lost responses are investigated" };
     if (!policy.geminiConfigured)
@@ -364,7 +366,7 @@ async function inputFrom(body, env) {
   await attachCharacterReferences(body, input, provider, env);
   validateInput(input, provider.capabilities);
   if (input.referenceMode != null) {
-    if (input.provider !== "veo-fast" ||
+    if (!isVeoProvider(input.provider) ||
         !["reference-images", "start-frame"].includes(input.referenceMode))
       fail("UNSUPPORTED_INPUT", "Unsupported image input mode.");
     if (input.referenceMode === "start-frame" && input.referenceImages.length !== 1)
@@ -374,7 +376,7 @@ async function inputFrom(body, env) {
 }
 function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
-  if (input.provider === "veo-fast" && env.VEO_NEW_SUBMISSIONS_PAUSED === "true")
+  if (isVeoProvider(input.provider) && env.VEO_NEW_SUBMISSIONS_PAUSED === "true")
     fail("VEO_PAUSED", "New Google Veo submissions are paused while two uncertain outcomes are investigated. LTX Pro remains available.", 503);
   if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && !isHiggsfieldProvider(input.provider) && !yardTrialFor(input.shotId, input.provider))
     fail("YARD_RENDER_GATE", "The Yard paid renderer is gated until its controlled test and current spend quote are approved.", 403);
@@ -473,7 +475,7 @@ function authorizeLtxJob(input, quote, env) {
 function authorizeYardJob(input, quote, env) {
   const plan = yardTrialFor(input.shotId, input.provider);
   if (!plan) fail("YARD_RENDER_GATE", "This Yard shot has no authorized trial for that renderer.", 403);
-  if (input.provider === "veo-fast" && !String(env.GEMINI_API_KEY || "").trim())
+  if (isVeoProvider(input.provider) && !String(env.GEMINI_API_KEY || "").trim())
     fail("PROVIDER_CONFIG", "Gemini API key is not configured for this Veo trial.", 503);
   const mismatches = ["projectId", "sceneId", "shotId", "provider", "duration", "resolution", "aspectRatio"].filter((key) => input[key] !== plan[key]);
   if (mismatches.length || input.referenceImages.length !== 1 || quote.estimatedCost > plan.maxEstimatedCostUsd)
@@ -549,7 +551,7 @@ async function create(request, env) {
     : enemiesProShot(input)
       ? `enemies-pro-${input.sceneId}-${input.shotId}`
     : policy.sessionId;
-  const reviewedShot = input.projectId === YARD_PROJECT_ID || enemiesVeoShot(input) || enemiesProShot(input) || isHiggsfieldProvider(input.provider);
+  const reviewedShot = input.projectId === YARD_PROJECT_ID || enemiesVeoShot(input) || directVeoShot(input) || enemiesProShot(input) || isHiggsfieldProvider(input.provider);
   const db = dbOf(env);
   const existing = await db
     .prepare("SELECT * FROM renders WHERE project_id=? AND request_key=?")
@@ -623,8 +625,8 @@ async function create(request, env) {
       AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE session_id=?) + ? <= ?))
       AND (?=0 OR (SELECT COUNT(*) FROM renders WHERE provider LIKE 'seedance-%') < ?)
       AND (?=0 OR (
-        (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running')) = 0
-        AND COALESCE((SELECT CASE WHEN id=? THEN '' ELSE id END FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ''
+        (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running')) = 0
+        AND COALESCE((SELECT CASE WHEN id=? THEN '' ELSE id END FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ''
       ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
@@ -675,11 +677,11 @@ async function create(request, env) {
   if (!row) {
     if (reviewedShot && provider.capabilities.paid) {
       const pending = await db.prepare(
-        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running') LIMIT 1",
+        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running') LIMIT 1",
       ).bind(input.projectId, input.shotId).first();
       if (pending) fail("RENDER_IN_PROGRESS", "A paid take is already in progress for this shot.", 409);
       const uncertain = await db.prepare(
-        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider='veo-fast' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1",
       ).bind(input.projectId, input.shotId).first();
       if (uncertain && uncertain.id !== (body.acknowledgeUncertainRenderId || ""))
         fail("UNCERTAIN_RETRY_ACK", "A prior take may have been accepted by its provider. Review the possible additional charge and explicitly confirm a new take.", 409);

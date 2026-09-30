@@ -244,6 +244,8 @@ test("render API quotes Seedance, rejects live submit, and rejects over-ceiling 
       "ltx-2.5-fast",
       "ltx-2.5-pro",
       "veo-fast",
+      "veo-lite",
+      "veo-standard",
       "higgsfield-kling-3-standard",
       "higgsfield-kling-3-pro",
       "higgsfield-kling-3-standard-text",
