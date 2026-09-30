@@ -97,7 +97,14 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const ready = isVeo ? catalog?.policy?.veoExecutionReady : isLtx ? catalog?.policy?.ltxExecutionReady : catalog?.policy?.higgsfieldExecutionReady;
 
   useEffect(() => {
-    renderRequest("/api/renderers").then(setCatalog).catch((cause) => setError(cause.message));
+    let active = true;
+    const refreshCatalog = () =>
+      renderRequest("/api/renderers")
+        .then((next) => { if (active) { setCatalog(next); setError(""); } })
+        .catch((cause) => { if (active) setError(cause.message); });
+    refreshCatalog();
+    window.addEventListener("focus", refreshCatalog);
+    return () => { active = false; window.removeEventListener("focus", refreshCatalog); };
   }, []);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   useEffect(() => () => { if (endPreview) URL.revokeObjectURL(endPreview); }, [endPreview]);
