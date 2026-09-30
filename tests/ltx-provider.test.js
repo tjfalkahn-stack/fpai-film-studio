@@ -45,14 +45,14 @@ test("LTX tiers expose exact 2.5 model IDs and operator-priced quotes", () => {
   validateInput(input(), fast.capabilities);
 });
 
-test("LTX pricing must be explicitly configured and live gate is independent", async () => {
-  assert.equal(ltxLiveEnabled({ LTX_LIVE_ENABLED: "true" }), true);
+test("LTX pricing must be explicitly configured and a configured key authorizes live use", async () => {
+  assert.equal(ltxLiveEnabled({ LTX_API_KEY: "test-ltx-key" }), true);
   assert.equal(ltxLiveEnabled({ LIVE_RENDERING_ENABLED: "true" }), false);
   assert.throws(
     () => createLtxFastProvider({}).estimate(input()),
     /LTX_FAST_1080P_RATE_PER_SECOND_USD must be set/,
   );
-  const disabled = createLtxFastProvider({ ...liveEnv, LTX_LIVE_ENABLED: "false" });
+  const disabled = createLtxFastProvider({ ...liveEnv, LTX_API_KEY: "" });
   await assert.rejects(disabled.start(input()), /LTX live rendering is disabled/);
 });
 
