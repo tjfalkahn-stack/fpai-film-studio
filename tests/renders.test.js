@@ -179,7 +179,7 @@ test("a direct photo render queues without a preset shot or Yard trial", async (
     delete env.HF_CREDENTIALS;
   }
 });
-test("a direct LTX audio render stores its clip and quotes from its actual duration", async (t) => {
+for (const projectId of ["enemies-closer-ep01", YARD_PROJECT_ID]) test(`a direct LTX audio render in ${projectId} stores its clip and quotes from its actual duration`, async (t) => {
   noNetwork(t);
   const previous = { ...env };
   Object.assign(env, {
@@ -191,7 +191,7 @@ test("a direct LTX audio render stores its clip and quotes from its actual durat
   try {
     const audio = { mimeType: "audio/mpeg", data: Buffer.from("ID3sample").toString("base64"), duration: 7.25 };
     const request = body(undefined, {
-      sceneId: "CREATE", shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`,
+      projectId, sceneId: "CREATE", shotId: `DIRECT_${crypto.randomUUID().replaceAll("-", "")}`,
       provider: "ltx-2.5-fast", duration: 7.25, sourceAudio: audio,
       referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
       continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },

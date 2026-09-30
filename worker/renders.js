@@ -378,7 +378,7 @@ function liveGate(input, provider, env) {
   if (input.provider === "mock") return;
   if (isVeoProvider(input.provider) && env.VEO_NEW_SUBMISSIONS_PAUSED === "true")
     fail("VEO_PAUSED", "New Google Veo submissions are paused while two uncertain outcomes are investigated. LTX Pro remains available.", 503);
-  if (input.projectId === YARD_PROJECT_ID && provider.capabilities.paid && !isHiggsfieldProvider(input.provider) && !yardTrialFor(input.shotId, input.provider))
+  if (input.projectId === YARD_PROJECT_ID && input.sceneId !== "CREATE" && provider.capabilities.paid && !isHiggsfieldProvider(input.provider) && !yardTrialFor(input.shotId, input.provider))
     fail("YARD_RENDER_GATE", "The Yard paid renderer is gated until its controlled test and current spend quote are approved.", 403);
   if (provider.capabilities.manual)
     fail(
