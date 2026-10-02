@@ -17,6 +17,36 @@ function httpHint(status) {
   return "Check the Google provider connection.";
 }
 
+/** Extract Google RAI / output-filter fields from a finished Veo operation. */
+export function veoOutputFilter(operation) {
+  const response =
+    operation?.response?.generateVideoResponse ||
+    operation?.response ||
+    {};
+  const reasons = Array.isArray(response.raiMediaFilteredReasons)
+    ? response.raiMediaFilteredReasons.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const count = Number(response.raiMediaFilteredCount);
+  const filtered =
+    reasons.length > 0 ||
+    (Number.isFinite(count) && count > 0) ||
+    String(response.filterReason || response.blockReason || "").toUpperCase().includes("FILTER");
+  const supportCodes = [
+    ...new Set(
+      reasons.flatMap((reason) =>
+        [...reason.matchAll(/\b(\d{6,})\b/g)].map((match) => match[1]),
+      ),
+    ),
+  ];
+  return {
+    filtered,
+    count: Number.isFinite(count) ? count : reasons.length || (filtered ? 1 : 0),
+    reasons,
+    supportCodes,
+    message: reasons.join(" ").trim(),
+  };
+}
+
 export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
   const { model, rates } = TIERS[tier];
   const enabled = () => {
@@ -151,19 +181,38 @@ export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
             retryable: false,
           },
         };
-      const asset =
-        operation.response?.generateVideoResponse?.generatedSamples?.[0]?.video;
-      if (!asset?.uri)
+      const videoResponse = operation.response?.generateVideoResponse;
+      const asset = videoResponse?.generatedSamples?.[0]?.video;
+      if (!asset?.uri) {
+        const filter = veoOutputFilter(operation);
+        if (filter.filtered) {
+          return {
+            status: "failed",
+            actualCost: 0,
+            costBasis: "provider-output-filtered-no-charge",
+            error: {
+              code: "OUTPUT_FILTERED",
+              message:
+                filter.message ||
+                "Google filtered the video output (OUTPUT_FILTERED) and returned no downloadable file.",
+              retryable: false,
+              raiMediaFilteredCount: filter.count,
+              raiMediaFilteredReasons: filter.reasons,
+              supportCodes: filter.supportCodes,
+            },
+          };
+        }
         return {
           status: "failed",
           actualCost: 0,
           costBasis: "provider-no-video",
           error: {
             code: "NO_OUTPUT",
-            message: "Google returned no video (possibly filtered).",
+            message: "Google returned no video.",
             retryable: false,
           },
         };
+      }
       return {
         status: "completed",
         actualCost: job.estimated_cost,

@@ -288,7 +288,22 @@ async function pollVeo(env, job) {
   }
   const video = operation?.response?.generateVideoResponse?.generatedSamples?.[0]?.video;
   if (!video?.uri && !video?.data) {
-    await failJob(env, job.id, new Error("Veo completed without a downloadable video."));
+    const reasons = operation?.response?.generateVideoResponse?.raiMediaFilteredReasons;
+    const reasonText = Array.isArray(reasons)
+      ? reasons.map((item) => String(item || "").trim()).filter(Boolean).join(" ")
+      : "";
+    const count = Number(operation?.response?.generateVideoResponse?.raiMediaFilteredCount);
+    const filtered = Boolean(reasonText) || (Number.isFinite(count) && count > 0);
+    await failJob(
+      env,
+      job.id,
+      new Error(
+        filtered
+          ? reasonText ||
+            "Google filtered the video output (OUTPUT_FILTERED) and returned no downloadable file."
+          : "Veo completed without a downloadable video.",
+      ),
+    );
     return env.GENERATION_DB.prepare("SELECT * FROM generation_jobs WHERE id=?").bind(job.id).first();
   }
   const outputKey = await storeVideo(env, job, video, 0);
