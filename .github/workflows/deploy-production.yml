@@ -109,7 +109,9 @@ jobs:
             https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev/health/veo
 
       # Read-only: uses the adapter's GEMINI_API_KEY via service binding. Never predictLongRunning.
+      # continue-on-error: operation records expire; do not block production deploys.
       - name: Diagnose failed Veo operation (read-only)
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
@@ -119,6 +121,13 @@ jobs:
           set -euo pipefail
           TOKEN="$(openssl rand -hex 24)"
           echo "::add-mask::$TOKEN"
+          cleanup() {
+            printf '%s' "$TOKEN" | npx wrangler secret delete DIAGNOSE_RUN_TOKEN --name fpai-film-studio-video-adapter --force >/dev/null 2>&1 || true
+            npx wrangler delete fpai-film-studio-veo-diagnose --force || true
+          }
+          trap cleanup EXIT
+          # Temporary one-shot gate on the adapter (deleted in cleanup). Not the Gemini key.
+          printf '%s' "$TOKEN" | npx wrangler secret put DIAGNOSE_RUN_TOKEN --name fpai-film-studio-video-adapter
           cat > wrangler.veo-diagnose.toml <<EOF
           name = "fpai-film-studio-veo-diagnose"
           main = "scripts/veo-diagnose-worker.js"
@@ -133,19 +142,36 @@ jobs:
           service = "fpai-film-studio-video-adapter"
           EOF
           npx wrangler deploy --config wrangler.veo-diagnose.toml
+          sleep 10
           QUERY="token=${TOKEN}&operation=$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["VEO_OPERATION"], safe=""))')&jobId=$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["VEO_JOB_ID"], safe=""))')"
-          curl --fail --silent --show-error --retry 4 --retry-delay 3 \
-            "https://fpai-film-studio-veo-diagnose.tjfalkahn.workers.dev/?${QUERY}" \
-            | tee /tmp/veo-diagnose.json
+          URL="https://fpai-film-studio-veo-diagnose.tjfalkahn.workers.dev/?${QUERY}"
+          CODE="000"
+          for attempt in 1 2 3 4 5 6 7 8; do
+            CODE=$(curl --silent --show-error --output /tmp/veo-diagnose.json --write-out "%{http_code}" "$URL" || true)
+            echo "diagnose attempt ${attempt}: HTTP ${CODE}"
+            if [ "$CODE" = "200" ]; then
+              break
+            fi
+            cat /tmp/veo-diagnose.json || true
+            echo
+            sleep 5
+          done
+          if [ "$CODE" != "200" ]; then
+            echo "Diagnose caller did not return HTTP 200 (last=${CODE})"
+            exit 1
+          fi
           python3 - <<'PY'
           import json, sys
           data = json.load(open("/tmp/veo-diagnose.json"))
+          if data.get("ok") is not True:
+              print("DIAGNOSE_PAYLOAD:", json.dumps(data, indent=2)[:4000])
+              sys.exit(1)
           assert data.get("generationStarted") is False, data
-          assert data.get("ok") is True, data
           filt = data.get("filter") or {}
           print("=== VEO FILTER DIAGNOSIS ===")
           print("operation:", data.get("operation"))
           print("jobId:", data.get("jobId"))
+          print("authVia:", data.get("authVia"))
           print("done:", data.get("done"))
           print("hasVideo:", data.get("hasVideo"))
           print("filtered:", filt.get("filtered"))
@@ -159,4 +185,3 @@ jobs:
               print("GOOGLE_ERROR:", data["googleError"])
           print("=== END VEO FILTER DIAGNOSIS ===")
           PY
-          npx wrangler delete fpai-film-studio-veo-diagnose --force || true

@@ -16,14 +16,19 @@ export default {
 
     const operation = url.searchParams.get("operation") || "";
     const jobId = url.searchParams.get("jobId") || "";
-    const target = new URL("https://adapter/api/diagnostics/veo-operation");
+    const target = new URL("https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev/api/diagnostics/veo-operation");
     if (operation) target.searchParams.set("operation", operation);
     if (jobId) target.searchParams.set("jobId", jobId);
+    // One-shot gate for when CF-Worker allowlisting is unavailable.
+    target.searchParams.set("diagnoseToken", gate);
 
     const response = await env.ADAPTER.fetch(
       new Request(target.toString(), {
         method: "GET",
-        headers: { accept: "application/json" },
+        headers: {
+          accept: "application/json",
+          "x-fpai-diagnose-run": gate,
+        },
       }),
     );
     const text = await response.text();
@@ -32,6 +37,7 @@ export default {
       headers: {
         "content-type": response.headers.get("content-type") || "application/json; charset=utf-8",
         "cache-control": "no-store",
+        "x-fpai-adapter-status": String(response.status),
       },
     });
   },

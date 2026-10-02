@@ -121,3 +121,33 @@ test("diagnostic allows allowlisted service-binding callers without Bearer", asy
     globalThis.fetch = original;
   }
 });
+
+test("diagnostic allows one-shot diagnose run token without Bearer", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({
+      name: OPERATION,
+      done: true,
+      response: {
+        generateVideoResponse: {
+          raiMediaFilteredCount: 1,
+          raiMediaFilteredReasons: ["Token-gated diagnose reason."],
+        },
+      },
+    });
+  try {
+    const response = await worker.fetch(
+      new Request(
+        `https://adapter/api/diagnostics/veo-operation?operation=${encodeURIComponent(OPERATION)}&diagnoseToken=run-gate`,
+        { headers: { "x-fpai-diagnose-run": "run-gate" } },
+      ),
+      envWith(undefined, { DIAGNOSE_RUN_TOKEN: "run-gate" }),
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.authVia, "diagnose-run-token");
+    assert.equal(body.filter.raiMediaFilteredReasons[0], "Token-gated diagnose reason.");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
