@@ -819,9 +819,11 @@ test("Veo adapter maps prompt, reference bytes, duration, aspect, resolution and
   assert.match(started.operationId, /operations\/test/);
   const payload = JSON.parse(calls[0].init.body);
   assert.equal(
-    payload.instances[0].referenceImages[0].image.inlineData.data,
+    payload.instances[0].referenceImages[0].image.bytesBase64Encoded,
     input.referenceImages[0].data,
   );
+  assert.equal(payload.instances[0].referenceImages[0].image.mimeType, "image/png");
+  assert.equal(payload.instances[0].referenceImages[0].image.inlineData, undefined);
   assert.equal(payload.parameters.durationSeconds, 8);
   assert.equal(payload.parameters.aspectRatio, "16:9");
   assert.equal(payload.parameters.resolution, "720p");
@@ -845,7 +847,10 @@ test("Yard Veo uses its single composed still as the initial frame", async () =>
     referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
     duration: 8, resolution: "1080p", aspectRatio: "9:16",
   }));
-  assert.equal(payload.instances[0].image.inlineData.data, "iVBORw0KGgo=");
+  assert.deepEqual(payload.instances[0].image, {
+    mimeType: "image/png",
+    bytesBase64Encoded: "iVBORw0KGgo=",
+  });
   assert.equal(payload.instances[0].referenceImages, undefined);
   assert.equal(payload.parameters.durationSeconds, 8);
   assert.equal(payload.parameters.resolution, "1080p");
