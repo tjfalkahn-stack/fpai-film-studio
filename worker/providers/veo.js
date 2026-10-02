@@ -17,6 +17,45 @@ function httpHint(status) {
   return "Check the Google provider connection.";
 }
 
+/** Veo predictLongRunning Image objects use Vertex-style bytes, not Gemini inlineData. */
+export function veoInlineImage(ref) {
+  if (!ref || typeof ref.mimeType !== "string" || typeof ref.data !== "string")
+    fail("INVALID_REFERENCES", "Veo images must include mimeType and base64 data.");
+  return { mimeType: ref.mimeType, bytesBase64Encoded: ref.data };
+}
+
+/** Reject Google-unsupported Veo combinations before predictLongRunning. */
+export function validateVeoSubmission(input, capabilities) {
+  const refs = Array.isArray(input.referenceImages) ? input.referenceImages : [];
+  const mode = input.referenceMode || null;
+  if (mode === "reference-images" && refs.length && input.aspectRatio === "9:16") {
+    fail(
+      "UNSUPPORTED_INPUT",
+      "Veo character reference images currently require 16:9. Use start-frame mode for 9:16 portrait, or switch the frame to 16:9.",
+    );
+  }
+  if ((mode === "reference-images" || mode === "start-frame" || refs.length || input.resolution === "1080p") &&
+      Number(input.duration) !== 8) {
+    fail(
+      "UNSUPPORTED_INPUT",
+      "Reference images and 1080p require an 8-second source clip.",
+    );
+  }
+  if (capabilities?.resolutions && !capabilities.resolutions.includes(input.resolution)) {
+    fail(
+      "UNSUPPORTED_INPUT",
+      `Unsupported resolution. Allowed: ${capabilities.resolutions.join(", ")}.`,
+    );
+  }
+  if (capabilities?.aspectRatios && !capabilities.aspectRatios.includes(input.aspectRatio)) {
+    fail(
+      "UNSUPPORTED_INPUT",
+      `Unsupported aspectRatio. Allowed: ${capabilities.aspectRatios.join(", ")}.`,
+    );
+  }
+  return input;
+}
+
 /** Extract Google RAI / output-filter fields from a finished Veo operation. */
 export function veoOutputFilter(operation) {
   const response =
@@ -150,6 +189,7 @@ export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
         fail("UNSUPPORTED_INPUT", "Unsupported Veo image input mode.");
       if (tier === "lite" && input.referenceMode === "reference-images" && input.referenceImages.length)
         fail("UNSUPPORTED_INPUT", "Veo Lite accepts a start frame, not character reference images.");
+      validateVeoSubmission(input, this.capabilities);
       const usesStartFrame = input.referenceMode === "start-frame" ||
         (input.projectId === YARD_PROJECT_ID && input.referenceImages.length === 1);
       if (usesStartFrame && input.referenceImages.length !== 1)
@@ -157,15 +197,14 @@ export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
       if (input.endFrameImage && !usesStartFrame)
         fail("INVALID_REFERENCES", "Veo end frame requires one start frame.");
       if (usesStartFrame) {
-        const ref = input.referenceImages[0];
-        instance.image = { inlineData: { mimeType: ref.mimeType, data: ref.data } };
-        if (input.endFrameImage)
-          instance.lastFrame = { inlineData: { mimeType: input.endFrameImage.mimeType, data: input.endFrameImage.data } };
+        instance.image = veoInlineImage(input.referenceImages[0]);
+        if (input.endFrameImage) instance.lastFrame = veoInlineImage(input.endFrameImage);
       } else if (input.referenceImages.length)
         instance.referenceImages = input.referenceImages.map((ref) => ({
-          image: { inlineData: { mimeType: ref.mimeType, data: ref.data } },
+          image: veoInlineImage(ref),
           referenceType: "asset",
         }));
+      const hasImageInput = Boolean(instance.image || instance.referenceImages?.length);
       const operation = await google(`models/${model}:predictLongRunning`, {
         method: "POST",
         body: JSON.stringify({
@@ -173,11 +212,9 @@ export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
           parameters: {
             sampleCount: 1,
             aspectRatio: input.aspectRatio,
-            durationSeconds: input.duration,
+            durationSeconds: Number(input.duration),
             resolution: input.resolution,
-            personGeneration: input.referenceImages.length
-              ? "allow_adult"
-              : "allow_all",
+            personGeneration: hasImageInput ? "allow_adult" : "allow_all",
           },
         }),
       });
