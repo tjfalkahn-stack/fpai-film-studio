@@ -45,7 +45,7 @@ jobs:
           # Missing values fail closed in the adapter on a fresh deployment.
           MOCK_E2E_VERIFIED = "true"
           RENDER_PROJECT_ID = "enemies-closer-ep01"
-          RENDER_PROJECT_CEILING_USD = "20"
+          RENDER_PROJECT_CEILING_USD = "25"
           RENDER_SESSION_CEILING_USD = "10"
           RENDER_SESSION_ID = "studio-audio-2026"
           MAX_SINGLE_JOB_USD = "4"
