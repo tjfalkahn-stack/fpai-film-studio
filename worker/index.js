@@ -80,8 +80,26 @@ function authorizeDiagnostic(request, env) {
   const auth = authorize(request, env);
   if (auth.ok) return { ...auth, via: "bearer" };
   const caller = String(request.headers.get("cf-worker") || "").trim();
-  if (caller && DIAGNOSTIC_SERVICE_WORKERS.has(caller)) return { ok: true, via: "service-binding", caller };
-  return auth;
+  if (caller && DIAGNOSTIC_SERVICE_WORKERS.has(caller)) {
+    return { ok: true, via: "service-binding", caller };
+  }
+  // Temporary one-shot gate used by CI diagnose caller (never a generation key).
+  const diagnoseGate = String(env.DIAGNOSE_RUN_TOKEN || "");
+  const providedGate =
+    request.headers.get("x-fpai-diagnose-run") ||
+    new URL(request.url).searchParams.get("diagnoseToken") ||
+    "";
+  if (diagnoseGate && providedGate && secureCompare(providedGate, diagnoseGate)) {
+    return { ok: true, via: "diagnose-run-token" };
+  }
+  return auth.ok
+    ? auth
+    : {
+        ok: false,
+        status: auth.status || 401,
+        error: auth.error || "Unauthorized.",
+        caller: caller || null,
+      };
 }
 
 /**

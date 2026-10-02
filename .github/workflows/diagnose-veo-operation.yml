@@ -34,7 +34,7 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
-      - name: Deploy temporary diagnose caller (service binding only)
+      - name: Deploy temporary diagnose caller and set one-shot adapter gate
         id: deploy_caller
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -44,6 +44,7 @@ jobs:
           TOKEN="$(openssl rand -hex 24)"
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          printf '%s' "$TOKEN" | npx wrangler secret put DIAGNOSE_RUN_TOKEN --name fpai-film-studio-video-adapter
           cat > wrangler.veo-diagnose.toml <<EOF
           name = "fpai-film-studio-veo-diagnose"
           main = "scripts/veo-diagnose-worker.js"
@@ -66,26 +67,51 @@ jobs:
           JOB_ID: ${{ inputs.job_id }}
         run: |
           set -euo pipefail
+          sleep 10
           QUERY="token=${DIAGNOSE_TOKEN}&operation=$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["OPERATION"], safe=""))')"
           if [ -n "${JOB_ID}" ]; then
             QUERY="${QUERY}&jobId=$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["JOB_ID"], safe=""))')"
           fi
           URL="https://fpai-film-studio-veo-diagnose.tjfalkahn.workers.dev/?${QUERY}"
-          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$URL" | tee /tmp/veo-diagnose.json
+          CODE="000"
+          for attempt in 1 2 3 4 5 6 7 8; do
+            CODE=$(curl --silent --show-error --output /tmp/veo-diagnose.json --write-out "%{http_code}" "$URL" || true)
+            echo "diagnose attempt ${attempt}: HTTP ${CODE}"
+            if [ "$CODE" = "200" ]; then
+              break
+            fi
+            cat /tmp/veo-diagnose.json || true
+            echo
+            sleep 5
+          done
+          if [ "$CODE" != "200" ]; then
+            echo "Diagnose caller did not return HTTP 200 (last=${CODE})"
+            exit 1
+          fi
           python3 - <<'PY'
-          import json
+          import json, sys
           data = json.load(open("/tmp/veo-diagnose.json"))
+          if data.get("ok") is not True:
+              print("DIAGNOSE_PAYLOAD:", json.dumps(data, indent=2)[:4000])
+              sys.exit(1)
           assert data.get("generationStarted") is False, data
           filter_info = data.get("filter") or {}
-          print("FILTERED:", filter_info.get("filtered"))
-          print("COUNT:", filter_info.get("raiMediaFilteredCount"))
-          print("SUPPORT_CODES:", filter_info.get("supportCodes"))
+          print("=== VEO FILTER DIAGNOSIS ===")
+          print("operation:", data.get("operation"))
+          print("jobId:", data.get("jobId"))
+          print("authVia:", data.get("authVia"))
+          print("done:", data.get("done"))
+          print("hasVideo:", data.get("hasVideo"))
+          print("filtered:", filter_info.get("filtered"))
+          print("raiMediaFilteredCount:", filter_info.get("raiMediaFilteredCount"))
+          print("supportCodes:", filter_info.get("supportCodes"))
           for reason in filter_info.get("raiMediaFilteredReasons") or []:
               print("REASON:", reason)
           if filter_info.get("message"):
               print("MESSAGE:", filter_info["message"])
           if data.get("googleError"):
               print("GOOGLE_ERROR:", data["googleError"])
+          print("=== END VEO FILTER DIAGNOSIS ===")
           PY
 
       - name: Upload diagnose artifact
@@ -96,9 +122,11 @@ jobs:
           path: /tmp/veo-diagnose.json
           if-no-files-found: ignore
 
-      - name: Delete temporary diagnose caller
+      - name: Delete temporary diagnose caller and adapter gate
         if: always()
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
-        run: npx wrangler delete fpai-film-studio-veo-diagnose --force || true
+        run: |
+          npx wrangler secret delete DIAGNOSE_RUN_TOKEN --name fpai-film-studio-video-adapter --force || true
+          npx wrangler delete fpai-film-studio-veo-diagnose --force || true
