@@ -48,10 +48,19 @@ jobs:
           database_id = "c7aa2548-3d3c-4379-b1ff-3b5ab19e5acc"
           EOF
           SQL=$(cat <<SQL
-          SELECT id, status, provider, model, resolution, duration_seconds, aspect_ratio,
+          SELECT id, status, provider, model,
                  estimated_cost, actual_cost, reserved_cost, operation_id,
-                 substr(error_json,1,1800) AS error_json,
-                 substr(input_json,1,1200) AS input_json_prefix,
+                 substr(error_json,1,2500) AS error_json,
+                 json_extract(input_json,'$.projectId') AS project_id,
+                 json_extract(input_json,'$.sceneId') AS scene_id,
+                 json_extract(input_json,'$.shotId') AS shot_id,
+                 json_extract(input_json,'$.duration') AS duration,
+                 json_extract(input_json,'$.resolution') AS resolution,
+                 json_extract(input_json,'$.aspectRatio') AS aspect_ratio,
+                 json_extract(input_json,'$.referenceMode') AS reference_mode,
+                 json_extract(input_json,'$.referenceImages[0].mimeType') AS ref0_mime,
+                 json_array_length(json_extract(input_json,'$.referenceImages')) AS ref_count,
+                 substr(COALESCE(json_extract(input_json,'$.prompt'),''),1,400) AS prompt_prefix,
                  created_at, updated_at
           FROM renders
           WHERE provider LIKE 'veo%'
@@ -74,7 +83,7 @@ jobs:
           print("count:", len(rows))
           for row in rows:
             print("---")
-            for k in ["id","created_at","status","provider","model","resolution","duration_seconds","aspect_ratio","estimated_cost","actual_cost","reserved_cost","operation_id","error_json","input_json_prefix"]:
+            for k in ["id","created_at","updated_at","status","provider","model","estimated_cost","actual_cost","reserved_cost","operation_id","project_id","scene_id","shot_id","duration","resolution","aspect_ratio","reference_mode","ref0_mime","ref_count","prompt_prefix","error_json"]:
               if k in row: print(f"{k}: {row[k]}")
           print("=== END VEO RENDER ROWS ===")
           PY

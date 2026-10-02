@@ -69,6 +69,10 @@ const err = (error) => ({
       : "Unexpected render service error. Check provider requests before starting another render.",
   retryable: Boolean(error.retryable),
   uncertain: Boolean(error.uncertain),
+  ...(error.providerHttpStatus
+    ? { providerHttpStatus: error.providerHttpStatus }
+    : {}),
+  ...(error.providerDetails ? { providerDetails: error.providerDetails } : {}),
 });
 export function config(env) {
   const amount = (key, fallback) => {
