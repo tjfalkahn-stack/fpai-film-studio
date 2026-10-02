@@ -72,17 +72,44 @@ export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
           "x-goog-api-key": env.GEMINI_API_KEY,
         },
       });
-      if (!response.ok)
+      const text = await response.text();
+      let payload = {};
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch {
+        payload = {};
+      }
+      if (!response.ok) {
+        const key = String(env.GEMINI_API_KEY || "");
+        const googleMessage = String(
+          payload?.error?.message ||
+            payload?.message ||
+            (text && !text.includes(key) ? text.slice(0, 500) : "") ||
+            "",
+        )
+          .replaceAll(key, "[redacted]")
+          .trim();
+        const details = Array.isArray(payload?.error?.details)
+          ? payload.error.details
+          : undefined;
         throw new ProviderError(
           "PROVIDER_HTTP",
-          `Google returned HTTP ${response.status}. ${httpHint(response.status)}`,
+          googleMessage
+            ? `Google returned HTTP ${response.status}: ${googleMessage} ${httpHint(response.status)}`.trim()
+            : `Google returned HTTP ${response.status}. ${httpHint(response.status)}`,
           {
             httpStatus: 502,
             retryable: response.status === 429 || response.status >= 500,
-            uncertain: init.method === "POST" && (response.status >= 500 || (response.status >= 300 && response.status < 400)),
+            uncertain:
+              init.method === "POST" &&
+              (response.status >= 500 ||
+                (response.status >= 300 && response.status < 400)),
+            providerHttpStatus: response.status,
+            providerDetails: details,
           },
         );
-      return await response.json();
+      }
+      return payload;
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       throw new ProviderError(
