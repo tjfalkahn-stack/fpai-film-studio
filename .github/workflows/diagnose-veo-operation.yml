@@ -1,0 +1,104 @@
+name: Diagnose Veo operation (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Google Veo operation name (models/.../operations/...)
+        required: true
+        type: string
+      job_id:
+        description: Optional Studio render UUID to refresh error_json
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fpai-veo-operation-diagnose
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Deploy temporary diagnose caller (service binding only)
+        id: deploy_caller
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 24)"
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          cat > wrangler.veo-diagnose.toml <<EOF
+          name = "fpai-film-studio-veo-diagnose"
+          main = "scripts/veo-diagnose-worker.js"
+          compatibility_date = "2026-09-04"
+          workers_dev = true
+
+          [vars]
+          DIAGNOSE_RUN_TOKEN = "$TOKEN"
+
+          [[services]]
+          binding = "ADAPTER"
+          service = "fpai-film-studio-video-adapter"
+          EOF
+          npx wrangler deploy --config wrangler.veo-diagnose.toml
+
+      - name: Read-only poll failed Veo operation via Worker Gemini key
+        env:
+          DIAGNOSE_TOKEN: ${{ steps.deploy_caller.outputs.token }}
+          OPERATION: ${{ inputs.operation }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          set -euo pipefail
+          QUERY="token=${DIAGNOSE_TOKEN}&operation=$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["OPERATION"], safe=""))')"
+          if [ -n "${JOB_ID}" ]; then
+            QUERY="${QUERY}&jobId=$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["JOB_ID"], safe=""))')"
+          fi
+          URL="https://fpai-film-studio-veo-diagnose.tjfalkahn.workers.dev/?${QUERY}"
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$URL" | tee /tmp/veo-diagnose.json
+          python3 - <<'PY'
+          import json
+          data = json.load(open("/tmp/veo-diagnose.json"))
+          assert data.get("generationStarted") is False, data
+          filter_info = data.get("filter") or {}
+          print("FILTERED:", filter_info.get("filtered"))
+          print("COUNT:", filter_info.get("raiMediaFilteredCount"))
+          print("SUPPORT_CODES:", filter_info.get("supportCodes"))
+          for reason in filter_info.get("raiMediaFilteredReasons") or []:
+              print("REASON:", reason)
+          if filter_info.get("message"):
+              print("MESSAGE:", filter_info["message"])
+          if data.get("googleError"):
+              print("GOOGLE_ERROR:", data["googleError"])
+          PY
+
+      - name: Upload diagnose artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veo-operation-diagnose
+          path: /tmp/veo-diagnose.json
+          if-no-files-found: ignore
+
+      - name: Delete temporary diagnose caller
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
+        run: npx wrangler delete fpai-film-studio-veo-diagnose --force || true
