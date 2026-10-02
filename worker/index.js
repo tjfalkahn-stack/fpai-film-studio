@@ -4,7 +4,7 @@ import { filmRoutes } from "./filmEngine.js";
 import { createCharacterFactoryRuntime } from "./characterFactoryRuntime.js";
 import { serveHiggsfieldInput } from "./providers/higgsfieldInput.js";
 import { probeHiggsfieldUploadConnection } from "./providers/higgsfield.js";
-import { veoOutputFilter } from "./providers/veo.js";
+import { readVeoOutcome } from "./providers/veo.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -135,61 +135,33 @@ async function handleVeoOperationDiagnose(request, env) {
     throw error;
   }
 
-  // GET only — never POST predictLongRunning.
+  // GET only — never POST predictLongRunning. Never write renders rows.
   const operation = await googleFetch(operationId, env, { method: "GET" });
-  const filter = veoOutputFilter(operation);
-  const video =
-    operation?.response?.generateVideoResponse?.generatedSamples?.[0]?.video || null;
-  const hasVideo = Boolean(video?.uri || video?.data);
+  const outcome = readVeoOutcome(operation, { apiKey: env.GEMINI_API_KEY });
 
-  const diagnosis = {
+  return {
     ok: true,
     generationStarted: false,
     operation: operationId,
     jobId: job?.id || null,
     jobStatus: job?.status || null,
-    done: Boolean(operation?.done),
-    googleError: operation?.error
-      ? {
-          code: operation.error.code ?? null,
-          message: String(operation.error.message || "").slice(0, 2000),
-        }
-      : null,
-    hasVideo,
+    done: outcome.done,
+    hasVideo: outcome.hasVideo,
+    videoKind: outcome.videoKind,
+    googleError: outcome.googleError,
     filter: {
-      filtered: filter.filtered,
-      raiMediaFilteredCount: filter.count,
-      raiMediaFilteredReasons: filter.reasons,
-      supportCodes: filter.supportCodes,
-      message: filter.message || null,
+      filtered: outcome.filter.filtered,
+      raiMediaFilteredCount: outcome.filter.count,
+      raiMediaFilteredReasons: outcome.filter.reasons,
+      supportCodes: outcome.filter.supportCodes,
+      message: outcome.filter.message || null,
+    },
+    outcome: {
+      status: outcome.status,
+      code: outcome.code,
+      message: outcome.message,
     },
   };
-
-  if (job?.id && filter.filtered) {
-    const nextError = {
-      code: "OUTPUT_FILTERED",
-      message:
-        filter.message ||
-        "Google filtered the video output (OUTPUT_FILTERED) and returned no downloadable file.",
-      retryable: false,
-      raiMediaFilteredCount: filter.count,
-      raiMediaFilteredReasons: filter.reasons,
-      supportCodes: filter.supportCodes,
-    };
-    await env.GENERATION_DB.prepare(
-      "UPDATE renders SET error_json=?, actual_cost=0, reserved_cost=0, cost_basis=?, updated_at=? WHERE id=? AND status='failed'",
-    )
-      .bind(
-        JSON.stringify(nextError),
-        "provider-output-filtered-no-charge",
-        now(),
-        job.id,
-      )
-      .run();
-    diagnosis.errorUpdated = true;
-  }
-
-  return diagnosis;
 }
 
 const now = () => new Date().toISOString();
@@ -404,32 +376,13 @@ async function startProvider(env, job, validated) {
 async function pollVeo(env, job) {
   if (job.status !== "running" || !job.provider_operation) return job;
   const operation = await googleFetch(job.provider_operation, env, { method: "GET" });
-  if (!operation?.done) return job;
-  if (operation?.error) {
-    await failJob(env, job.id, new Error(operation.error.message || "Veo generation failed."));
+  const outcome = readVeoOutcome(operation, { apiKey: env.GEMINI_API_KEY });
+  if (outcome.status === "running") return job;
+  if (outcome.status !== "completed" || !outcome.asset) {
+    await failJob(env, job.id, new Error(outcome.message || "Veo generation failed."));
     return env.GENERATION_DB.prepare("SELECT * FROM generation_jobs WHERE id=?").bind(job.id).first();
   }
-  const video = operation?.response?.generateVideoResponse?.generatedSamples?.[0]?.video;
-  if (!video?.uri && !video?.data) {
-    const reasons = operation?.response?.generateVideoResponse?.raiMediaFilteredReasons;
-    const reasonText = Array.isArray(reasons)
-      ? reasons.map((item) => String(item || "").trim()).filter(Boolean).join(" ")
-      : "";
-    const count = Number(operation?.response?.generateVideoResponse?.raiMediaFilteredCount);
-    const filtered = Boolean(reasonText) || (Number.isFinite(count) && count > 0);
-    await failJob(
-      env,
-      job.id,
-      new Error(
-        filtered
-          ? reasonText ||
-            "Google filtered the video output (OUTPUT_FILTERED) and returned no downloadable file."
-          : "Veo completed without a downloadable video.",
-      ),
-    );
-    return env.GENERATION_DB.prepare("SELECT * FROM generation_jobs WHERE id=?").bind(job.id).first();
-  }
-  const outputKey = await storeVideo(env, job, video, 0);
+  const outputKey = await storeVideo(env, job, outcome.asset, 0);
   await completeJob(env, job.id, outputKey, job.estimated_cost, { operation: job.provider_operation });
   return env.GENERATION_DB.prepare("SELECT * FROM generation_jobs WHERE id=?").bind(job.id).first();
 }
