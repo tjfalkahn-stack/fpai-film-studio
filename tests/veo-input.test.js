@@ -1,10 +1,66 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createVeoProvider } from "../worker/providers/veo.js";
+import { createVeoProvider, veoOutputFilter } from "../worker/providers/veo.js";
 
 const env = { LIVE_RENDERING_ENABLED: "true", MOCK_E2E_VERIFIED: "true", GEMINI_API_KEY: "test-secret" };
 const reference = { mimeType: "image/png", data: "iVBORw0KGgo=" };
 const input = { projectId: "enemies-closer", prompt: "Cinema. Marcus turns toward the door.", duration: 8, resolution: "1080p", aspectRatio: "16:9", referenceImages: [reference] };
+
+test("veoOutputFilter reads Google RAI reason text and support codes", () => {
+  const filter = veoOutputFilter({
+    done: true,
+    response: {
+      generateVideoResponse: {
+        raiMediaFilteredCount: 1,
+        raiMediaFilteredReasons: [
+          "Sorry, we can’t create videos from input images containing celebrity or their likenesses. Support codes: 15236754",
+        ],
+      },
+    },
+  });
+  assert.equal(filter.filtered, true);
+  assert.equal(filter.count, 1);
+  assert.deepEqual(filter.supportCodes, ["15236754"]);
+  assert.match(filter.message, /celebrity/i);
+});
+
+test("status surfaces OUTPUT_FILTERED reasons instead of a vague no-video message", async () => {
+  const provider = createVeoProvider(env, async () =>
+    Response.json({
+      done: true,
+      response: {
+        generateVideoResponse: {
+          raiMediaFilteredCount: 1,
+          raiMediaFilteredReasons: [
+            "1 videos were filtered out because they violated Google’s Responsible AI practices. You will not be charged for blocked videos.",
+          ],
+        },
+      },
+    }),
+  );
+  const result = await provider.status({
+    operation_id: "models/veo-3.1-fast-generate-preview/operations/example",
+    estimated_cost: 0.96,
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.actualCost, 0);
+  assert.equal(result.costBasis, "provider-output-filtered-no-charge");
+  assert.equal(result.error.code, "OUTPUT_FILTERED");
+  assert.match(result.error.message, /will not be charged/i);
+  assert.deepEqual(result.error.raiMediaFilteredReasons.length, 1);
+});
+
+test("status keeps NO_OUTPUT when Google returns neither video nor filter fields", async () => {
+  const provider = createVeoProvider(env, async () =>
+    Response.json({ done: true, response: { generateVideoResponse: {} } }),
+  );
+  const result = await provider.status({
+    operation_id: "models/veo-3.1-fast-generate-preview/operations/example",
+    estimated_cost: 0.96,
+  });
+  assert.equal(result.error.code, "NO_OUTPUT");
+  assert.equal(result.actualCost, 0);
+});
 
 test("Enemies Closer explicit start-frame mode animates the composed still", async () => {
   let payload;
