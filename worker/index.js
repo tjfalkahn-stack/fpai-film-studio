@@ -4,9 +4,16 @@ import { filmRoutes } from "./filmEngine.js";
 import { createCharacterFactoryRuntime } from "./characterFactoryRuntime.js";
 import { serveHiggsfieldInput } from "./providers/higgsfieldInput.js";
 import { probeHiggsfieldUploadConnection } from "./providers/higgsfield.js";
+import { veoOutputFilter } from "./providers/veo.js";
 import { ROUTES } from "../src/economy.js";
 
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const VEO_OPERATION_RE = /^models\/[\w.-]+\/operations\/[\w-]+$/;
+/** Service-binding callers allowed to hit read-only Veo diagnostics without Bearer. */
+const DIAGNOSTIC_SERVICE_WORKERS = new Set([
+  "fpai-film-studio",
+  "fpai-film-studio-veo-diagnose",
+]);
 async function probeVeoConnection(env) {
   if (!env.GEMINI_API_KEY) return { transport: "not-configured" };
   const startedAt = Date.now();
@@ -67,6 +74,104 @@ function authorize(request, env) {
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!secureCompare(token, env.FPAI_CONTROL_TOKEN)) return { ok: false, status: 401, error: "Unauthorized." };
   return { ok: true };
+}
+
+function authorizeDiagnostic(request, env) {
+  const auth = authorize(request, env);
+  if (auth.ok) return { ...auth, via: "bearer" };
+  const caller = String(request.headers.get("cf-worker") || "").trim();
+  if (caller && DIAGNOSTIC_SERVICE_WORKERS.has(caller)) return { ok: true, via: "service-binding", caller };
+  return auth;
+}
+
+/**
+ * Read-only Veo operation inspect. Uses the Worker GEMINI_API_KEY.
+ * Never calls predictLongRunning / never starts generation.
+ */
+async function handleVeoOperationDiagnose(request, env) {
+  const url = new URL(request.url);
+  let operationId = String(url.searchParams.get("operation") || "").trim();
+  const jobId = String(url.searchParams.get("jobId") || "").trim();
+  let job = null;
+
+  if (jobId) {
+    if (!/^[a-f0-9-]{36}$/i.test(jobId)) {
+      const error = new Error("jobId must be a UUID.");
+      error.status = 400;
+      throw error;
+    }
+    job = await env.GENERATION_DB.prepare(
+      "SELECT id, status, provider, operation_id, error_json, actual_cost, cost_basis FROM renders WHERE id=?",
+    ).bind(jobId).first();
+    if (!job) {
+      const error = new Error("Render job not found.");
+      error.status = 404;
+      throw error;
+    }
+    if (!operationId) operationId = String(job.operation_id || "").trim();
+  }
+
+  if (!VEO_OPERATION_RE.test(operationId)) {
+    const error = new Error("A valid Google Veo operation name is required.");
+    error.status = 400;
+    throw error;
+  }
+
+  // GET only — never POST predictLongRunning.
+  const operation = await googleFetch(operationId, env, { method: "GET" });
+  const filter = veoOutputFilter(operation);
+  const video =
+    operation?.response?.generateVideoResponse?.generatedSamples?.[0]?.video || null;
+  const hasVideo = Boolean(video?.uri || video?.data);
+
+  const diagnosis = {
+    ok: true,
+    generationStarted: false,
+    operation: operationId,
+    jobId: job?.id || null,
+    jobStatus: job?.status || null,
+    done: Boolean(operation?.done),
+    googleError: operation?.error
+      ? {
+          code: operation.error.code ?? null,
+          message: String(operation.error.message || "").slice(0, 2000),
+        }
+      : null,
+    hasVideo,
+    filter: {
+      filtered: filter.filtered,
+      raiMediaFilteredCount: filter.count,
+      raiMediaFilteredReasons: filter.reasons,
+      supportCodes: filter.supportCodes,
+      message: filter.message || null,
+    },
+  };
+
+  if (job?.id && filter.filtered) {
+    const nextError = {
+      code: "OUTPUT_FILTERED",
+      message:
+        filter.message ||
+        "Google filtered the video output (OUTPUT_FILTERED) and returned no downloadable file.",
+      retryable: false,
+      raiMediaFilteredCount: filter.count,
+      raiMediaFilteredReasons: filter.reasons,
+      supportCodes: filter.supportCodes,
+    };
+    await env.GENERATION_DB.prepare(
+      "UPDATE renders SET error_json=?, actual_cost=0, reserved_cost=0, cost_basis=?, updated_at=? WHERE id=? AND status='failed'",
+    )
+      .bind(
+        JSON.stringify(nextError),
+        "provider-output-filtered-no-charge",
+        now(),
+        job.id,
+      )
+      .run();
+    diagnosis.errorUpdated = true;
+  }
+
+  return diagnosis;
 }
 
 const now = () => new Date().toISOString();
@@ -408,6 +513,21 @@ export default {
       if (!row) return json({ error: "Render not found." }, 404, cors);
       const updated = await advanceRender(env, row);
       return json({ render: { id: updated.id, status: updated.status, operationId: updated.operation_id } }, 200, cors);
+    }
+
+    if (url.pathname === "/api/diagnostics/veo-operation" && request.method === "GET") {
+      const diagnosticAuth = authorizeDiagnostic(request, env);
+      if (!diagnosticAuth.ok) return json({ error: diagnosticAuth.error }, diagnosticAuth.status, cors);
+      try {
+        const diagnosis = await handleVeoOperationDiagnose(request, env);
+        return json({ ...diagnosis, authVia: diagnosticAuth.via }, 200, cors);
+      } catch (error) {
+        const key = String(env.GEMINI_API_KEY || "");
+        const message = String(error?.message || "Diagnostic failed.")
+          .replaceAll(key, "[redacted]")
+          .slice(0, 2000);
+        return json({ error: message, generationStarted: false }, error?.status && Number.isInteger(error.status) ? error.status : 502, cors);
+      }
     }
 
     const auth = authorize(request, env);
