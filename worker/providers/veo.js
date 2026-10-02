@@ -56,6 +56,17 @@ export function validateVeoSubmission(input, capabilities) {
   return input;
 }
 
+const FILTER_REASON_LIMIT = 5;
+const FILTER_REASON_CHARS = 400;
+
+export function sanitizeVeoText(value, secrets = []) {
+  let text = String(value ?? "").replace(/\s+/g, " ").trim();
+  for (const secret of secrets.filter(Boolean)) {
+    if (String(secret).length >= 8) text = text.split(secret).join("[redacted]");
+  }
+  return text.slice(0, FILTER_REASON_CHARS);
+}
+
 /** Extract Google RAI / output-filter fields from a finished Veo operation. */
 export function veoOutputFilter(operation) {
   const response =
@@ -83,6 +94,143 @@ export function veoOutputFilter(operation) {
     reasons,
     supportCodes,
     message: reasons.join(" ").trim(),
+  };
+}
+
+/**
+ * Interpret a Veo long-running operation without exposing raw provider payloads.
+ * Accepts URI or inline video bytes. Diagnosis callers must not persist this result.
+ */
+export function readVeoOutcome(operation, options = {}) {
+  const secrets = [options.apiKey, ...(options.secrets || [])].filter(Boolean);
+  const emptyFilter = { filtered: false, count: 0, reasons: [], supportCodes: [], message: "" };
+  if (operation == null || typeof operation !== "object" || Array.isArray(operation)) {
+    return {
+      done: false,
+      status: "failed",
+      code: "MALFORMED_RESPONSE",
+      message: "Google returned a malformed Veo operation response.",
+      hasVideo: false,
+      videoKind: null,
+      googleError: null,
+      filter: emptyFilter,
+      asset: null,
+    };
+  }
+  if (
+    operation.raw != null &&
+    operation.done == null &&
+    operation.response == null &&
+    operation.error == null &&
+    operation.name == null
+  ) {
+    return {
+      done: false,
+      status: "failed",
+      code: "MALFORMED_RESPONSE",
+      message: "Google returned a malformed Veo operation response.",
+      hasVideo: false,
+      videoKind: null,
+      googleError: null,
+      filter: emptyFilter,
+      asset: null,
+    };
+  }
+
+  const done = Boolean(operation.done);
+  const googleError =
+    operation.error && typeof operation.error === "object"
+      ? {
+          code: operation.error.code ?? null,
+          message: sanitizeVeoText(operation.error.message, secrets),
+        }
+      : null;
+
+  const video = operation.response?.generateVideoResponse?.generatedSamples?.[0]?.video;
+  const hasUri = typeof video?.uri === "string" && /^https:\/\//i.test(video.uri);
+  const hasInline = typeof video?.data === "string" && video.data.length > 0;
+  const hasVideo = hasUri || hasInline;
+  const videoKind = hasUri ? "uri" : hasInline ? "inline" : null;
+
+  const rawFilter = veoOutputFilter(operation);
+  const reasons = rawFilter.reasons
+    .slice(0, FILTER_REASON_LIMIT)
+    .map((reason) => sanitizeVeoText(reason, secrets))
+    .filter(Boolean);
+  const filter = {
+    filtered: rawFilter.filtered,
+    count: rawFilter.count,
+    reasons,
+    supportCodes: rawFilter.supportCodes.slice(0, FILTER_REASON_LIMIT),
+    message: sanitizeVeoText(reasons.join(" "), secrets),
+  };
+
+  if (!done && !googleError) {
+    return {
+      done,
+      status: "running",
+      code: null,
+      message: null,
+      hasVideo,
+      videoKind,
+      googleError: null,
+      filter,
+      asset: null,
+    };
+  }
+  if (googleError) {
+    return {
+      done,
+      status: "failed",
+      code: "PROVIDER_FAILED",
+      message: googleError.message || "Google reported generation failure.",
+      hasVideo: false,
+      videoKind: null,
+      googleError,
+      filter,
+      asset: null,
+    };
+  }
+  if (hasVideo) {
+    return {
+      done,
+      status: "completed",
+      code: null,
+      message: null,
+      hasVideo: true,
+      videoKind,
+      googleError: null,
+      filter: { ...filter, filtered: false },
+      asset: hasUri
+        ? { uri: video.uri, mimeType: video.mimeType || "video/mp4" }
+        : { data: video.data, mimeType: video.mimeType || "video/mp4" },
+    };
+  }
+  if (filter.filtered) {
+    return {
+      done,
+      status: "failed",
+      code: "OUTPUT_FILTERED",
+      message:
+        filter.message ||
+        "Google filtered the video output (OUTPUT_FILTERED) and returned no downloadable file.",
+      hasVideo: false,
+      videoKind: null,
+      googleError: null,
+      filter,
+      asset: null,
+    };
+  }
+  return {
+    done,
+    status: "failed",
+    code: "NO_OUTPUT",
+    message: "Google returned no video.",
+    hasVideo: false,
+    videoKind: null,
+    googleError: null,
+    filter,
+    asset: null,
   };
 }
 
@@ -233,55 +381,36 @@ export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
       if (!/^models\/[\w.-]+\/operations\/[\w-]+$/.test(job.operation_id || ""))
         fail("INVALID_OPERATION", "Stored operation is invalid.");
       const operation = await google(job.operation_id);
-      if (!operation.done) return { status: "running" };
-      if (operation.error)
+      const outcome = readVeoOutcome(operation, { apiKey: env.GEMINI_API_KEY });
+      if (outcome.status === "running") return { status: "running" };
+      if (outcome.status === "completed")
         return {
-          status: "failed",
-          actualCost: 0,
-          costBasis: "provider-failed-no-video",
-          error: {
-            code: "PROVIDER_FAILED",
-            message: "Google reported generation failure.",
-            retryable: false,
-          },
+          status: "completed",
+          actualCost: job.estimated_cost,
+          costBasis: "completed-usage-at-quoted-rate",
+          asset: outcome.asset,
         };
-      const videoResponse = operation.response?.generateVideoResponse;
-      const asset = videoResponse?.generatedSamples?.[0]?.video;
-      if (!asset?.uri) {
-        const filter = veoOutputFilter(operation);
-        if (filter.filtered) {
-          return {
-            status: "failed",
-            actualCost: 0,
-            costBasis: "provider-output-filtered-no-charge",
-            error: {
-              code: "OUTPUT_FILTERED",
-              message:
-                filter.message ||
-                "Google filtered the video output (OUTPUT_FILTERED) and returned no downloadable file.",
-              retryable: false,
-              raiMediaFilteredCount: filter.count,
-              raiMediaFilteredReasons: filter.reasons,
-              supportCodes: filter.supportCodes,
-            },
-          };
-        }
-        return {
-          status: "failed",
-          actualCost: 0,
-          costBasis: "provider-no-video",
-          error: {
-            code: "NO_OUTPUT",
-            message: "Google returned no video.",
-            retryable: false,
-          },
-        };
-      }
       return {
-        status: "completed",
-        actualCost: job.estimated_cost,
-        costBasis: "completed-usage-at-quoted-rate",
-        asset,
+        status: "failed",
+        actualCost: 0,
+        costBasis:
+          outcome.code === "OUTPUT_FILTERED"
+            ? "provider-output-filtered-no-charge"
+            : outcome.code === "PROVIDER_FAILED"
+              ? "provider-failed-no-video"
+              : "provider-no-video",
+        error: {
+          code: outcome.code,
+          message: outcome.message,
+          retryable: false,
+          ...(outcome.code === "OUTPUT_FILTERED"
+            ? {
+                raiMediaFilteredCount: outcome.filter.count,
+                raiMediaFilteredReasons: outcome.filter.reasons,
+                supportCodes: outcome.filter.supportCodes,
+              }
+            : {}),
+        },
       };
     },
     cancel: async () =>
@@ -292,7 +421,16 @@ export function createVeoProvider(env, fetchImpl = fetch, tier = "fast") {
       ),
     async asset(job) {
       enabled();
-      const uri = new URL(JSON.parse(job.asset_json).uri);
+      const stored = JSON.parse(job.asset_json);
+      if (typeof stored?.data === "string" && stored.data.length) {
+        const binary = atob(stored.data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return new Response(bytes, {
+          headers: { "content-type": stored.mimeType || "video/mp4" },
+        });
+      }
+      const uri = new URL(stored.uri);
       if (
         uri.origin !== "https://generativelanguage.googleapis.com" ||
         !uri.pathname.startsWith("/v1beta/files/")
