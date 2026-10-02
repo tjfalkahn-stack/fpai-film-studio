@@ -1,0 +1,87 @@
+name: Inspect Veo render job (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      created_like:
+        description: "SQL LIKE on created_at (UTC), e.g. 2026-10-02T18:49%"
+        required: false
+        type: string
+        default: "2026-10-02%"
+      local_hint:
+        description: "Human local time hint for log search"
+        required: false
+        type: string
+        default: "11:49:30"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fpai-veo-render-inspect
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Query failed Veo renders (metadata only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
+          CREATED_LIKE: ${{ inputs.created_like }}
+        run: |
+          set -euo pipefail
+          cat > wrangler.inspect.toml <<'EOF'
+          name = "fpai-film-studio-video-adapter"
+          compatibility_date = "2026-09-04"
+          [[d1_databases]]
+          binding = "GENERATION_DB"
+          database_name = "fpai-film-studio-generation"
+          database_id = "c7aa2548-3d3c-4379-b1ff-3b5ab19e5acc"
+          EOF
+          SQL=$(cat <<SQL
+          SELECT id, status, provider, model, resolution, duration_seconds, aspect_ratio,
+                 estimated_cost, actual_cost, reserved_cost, operation_id,
+                 substr(error_json,1,1800) AS error_json,
+                 substr(input_json,1,1200) AS input_json_prefix,
+                 created_at, updated_at
+          FROM renders
+          WHERE provider LIKE 'veo%'
+            AND created_at LIKE '${CREATED_LIKE}'
+          ORDER BY created_at DESC
+          LIMIT 30;
+          SQL
+          )
+          npx wrangler d1 execute fpai-film-studio-generation --remote --config wrangler.inspect.toml --json --command "$SQL" | tee /tmp/veo-renders.json
+          python3 - <<'PY'
+          import json
+          raw=json.load(open("/tmp/veo-renders.json"))
+          rows=[]
+          if isinstance(raw, list):
+            for block in raw:
+              rows.extend(block.get("results") or [])
+          elif isinstance(raw, dict):
+            rows=raw.get("results") or []
+          print("=== VEO RENDER ROWS ===")
+          print("count:", len(rows))
+          for row in rows:
+            print("---")
+            for k in ["id","created_at","status","provider","model","resolution","duration_seconds","aspect_ratio","estimated_cost","actual_cost","reserved_cost","operation_id","error_json","input_json_prefix"]:
+              if k in row: print(f"{k}: {row[k]}")
+          print("=== END VEO RENDER ROWS ===")
+          PY
+      - name: Upload inspect artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veo-render-inspect
+          path: /tmp/veo-renders.json
+          if-no-files-found: ignore
