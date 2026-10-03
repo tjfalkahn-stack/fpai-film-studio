@@ -217,7 +217,7 @@
         "15",
         0
       ],
-      "weight": 0.85,
+      "weight": 0.9,
       "weight_type": "linear",
       "start_at": 0,
       "end_at": 1

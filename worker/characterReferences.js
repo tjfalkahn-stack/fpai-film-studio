@@ -1085,6 +1085,8 @@ export async function resolveProviderReferenceImages(env, projectId, selection, 
       characterId: item.characterId,
       category: item.category || null,
       expression: item.expression || null,
+      isPrimary: Boolean(Number(row.is_primary)),
+      isIdentityAnchor: Boolean(Number(row.is_identity_anchor)),
     });
   }
   return images;

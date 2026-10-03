@@ -13,8 +13,8 @@ The immediate benchmark is Marcus. The system must turn one canonical character 
   - expression matrix.
   - wardrobe matrix.
   - 4 continuity stress tests across lighting/lens conditions.
-- Stable prompt construction that carries identity, proportions, protected traits, wardrobe, and negative traits into every job.
-- QC scoring contract for identity, anatomy, framing, wardrobe, and artifact cleanliness.
+- Versioned Jasmine realism lock that carries real-photo texture, exact identity, proportions, protected traits, wardrobe, and additive anti-CGI exclusions into every photoreal job.
+- Reference-aware QC scoring for identity, photographic realism, anatomy, framing, wardrobe, and artifact cleanliness.
 - Benchmark accounting for retries, rejection count, compute seconds, cost, cost per accepted asset, first-pass rate, and final readiness.
 - Marcus Benchmark 001 specification.
 - Dry-run benchmark planner command. It creates the full plan without submitting a render.
@@ -56,7 +56,7 @@ Every required Character Bible job must receive an accepted asset. The benchmark
 1. required-job acceptance rate is 100%, and
 2. first-pass acceptance is at least 70%.
 
-Individual candidate frames pass automatic QC only when the weighted quality score is at least 0.82, identity fidelity is at least 0.85, and anatomy is at least 0.80.
+Individual candidate frames pass automatic QC only when the weighted quality score is at least 0.86, identity fidelity is at least 0.90, photographic realism is at least 0.90, and anatomy is at least 0.82. Cartoon, CGI, 3D, video-game, plastic, waxy, airbrushed, or uncanny imagery must receive a photographic-realism score below 0.50 and cannot pass.
 
 These thresholds are intentionally demanding. Character Factory is supposed to eliminate manual babysitting, not merely generate attractive images.
 
@@ -78,6 +78,8 @@ marcus/
 ```
 
 `character.json` is the machine-readable identity Bible. `manifest.json` is the benchmark ledger and acceptance history.
+
+Both manifests record the applied realism-lock ID and version. See [Jasmine realism lock v2](CHARACTER_REALISM_LOCK.md).
 
 ## Relationship to the existing ComfyUI engine
 

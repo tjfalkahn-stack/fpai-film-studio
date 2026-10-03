@@ -2,7 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
+  CHARACTER_STILL_APPLY_WEIGHT,
   CHARACTER_STILL_CHECKPOINT,
+  CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT,
+  CHARACTER_STILL_DEFAULT_STEPS,
   CHARACTER_STILL_DISK_FOOTPRINT,
   CHARACTER_STILL_IPADAPTER,
   CHARACTER_STILL_MODELS,
@@ -14,6 +17,7 @@ import {
   buildCharacterStillWorkflow,
   describeCharacterStillWorkflow,
 } from "../src/characterStillWorkflow.js";
+import { CHARACTER_REALISM_LOCK_ID } from "../src/characterRealismLock.js";
 
 const manifest = JSON.parse(
   fs.readFileSync(new URL("../deploy/runpod-comfyui/models.manifest.json", import.meta.url), "utf8"),
@@ -33,6 +37,8 @@ test("prepared Jasmine first test is one image and is not executable from the re
   assert.equal(packet.maxImages, 1);
   assert.equal(packet.plan.jobs.length, 1);
   assert.equal(packet.plan.character.id, "jasmine");
+  assert.equal(packet.plan.realismLock.id, CHARACTER_REALISM_LOCK_ID);
+  assert.equal(packet.plan.realismLock.applied, true);
   assert.equal(packet.liveFlagsInThisRepo.CHARACTER_FACTORY_LIVE_ENABLED, "false");
   assert.equal(packet.liveFlagsInThisRepo.LIVE_RENDERING_ENABLED, "false");
 });
@@ -43,6 +49,9 @@ test("bootstrap manifest matches the Film Studio photoreal stack", () => {
   assert.equal(manifest.models[2].filename, CHARACTER_STILL_IPADAPTER);
   assert.equal(manifest.disk.modelsApproxGiB, CHARACTER_STILL_DISK_FOOTPRINT.modelsApproxGiB);
   assert.equal(CHARACTER_STILL_MODELS.length, 3);
+  assert.equal(CHARACTER_STILL_DEFAULT_STEPS, 50);
+  assert.equal(CHARACTER_STILL_APPLY_WEIGHT, 0.9);
+  assert.match(CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT, /video game/i);
   assert.ok(CHARACTER_STILL_DISK_FOOTPRINT.modelsApproxGiB > 9);
 });
 
@@ -95,6 +104,15 @@ test("identity references are ranked so anchors reinforce canonical identity", (
   assert.equal(selected[1].category, "profile");
   assert.equal(selected[2].category, "wardrobe");
   assert.ok(weightForReferenceCategory("identity_anchor") > weightForReferenceCategory("expression"));
+});
+
+test("explicit primary identity wins even when its category is mislabeled", () => {
+  const selected = selectIdentityReferences([
+    { filename: "wardrobe.png", category: "wardrobe" },
+    { filename: "primary.png", category: "other", isPrimary: true },
+  ]);
+  assert.equal(selected[0].filename, "primary.png");
+  assert.equal(selected[0].weight, 1);
 });
 
 test("placeholder export remains API-format and injectible", () => {

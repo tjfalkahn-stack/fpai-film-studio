@@ -174,6 +174,8 @@ test("character lock manifests are versioned and become stale after approved ref
     createdAt: "2026-09-10T00:00:00.000Z",
   });
   assert.equal(v1.schema, "fpai.character-lock.v1");
+  assert.equal(v1.realismLock.id, "fpai.character-realism-lock.v2");
+  assert.equal(v1.realismLock.applied, true);
   assert.equal(v1.primaryIdentityAsset.id, "p");
   assert.equal(v1.approvedIdentityAnchors[0].id, "a");
   assert.equal(v1.supplementalReferences[0].id, "s");
