@@ -1229,7 +1229,8 @@ export function reduce(state: State, command: Command): State {
       const cut = find(next.cuts, c.id);
       requireThat(cut.status === "draft", "Approved cuts are immutable.");
       validateCut(cut);
-      requireThat(cut.clips.length, "An empty cut cannot be approved.");
+      const issues = cutPreflight(cut);
+      requireThat(!issues.length, `Cut is not ready: ${issues.join(" ")}`);
       cut.status = "approved";
       cut.notes = text(c.notes);
       break;
@@ -1254,6 +1255,26 @@ export function validateCut(cut: Cut) {
 export function cutDuration(cut: Cut) {
   return Math.max(0, ...cut.clips.map((c) => c.start + c.out - c.in));
 }
+// The video lane defines the master duration. Other lanes may not silently
+// extend it or leave a black gap that the current runner cannot represent.
+export function cutPreflight(cut: Cut): string[] {
+  const issues: string[] = [];
+  const video = cut.clips.filter((c) => c.lane === "video").sort((a, b) => a.start - b.start);
+  if (!video.length) return ["Place an approved video take on the timeline."];
+  let end = 0;
+  for (const clip of video) {
+    if (clip.start > end + 0.001)
+      issues.push(`Video gap from ${end.toFixed(2)}s to ${clip.start.toFixed(2)}s. Place a take or close the gap.`);
+    end = Math.max(end, clip.start + clip.out - clip.in);
+  }
+  for (const clip of cut.clips.filter((c) => c.lane !== "video")) {
+    if (clip.start + clip.out - clip.in > end + 0.001)
+      issues.push(`${clip.lane} clip at ${clip.start.toFixed(2)}s extends past the ${end.toFixed(2)}s video master. Trim or move it.`);
+    if (["captions", "titles", "credits"].includes(clip.lane) && !clip.caption.trim())
+      issues.push(`${clip.lane} clip at ${clip.start.toFixed(2)}s needs text.`);
+  }
+  return issues;
+}
 export function delivery(
   state: State,
   cutId: string,
@@ -1266,6 +1287,7 @@ export function delivery(
     "Approve the cut before creating a delivery package.",
   );
   validateCut(cut);
+  requireThat(!cutPreflight(cut).length, `Cut is not ready: ${cutPreflight(cut).join(" ")}`);
   const time = (seconds: number) => {
     const ms = Math.round(seconds * 1000);
     return `${String(Math.floor(ms / 3600000)).padStart(2, "0")}:${String(Math.floor(ms / 60000) % 60).padStart(2, "0")}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`;

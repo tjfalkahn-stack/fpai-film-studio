@@ -235,6 +235,15 @@ async function assertSourceLinks(command, env, projectId) {
     command.sourceId,
   ].filter(Boolean);
   for (const id of ids) await source(env, projectId, id);
+  if (command.type === "place-clip" &&
+      ["dialogue", "music", "effects", "ambience"].includes(command.lane)) {
+    const row = await source(env, projectId, command.sourceId);
+    requireThat(row.mime_type.startsWith("audio/"), "Choose an uploaded audio file for this lane.");
+  }
+  if (command.type === "save-audio" && command.sourceId) {
+    const row = await source(env, projectId, command.sourceId);
+    requireThat(row.mime_type.startsWith("audio/"), "Choose an uploaded audio file for the voice take.");
+  }
 }
 async function applyCommand(state, command, env) {
   const projectId = state.projectId;

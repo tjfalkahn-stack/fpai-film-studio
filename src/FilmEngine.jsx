@@ -13,6 +13,7 @@ import {
   activeScript,
   orderedShots,
   cutDuration,
+  cutPreflight,
   CAPABILITIES,
 } from "./film/engine.ts";
 import { extractPdf } from "./film/documents.js";
@@ -1663,6 +1664,16 @@ export default function FilmEngine({ production, onCast }) {
                     </div>
                   ))}
                 </div>
+                {cutPreflight(cut).length > 0 && (
+                  <div className="panel" role="status">
+                    <strong>Before approving this cut</strong>
+                    <ul>
+                      {cutPreflight(cut).map((issue) => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {cut.status === "draft" && (
                   <>
                     <form
@@ -1799,7 +1810,7 @@ export default function FilmEngine({ production, onCast }) {
                       <Field label="Cut review notes">
                         <textarea name="notes" />
                       </Field>
-                      <button className="primary" disabled={!cut.clips.length}>
+                      <button className="primary" disabled={cutPreflight(cut).length > 0}>
                         Approve cut
                       </button>
                     </form>
