@@ -1140,3 +1140,47 @@ test("legacy D1 paid spend cannot be bypassed by the new render API", async (t) 
     env.LIVE_RENDERING_ENABLED = "false";
   }
 });
+
+
+test("Grooves scope, isolated reservation, atomic one-attempt cap and idempotent reconciliation", async (t) => {
+  noNetwork(t);
+  const previous = env;
+  env = { ...env, HF_CREDENTIALS: "test-id:test-secret", RENDER_PROJECT_CEILING_USD: "25", RENDER_SESSION_CEILING_USD: "10", MAX_SINGLE_JOB_USD: "4" };
+  const projectId = "grooves-pv-talking-2026-10-05";
+  const request = body(undefined, { projectId, sceneId: "CREATE", shotId: "DIRECT_grooves",
+    provider: "higgsfield-kling-3-standard", duration: 10, resolution: "720p", aspectRatio: "9:16", generateAudio: true,
+    referenceImages: [{mimeType: "image/png", data: "iVBORw0KGgo="}],
+    continuity: {ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false},
+  });
+  try {
+    for (const extra of [{provider:"higgsfield-kling-3-pro"}, {duration:8}, {resolution:"1080p"}, {aspectRatio:"16:9"}, {generateAudio:false}, {sceneId:"YARD"}, {referenceImages:[]}, {endFrameImage:{mimeType:"image/png",data:"iVBORw0KGgo="}}, {sourceAudio:{mimeType:"audio/mpeg",data:"AA=="}}]) {
+      const result = await call("/api/renders", {...request, ...extra, estimateOnly:true});
+      assert.equal(result.response.status, 403, JSON.stringify(extra));
+      assert.equal(result.data.error.code, "GROOVES_SCOPE");
+    }
+    const quote = await call("/api/renders", {...request, estimateOnly:true});
+    assert.equal(quote.response.status, 200);
+    assert.equal(quote.data.estimatedCost, 1.26);
+    // Atomic reservation is tested separately against costs above the cap.
+    const accepted = {...request, acceptedCost:quote.data.estimatedCost};
+    const [first, concurrent] = await Promise.all([call("/api/renders", accepted), call("/api/renders", {...accepted, requestKey:crypto.randomUUID(), shotId:"DIRECT_other"})]);
+    assert.deepEqual([first.response.status, concurrent.response.status].sort(), [202,409]);
+    const winner = first.response.status === 202 ? first : concurrent;
+    const winningRequest = first.response.status === 202 ? accepted : null;
+    const row = await db.prepare("SELECT * FROM renders WHERE id=?").bind(winner.data.render.id).first();
+    assert.equal(row.session_id, "grooves-pv-one-take-2026-10-05");
+    assert.equal(row.reserved_cost, 1.26);
+    if (winningRequest) {
+      const duplicate = await call("/api/renders", winningRequest);
+      assert.equal(duplicate.data.render.id, row.id);
+      assert.equal(duplicate.data.duplicate, true);
+    }
+    for (const status of ["uncertain", "failed", "completed"]) {
+      await db.prepare("UPDATE renders SET status=?,reserved_cost=0,actual_cost=0 WHERE id=?").bind(status,row.id).run();
+      const retry = await call("/api/renders", {...accepted, requestKey:crypto.randomUUID(), shotId:`DIRECT_${status}`, acknowledgeUncertainRenderId:row.id});
+      assert.equal(retry.response.status,409);
+      assert.equal(retry.data.error.code,"GROOVES_JOB_LIMIT");
+    }
+    assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM renders WHERE project_id=?").bind(projectId).first()).n,1);
+  } finally { env=previous; }
+});

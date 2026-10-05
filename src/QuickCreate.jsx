@@ -1,3 +1,4 @@
+import { GROOVES_PROJECT_ID, GROOVES_PROVIDER } from "./groovesProduction.js";
 import React, { useEffect, useRef, useState } from "react";
 import { renderIdentity, renderRequest, renderRequestKey } from "./renderClient.js";
 import { START_FRAME_PROVIDER_LIMIT } from "./shotStartFrame.js";
@@ -57,8 +58,9 @@ function RecoverPaidJob({ job, onRender }) {
 }
 
 export default function QuickCreate({ projectId, renders, onRender }) {
+  const grooves = projectId === GROOVES_PROJECT_ID;
   const [catalog, setCatalog] = useState(null);
-  const [provider, setProvider] = useState(DEFAULT_MODEL);
+  const [provider, setProvider] = useState(grooves ? GROOVES_PROVIDER : DEFAULT_MODEL);
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState("");
   const [reference, setReference] = useState(null);
@@ -66,10 +68,10 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [endPreview, setEndPreview] = useState("");
   const [endReference, setEndReference] = useState(null);
   const [prompt, setPrompt] = useState("");
-  const [duration, setDuration] = useState(5);
+  const [duration, setDuration] = useState(grooves ? 10 : 5);
   const [resolution, setResolution] = useState("720p");
-  const [aspectRatio, setAspectRatio] = useState("16:9");
-  const [audio, setAudio] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState(grooves ? "9:16" : "16:9");
+  const [audio, setAudio] = useState(grooves);
   const [sourceAudio, setSourceAudio] = useState(null);
   const [sourceAudioName, setSourceAudioName] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
@@ -87,7 +89,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [dragging, setDragging] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const pending = useRef(null);
-  const options = (catalog?.providers || []).filter((item) => item.id.startsWith("higgsfield-") || item.audioInput || item.id.startsWith("veo-"));
+  const options = (catalog?.providers || []).filter((item) => grooves ? item.id === GROOVES_PROVIDER : item.id.startsWith("higgsfield-") || item.audioInput || item.id.startsWith("veo-"));
   const selected = options.find((item) => item.id === provider);
   const isVeo = provider.startsWith("veo-");
   const isLtx = Boolean(selected?.audioInput);
@@ -200,7 +202,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   }, [catalog, projectId, provider, reference, extraReference, endReference, prompt, duration, resolution, aspectRatio, audio, sourceAudio, videoUrl, referenceVideo, incompatibleInput]);
 
   async function generate() {
-    if (!quote || busy || incompatibleInput || !ready) return;
+    if (!quote || busy || incompatibleInput || !ready || (grooves && jobs.length)) return;
     setBusy(true);
     setError("");
     try {
@@ -239,6 +241,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
       <span className="eyebrow">DIRECT VIDEO CREATION</span>
       <h2>Choose your model and drop in what you want</h2>
       <p className="sub">Add pictures, an MP4 motion clip, or your own dialogue or rap track. Motion transfer can use two mascot stills plus one uploaded MP4. The model selector shows what can use each input. Google Veo makes sound from your prompt; LTX follows your uploaded audio.</p>
+      {grooves && <p className="sub">One approved 10-second portrait clip with native audio. Total limit $1.30. No additional take is available after submission.</p>}
       <div className="quickCreateGrid">
         <div>
           <h3>Your inputs</h3>
@@ -256,7 +259,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
               <label className="quickCreateDrop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); choosePhoto(event.dataTransfer.files?.[0], "end"); }}>
                 {endPreview ? <img src={endPreview} alt="End frame preview" /> : <strong>End frame · optional</strong>}
                 <span>{endPhoto ? `${endPhoto.name} · Change image` : "Drop or choose a PNG or JPEG"}</span>
-                <input type="file" aria-label="End frame" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0], "end")} />
+                <input type="file" disabled={grooves} aria-label="End frame" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0], "end")} />
               </label>
               {endReference && <button className="ghost" type="button" onClick={() => { setEndPhoto(null); setEndReference(null); setEndPreview(""); setQuote(null); }}>Remove end frame</button>}
             </div>}
@@ -279,7 +282,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
           <label>What should happen in the video?<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the action, camera movement, and mood…" rows={5} /></label>
         </div>
         <div className="quickCreateControls">
-          <label>Video model<select value={provider} onChange={(event) => {
+          <label>Video model<select disabled={grooves} value={provider} onChange={(event) => {
             const next = options.find((item) => item.id === event.target.value);
             setProvider(event.target.value);
             setQuote(null);
@@ -289,10 +292,10 @@ export default function QuickCreate({ projectId, renders, onRender }) {
           <p className="quickCreateModelHint">{isVeo ? "Google Veo generates speech, music, and effects from the prompt. Start and end frames are optional; it cannot use an uploaded soundtrack." : isLtx ? `LTX syncs the video to your uploaded audio (${provider === "ltx-2.5-pro" ? "10" : "20"} seconds max). Add a start frame if you want.` : isMotion ? "This route uses one or two mascot stills plus an uploaded MP4 motion clip." : isText ? "This route creates from text only." : "This route animates your start frame and can generate sound."}</p>
           {isMotion && !referenceVideo && <label>Public reference video URL · optional if you uploaded an MP4<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://…/clip.mp4" /></label>}
           <div className="formGrid two">
-            <label>Length{isMotion && referenceVideo ? <input value={`${referenceVideo.duration} seconds (from MP4)`} readOnly /> : isLtx && sourceAudio ? <input value={`${sourceAudio.duration} seconds (from audio)`} readOnly /> : <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{(isVeo && (reference || resolution === "1080p") ? [8] : selected?.durations || [5]).map((value) => <option key={value} value={value}>{value} seconds</option>)}</select>}</label>
-            <label>Resolution<select value={resolution} onChange={(event) => { setResolution(event.target.value); if (isVeo && event.target.value === "1080p") setDuration(8); }}>{(selected?.resolutions || ["720p"]).map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label>Frame<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>{(selected?.aspectRatios || ["16:9", "9:16"]).map((value) => <option key={value}>{value}</option>)}</select></label>
-            {!isMotion && !isLtx && !isVeo && <label className="checkLabel"><input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} /> Generate audio</label>}
+            <label>Length{isMotion && referenceVideo ? <input value={`${referenceVideo.duration} seconds (from MP4)`} readOnly /> : isLtx && sourceAudio ? <input value={`${sourceAudio.duration} seconds (from audio)`} readOnly /> : <select disabled={grooves} value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{(isVeo && (reference || resolution === "1080p") ? [8] : selected?.durations || [5]).map((value) => <option key={value} value={value}>{value} seconds</option>)}</select>}</label>
+            <label>Resolution<select disabled={grooves} value={resolution} onChange={(event) => { setResolution(event.target.value); if (isVeo && event.target.value === "1080p") setDuration(8); }}>{(selected?.resolutions || ["720p"]).map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label>Frame<select disabled={grooves} value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>{(selected?.aspectRatios || ["16:9", "9:16"]).map((value) => <option key={value}>{value}</option>)}</select></label>
+            {!isMotion && !isLtx && !isVeo && <label className="checkLabel"><input type="checkbox" disabled={grooves} checked={audio} onChange={(event) => setAudio(event.target.checked)} /> Generate audio</label>}
           </div>
           {isMotion && <small>Set the length to the clip’s rounded-up duration. The quote is an estimate; Create Video still submits a paid job.</small>}
           {catalog && provider.startsWith("higgsfield-") && !catalog.policy?.higgsfieldConfigured && <p className="validation">{catalog.policy?.higgsfieldCredentialPresent
@@ -313,7 +316,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
           {catalog && !ready && <p className="validation">{selected?.availability?.detail || "This model is not ready to render."}</p>}
           {pending.current && <button className="ghost" onClick={() => { pending.current = null; localStorage.removeItem(`fpai-direct-render:${projectId}`); setError(""); }}>Clear unresolved request after checking recent videos</button>}
           <p>Estimated cost: <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : incompatibleInput || isLtx && !sourceAudio ? "Choose compatible inputs to see a quote" : isMotion && !referenceVideo?.assetId && !videoUrl.trim() ? "Upload an MP4 or paste a public URL to see a quote" : isVeo || isText ? "Enter a prompt to see a quote" : "Enter a prompt and picture to see a quote"}</b></p>
-          <button className="primary full" disabled={!quote || busy || incompatibleInput || (uncertain && !acknowledged) || !ready} onClick={generate}>{busy ? "Submitting…" : quote ? `Create video · $${quote.estimatedCost.toFixed(2)}` : "Create video"}</button>
+          <button className="primary full" disabled={(grooves && jobs.length > 0) || !quote || busy || incompatibleInput || (uncertain && !acknowledged) || !ready} onClick={generate}>{busy ? "Submitting…" : quote ? `Create video · $${quote.estimatedCost.toFixed(2)}` : "Create video"}</button>
         </div>
       </div>
       <h3>Your videos</h3>

@@ -1,3 +1,4 @@
+import { GROOVES_PROJECT_ID, GROOVES_SESSION_ID, GROOVES_CAP_USD, GROOVES_PROVIDER } from "../src/groovesProduction.js";
 import { bindMotionVideoDuration } from "./referenceVideos.js";
 import { isHiggsfieldProvider, higgsfieldConfigured, higgsfieldLiveEnabled } from "./providers/higgsfield.js";
 import { providers, providerFor } from "./providers/index.js";
@@ -49,7 +50,7 @@ const yardTrialFor = (shotId, provider) => {
     return { ...YARD_LAMAR_PRO_TEST, shotId, provider, duration: 8, maxEstimatedCostUsd: 0.96 };
   return null;
 };
-const allowedProject = (id, env) => id === config(env).projectId || id === YARD_PROJECT_ID;
+const allowedProject = (id, env) => id === config(env).projectId || id === YARD_PROJECT_ID || id === GROOVES_PROJECT_ID;
 const dbOf = (env) =>
   env.GENERATION_DB ||
   fail("STORAGE_CONFIG", "Render database is not configured.", 503);
@@ -368,6 +369,13 @@ async function inputFrom(body, env) {
       "Project is not enabled for this render service.",
       403,
     );
+  if (input.projectId === GROOVES_PROJECT_ID && (
+    input.sceneId !== "CREATE" || !String(input.shotId).startsWith("DIRECT_") ||
+    input.provider !== GROOVES_PROVIDER || input.duration !== 10 ||
+    input.resolution !== "720p" || input.aspectRatio !== "9:16" || input.generateAudio !== true ||
+    input.referenceImages.length !== 1 || input.endFrameImage || input.sourceAudio ||
+    input.referenceVideos?.length || input.environmentReferences?.length
+  )) fail("GROOVES_SCOPE", "Grooves permits one Kling Standard 10s 720p portrait start-frame clip with native audio only.", 403);
   await attachCharacterReferences(body, input, provider, env);
   await bindMotionVideoDuration(input, env);
   validateInput(input, provider.capabilities);
@@ -640,6 +648,10 @@ async function create(request, env) {
         (SELECT COUNT(*) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') < 5
         AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') + ? <= 10.08
       ))
+      AND (?=0 OR (
+        (SELECT COUNT(*) FROM renders WHERE project_id=? OR session_id=?) < 1
+        AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=? OR session_id=?) + ? <= 1.30
+      ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
     .bind(
@@ -664,7 +676,7 @@ async function create(request, env) {
       policy.projectCeiling,
       reservationSessionId,
       quote.estimatedCost,
-      approvedMascotDirect(input) ? 10.08
+      input.projectId === GROOVES_PROJECT_ID ? Math.min(GROOVES_CAP_USD, policy.sessionCeiling) : approvedMascotDirect(input) ? 10.08
         : input.projectId === YARD_PROJECT_ID ? Math.min(policy.projectCeiling, policy.sessionCeiling)
         : enemiesVeoShot(input) ? Math.min(ENEMIES_VEO_SHOT_CEILING_USD, policy.projectCeiling)
         : enemiesProShot(input) ? Math.min(ENEMIES_PRO_SHOT_CEILING_USD, policy.projectCeiling)
@@ -681,6 +693,12 @@ async function create(request, env) {
       input.projectId,
       input.projectId,
       quote.estimatedCost,
+      input.projectId === GROOVES_PROJECT_ID ? 1 : 0,
+      input.projectId,
+      reservationSessionId,
+      input.projectId,
+      reservationSessionId,
+      quote.estimatedCost,
     )
     .run();
   const row = await db
@@ -692,6 +710,8 @@ async function create(request, env) {
       await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
   }
   if (!row) {
+    if (input.projectId === GROOVES_PROJECT_ID)
+      fail("GROOVES_JOB_LIMIT", "Grooves allows only one submitted attempt and $1.30 total, including failed or uncertain attempts. Check the existing job; no retries are authorized.", 409);
     if (reviewedShot && provider.capabilities.paid) {
       const pending = await db.prepare(
         "SELECT id FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running') LIMIT 1",
@@ -1090,10 +1110,11 @@ export function approvedMascotDirect(input) {
 }
 
 export function singleRenderCeiling(input, defaultCeiling) {
-  return approvedMascotDirect(input) ? 6 : defaultCeiling;
+  return input.projectId === GROOVES_PROJECT_ID ? Math.min(GROOVES_CAP_USD, defaultCeiling) : approvedMascotDirect(input) ? 6 : defaultCeiling;
 }
 
 export function reservationSessionFor(input, policy) {
+  if (input.projectId === GROOVES_PROJECT_ID) return GROOVES_SESSION_ID;
   if (approvedMascotDirect(input)) return "yard-mascot-motion-2026-10-05";
   return input.projectId === YARD_PROJECT_ID && input.sceneId === "YARD" && Boolean(yardTrialFor(input.shotId, input.provider))
     ? (["TSU", ...YARD_REMAINING_SHOTS].includes(input.shotId) ? `yard-${input.shotId.toLowerCase()}-pro-first-test` : policy.sessionId)
