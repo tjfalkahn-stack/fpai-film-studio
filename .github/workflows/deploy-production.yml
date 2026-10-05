@@ -138,6 +138,61 @@ jobs:
           print("=== END VEO RENDER ROWS ===")
           PY
 
+      - name: Inspect Genjutsu mascot renders (read-only D1)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
+        run: |
+          set -euo pipefail
+          SQL=$(cat <<'SQL'
+          SELECT id, status, provider, model,
+                 estimated_cost, actual_cost, reserved_cost, operation_id,
+                 substr(error_json,1,2500) AS error_json,
+                 json_extract(input_json,'$.projectId') AS project_id,
+                 json_extract(input_json,'$.sceneId') AS scene_id,
+                 json_extract(input_json,'$.shotId') AS shot_id,
+                 json_extract(input_json,'$.duration') AS duration,
+                 json_extract(input_json,'$.resolution') AS resolution,
+                 json_extract(input_json,'$.referenceVideos[0].assetId') AS video_asset,
+                 json_array_length(json_extract(input_json,'$.referenceImages')) AS ref_count,
+                 json_extract(input_json,'$.referenceImages[0].mimeType') AS ref0_mime,
+                 json_extract(input_json,'$.referenceImages[1].mimeType') AS ref1_mime,
+                 created_at, updated_at
+          FROM renders
+          WHERE id IN (
+                'b72cd018-fe31-4b8d-ae8b-80c4a1aa21c1',
+                '3d667d99-f0b8-4af2-9143-9e841bf8ee47'
+              )
+             OR (
+                provider = 'higgsfield-genjutsu-motion'
+                AND created_at >= '2026-10-05'
+              )
+          ORDER BY created_at DESC
+          LIMIT 40;
+          SQL
+          )
+          npx wrangler d1 execute fpai-film-studio-generation --remote --config wrangler.deploy.toml --json --command "$SQL" | tee /tmp/genjutsu-renders.json
+          python3 - <<'PY'
+          import json
+          raw=json.load(open("/tmp/genjutsu-renders.json"))
+          rows=[]
+          if isinstance(raw, list):
+            for block in raw:
+              rows.extend(block.get("results") or block.get("result") or [])
+              if isinstance(block.get("result"), list):
+                for item in block["result"]:
+                  if isinstance(item, dict) and "results" in item:
+                    rows.extend(item["results"])
+          print("=== GENJUTSU RENDER ROWS ===")
+          print("count:", len(rows))
+          for row in rows:
+            print("---")
+            for k in ["id","created_at","updated_at","status","provider","model","estimated_cost","actual_cost","reserved_cost","operation_id","project_id","scene_id","shot_id","duration","resolution","video_asset","ref_count","ref0_mime","ref1_mime","error_json"]:
+              if k in row: print(f"{k}: {row[k]}")
+          print("=== END GENJUTSU RENDER ROWS ===")
+          PY
+
       # Read-only: uses the adapter's GEMINI_API_KEY via service binding. Never predictLongRunning.
       # continue-on-error: operation records expire; do not block production deploys.
       - name: Diagnose failed Veo operation (read-only)

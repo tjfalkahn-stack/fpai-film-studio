@@ -28,7 +28,7 @@ The same four Kling rates apply to the corresponding text and image routes. Set 
 
 ## Behavior and limits
 
-- Server uploads selected images using Higgsfield presigned storage, then submits the selected model endpoint. Text routes make no upload.
+- Server sends stored PNG/JPEG frames as expiring HMAC-signed adapter URLs. Higgsfield's presigned upload is only a fallback when a render ID is missing. Worker fetches use `redirect: "manual"` so Cloudflare does not discard the upstream HTTP status before the origin is contacted.
 - Direct Video Creation and the Shot Editor accept separate start and optional end images for Kling 3 image-to-video and Seedance 2.5 image-to-video. The adapter sends Kling's `last_image_url` or Seedance's `end_image_url`; other routes cannot receive an end frame.
 - Genjutsu is motion transfer: it needs an uploaded MP4 or a source video URL, plus one to eight reference images, and does not use start/end frame controls.
 - Queue stores the returned status URL and polls it; API credentials only go to api.higgsfield.ai.

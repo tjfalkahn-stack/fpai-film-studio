@@ -40,6 +40,8 @@ test("Higgsfield uploads bytes without credential forwarding and submits documen
   assert.equal(calls[1].headers.Authorization, undefined);
   assert.equal(calls[1].headers["x-amz-tagging"],"retention=temporary");
   assert.equal(calls[2].headers.Authorization,"Key test-id:test-secret");
+  assert.equal(calls[0].redirect,"manual");
+  assert.equal(calls[1].redirect,"manual");
   assert.deepEqual(JSON.parse(calls[2].body),{image_url:"https://cdn.example.com/input.png",prompt:"Cinema shot",duration:5,sound:"off",cfg_scale:0.5,multi_shots:false});
   const pastedCalls=[];
   await createHiggsfieldProvider({...env,HF_CREDENTIALS:" one-key-only\n"},mock(async()=>Response.json({request_id:requestId,status_url:statusUrl}),pastedCalls)).start(input);
@@ -99,7 +101,9 @@ test("Higgsfield reports storage upload stage without leaking signed URLs", asyn
 });
 test("direct image renders use a signed Studio URL without Higgsfield upload initialization", async () => {
   const renderId = requestId;
-  const directEnv = { ...env, FPAI_CONTROL_TOKEN: "test-control-token" };
+  const stored = JSON.stringify(input);
+  const media = { get: async key => key === `render-inputs/${renderId}.json` ? { json: async () => JSON.parse(stored) } : null };
+  const directEnv = { ...env, FPAI_CONTROL_TOKEN: "test-control-token", GENERATION_MEDIA: media };
   const calls = [];
   const provider = createHiggsfieldProvider(directEnv, async (url, init) => {
     calls.push({ url, init });
@@ -109,24 +113,22 @@ test("direct image renders use a signed Studio URL without Higgsfield upload ini
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /kling-video\/v3\.0\/pro\/image-to-video$/);
   const imageUrl = JSON.parse(calls[0].init.body).image_url;
-  const stored = JSON.stringify(input);
-  const media = { get: async key => key === `render-inputs/${renderId}.json` ? { json: async () => JSON.parse(stored) } : null };
-  const served = await serveHiggsfieldInput(new Request(imageUrl), { ...directEnv, GENERATION_MEDIA: media });
+  const served = await serveHiggsfieldInput(new Request(imageUrl), directEnv);
   assert.equal(served.status, 200);
   assert.equal(served.headers.get("content-type"), "image/png");
   assert.deepEqual(new Uint8Array(await served.arrayBuffer()), Uint8Array.from(atob(input.referenceImages[0].data), char => char.charCodeAt(0)));
   const tampered = new URL(imageUrl);
   tampered.searchParams.set("signature", "0".repeat(64));
-  assert.equal((await serveHiggsfieldInput(new Request(tampered), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
+  assert.equal((await serveHiggsfieldInput(new Request(tampered), directEnv)).status, 404);
   const expired = await signedHiggsfieldInputUrl(directEnv, renderId, Date.now() - 3700_000);
-  assert.equal((await serveHiggsfieldInput(new Request(expired), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
+  assert.equal((await serveHiggsfieldInput(new Request(expired), directEnv)).status, 404);
 });
 test("two-frame image renders send the correct end field and serve distinct signed frames", async () => {
   const renderId = requestId;
-  const directEnv = { ...env, FPAI_CONTROL_TOKEN: "test-control-token" };
   const endFrameImage = { mimeType: "image/jpeg", data: "/9j/AA==" };
   const twoFrames = { ...input, endFrameImage, renderId };
   const media = { get: async key => key === `render-inputs/${renderId}.json` ? { json: async () => twoFrames } : null };
+  const directEnv = { ...env, FPAI_CONTROL_TOKEN: "test-control-token", GENERATION_MEDIA: media };
   for (const [route, field, resolution] of [
     ["higgsfield-kling-3-pro", "last_image_url", "1080p"],
     ["higgsfield-seedance-2.5-image", "end_image_url", "720p"],
@@ -141,15 +143,15 @@ test("two-frame image renders send the correct end field and serve distinct sign
     assert.ok(payload.image_url);
     assert.ok(payload[field]);
     assert.notEqual(payload.image_url, payload[field]);
-    const start = await serveHiggsfieldInput(new Request(payload.image_url), { ...directEnv, GENERATION_MEDIA: media });
-    const end = await serveHiggsfieldInput(new Request(payload[field]), { ...directEnv, GENERATION_MEDIA: media });
+    const start = await serveHiggsfieldInput(new Request(payload.image_url), directEnv);
+    const end = await serveHiggsfieldInput(new Request(payload[field]), directEnv);
     assert.equal(start.status, 200);
     assert.equal(end.status, 200);
     assert.equal(end.headers.get("content-type"), "image/jpeg");
     assert.deepEqual(new Uint8Array(await end.arrayBuffer()), Uint8Array.from(atob(endFrameImage.data), char => char.charCodeAt(0)));
     const swapped = new URL(payload.image_url);
     swapped.searchParams.set("frame", "end");
-    assert.equal((await serveHiggsfieldInput(new Request(swapped), { ...directEnv, GENERATION_MEDIA: media })).status, 404);
+    assert.equal((await serveHiggsfieldInput(new Request(swapped), directEnv)).status, 404);
   }
   assert.throws(() => createHiggsfieldProvider(env, undefined, "higgsfield-kling-3-pro-text")
     .estimate({ ...twoFrames, referenceImages: [] }), /does not accept an end frame/);
@@ -230,10 +232,68 @@ test("text, image, and motion models use their documented input shapes",async()=
   const seedance=createHiggsfieldProvider(env,transport,"higgsfield-seedance-2.5-image");
   assert.equal(seedance.estimate({...input,resolution:"720p"}).estimatedCost,2.311);
   await seedance.start({...input,resolution:"720p"});
+  assert.equal(calls[0].redirect,"manual");
   assert.deepEqual(JSON.parse(calls[2].body),{prompt:"Cinema shot",duration:5,resolution:"720p",image_url:"https://cdn.example.com/input.png",output_format:"mp4",generate_audio:false});
   calls.length=0;
   const motion=createHiggsfieldProvider(env,transport,"higgsfield-genjutsu-motion");
   await motion.start({...input,resolution:"720p",referenceVideos:[{url:"https://cdn.example.com/source.mp4"}]});
   assert.deepEqual(JSON.parse(calls[2].body),{prompt:"Cinema shot",video_url:"https://cdn.example.com/source.mp4",image_urls:["https://cdn.example.com/input.png"],resolution:"720p"});
   assert.throws(()=>motion.estimate({...input,resolution:"720p",referenceVideos:[{url:"http://localhost/source.mp4"}]}),/Unsafe/);
+});
+test("upload initialization keeps JSON HTTP detail and does not submit video", async () => {
+  let submissions = 0;
+  const provider = createHiggsfieldProvider(env, async (url, init) => {
+    assert.equal(init.redirect, "manual");
+    if (url.endsWith("generate-upload-url")) return Response.json({ detail: "quota exceeded https://secret.example/path" }, { status: 403 });
+    submissions++;
+    return Response.json({ request_id: requestId, status_url: statusUrl });
+  });
+  await assert.rejects(provider.start(input), error => {
+    assert.equal(error.code, "HIGGSFIELD_IMAGE_PREPARATION");
+    assert.equal(error.providerHttpStatus, 403);
+    assert.match(error.message, /HTTP 403/);
+    assert.match(error.message, /quota exceeded/);
+    assert.match(error.message, /No video request was submitted/);
+    assert.doesNotMatch(error.message, /secret\.example/);
+    return true;
+  });
+  assert.equal(submissions, 0);
+});
+test("upload initialization reports redirect status instead of discarding it", async () => {
+  let submissions = 0;
+  const provider = createHiggsfieldProvider(env, async (url, init) => {
+    assert.equal(init.redirect, "manual");
+    if (url.endsWith("generate-upload-url")) return new Response(null, { status: 307, headers: { location: "https://secret.example/path" } });
+    submissions++;
+    return Response.json({ request_id: requestId, status_url: statusUrl });
+  });
+  await assert.rejects(provider.start(input), error => {
+    assert.equal(error.code, "HIGGSFIELD_IMAGE_PREPARATION");
+    assert.equal(error.providerHttpStatus, 307);
+    assert.match(error.message, /HTTP 307/);
+    assert.doesNotMatch(error.message, /secret\.example/);
+    return true;
+  });
+  assert.equal(submissions, 0);
+});
+test("signed motion images are verified from storage before submission", async () => {
+  let submissions = 0;
+  const provider = createHiggsfieldProvider(
+    { ...env, FPAI_CONTROL_TOKEN: "test-control-token", GENERATION_MEDIA: { get: async () => null } },
+    async () => {
+      submissions++;
+      return Response.json({ request_id: requestId });
+    },
+    "higgsfield-genjutsu-motion",
+  );
+  await assert.rejects(
+    provider.start({ ...input, duration: 8, resolution: "720p", renderId: requestId, referenceVideos: [{ url: "https://cdn.example.com/source.mp4" }] }),
+    error => {
+      assert.equal(error.code, "HIGGSFIELD_IMAGE_PREPARATION");
+      assert.match(error.message, /signed input verification/);
+      assert.match(error.message, /No video request was submitted/);
+      return true;
+    },
+  );
+  assert.equal(submissions, 0);
 });
