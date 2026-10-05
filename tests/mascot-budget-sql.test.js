@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+test('atomic reservation enforces mascot cumulative spend, failed-attempt count, and all-provider budgets',()=>{
+ const source=readFileSync(new URL('../worker/renders.js',import.meta.url),'utf8');
+ const sql=source.match(/`(INSERT INTO renders[\s\S]*?ON CONFLICT\(project_id,request_key\) DO NOTHING)`/)[1];
+ const script=`import sqlite3,json,sys\nsql=json.loads(sys.stdin.read())\ndef run(count,cost,quote,cap=100):\n db=sqlite3.connect(':memory:')\n db.execute('CREATE TABLE renders (id TEXT,project_id TEXT,session_id TEXT,scene_id TEXT,shot_id TEXT,request_key TEXT,request_hash TEXT,provider TEXT,model TEXT,status TEXT,estimated_cost REAL,reserved_cost REAL,input_json TEXT,created_at TEXT,updated_at TEXT,actual_cost REAL, UNIQUE(project_id,request_key))')\n db.execute('CREATE TABLE generation_jobs(project_id TEXT,actual_cost REAL,reserved_cost REAL)')\n for n in range(count):\n  db.execute('INSERT INTO renders(id,project_id,session_id,scene_id,shot_id,request_key,provider,status,actual_cost,reserved_cost) VALUES(?,?,?,?,?,?,?,?,?,?)',(str(n),'yard','session','CREATE','old',str(n),'higgsfield-genjutsu-motion','failed',cost/count,0))\n args=['new','yard','session','CREATE','new','request-key','hash','higgsfield-genjutsu-motion','model',quote,quote,'{}','now','now',quote,'yard','yard',quote,cap,'session',quote,cap,0,5,0,'yard','new','','yard','new',1,'yard','yard',quote]\n db.execute(sql,args)\n return db.execute("SELECT COUNT(*) FROM renders WHERE id='new'").fetchone()[0]\nassert run(2,0,5.448)==1\nassert run(2,0,6.01)==0\nassert run(2,4,2.544)==0\nassert run(5,0,1)==0\nassert run(4,0,1)==1\nassert run(2,0,2.544,2)==0\nprint('atomic budget boundaries passed')\n`;
+ assert.match(execFileSync('python3',['-c',script],{input:JSON.stringify(sql),encoding:'utf8'}),/passed/);
+});

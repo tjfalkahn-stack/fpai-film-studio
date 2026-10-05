@@ -547,7 +547,7 @@ async function create(request, env) {
       "Review and accept the current cost before rendering.",
       409,
     );
-  if (!isHiggsfieldProvider(input.provider) && quote.estimatedCost > policy.singleCeiling)
+  if (quote.estimatedCost > policy.singleCeiling)
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   if (input.projectId === YARD_PROJECT_ID && input.sceneId !== "CREATE" && provider.capabilities.paid && !isHiggsfieldProvider(input.provider)) authorizeYardJob(input, quote, env);
@@ -607,6 +607,7 @@ async function create(request, env) {
     } : undefined,
     referenceVideos: Array.isArray(input.referenceVideos)
       ? input.referenceVideos.map((ref) => ({
+          ...(ref.assetId ? { assetId: ref.assetId } : {}),
           ...(ref.url ? { url: ref.url } : {}),
           ...(ref.mimeType ? { mimeType: ref.mimeType } : {}),
           role: "reference-video",
@@ -639,6 +640,10 @@ async function create(request, env) {
         (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running')) = 0
         AND COALESCE((SELECT CASE WHEN id=? THEN '' ELSE id END FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ''
       ))
+      AND (?=0 OR (
+        (SELECT COUNT(*) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') < 5
+        AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') + ? <= 6
+      ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
     .bind(
@@ -656,7 +661,7 @@ async function create(request, env) {
       JSON.stringify(storedInput),
       stamp(),
       stamp(),
-      isHiggsfieldProvider(input.provider) ? 0 : quote.estimatedCost,
+      quote.estimatedCost,
       input.projectId,
       input.projectId,
       quote.estimatedCost,
@@ -675,6 +680,10 @@ async function create(request, env) {
       body.acknowledgeUncertainRenderId || "",
       input.projectId,
       input.shotId,
+      input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" && input.provider === "higgsfield-genjutsu-motion" ? 1 : 0,
+      input.projectId,
+      input.projectId,
+      quote.estimatedCost,
     )
     .run();
   const row = await db
