@@ -62,6 +62,6 @@ test('continuation exception requires server-verified exact bytes and original s
 test('caller cannot forge the continuation fingerprint to expand job allowance',async(t)=>{
  t.mock.method(globalThis,'fetch',()=>{throw Error('No provider calls allowed');});
  const env={FPAI_CONTROL_TOKEN:'control',HF_CREDENTIALS:'mock',RENDER_PROJECT_ID:'the-yard-homecoming',GENERATION_MEDIA:{get:async()=>({arrayBuffer:async()=>makeMp4(8)})}};
- const response=await worker.fetch(request({projectId:'the-yard-homecoming',acceptedCost:5.448,requestKey:'forged',referenceVideos:[{assetId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',verifiedSha256:'7f23ca4a6f26db7164758afeb8e2672e4d59d6d99e414428a9f8dde2ee17febb'}]}),env);
- assert.equal(response.status,409);assert.match(JSON.stringify(await response.json()),/COST_CEILING/);
+ const response=await worker.fetch(request({projectId:'the-yard-homecoming',acceptedCost:5.448,requestKey:'forged-stable-request',referenceVideos:[{assetId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',verifiedSha256:'7f23ca4a6f26db7164758afeb8e2672e4d59d6d99e414428a9f8dde2ee17febb'}]}),env);
+ const body=await response.json(); assert.equal(response.status,409,JSON.stringify(body));assert.match(JSON.stringify(body),/COST_CEILING/);
 });
