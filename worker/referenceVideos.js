@@ -1,4 +1,5 @@
 import { fail } from "./providers/contract.js";
+import { REFERENCE_VIDEO_MAX_SECONDS } from "../src/referenceVideoClient.js";
 
 export const REFERENCE_VIDEO_MAX_BYTES = 32 * 1024 * 1024;
 const ASSET_ID = /^[a-f0-9-]{36}$/i;
@@ -92,8 +93,8 @@ export function validateReferenceVideo({ bytes, mimeType, duration } = {}) {
   }
   if (duration != null && duration !== "") {
     const seconds = Number(duration);
-    if (!Number.isFinite(seconds) || seconds < 1 || seconds > 30) {
-      return { ok: false, errors: ["Reference video duration must be 1–30 seconds."] };
+    if (!Number.isFinite(seconds) || seconds < 1 || seconds > REFERENCE_VIDEO_MAX_SECONDS) {
+      return { ok: false, errors: ["Reference videos must be 30 seconds or shorter. Trim the clip before uploading."] };
     }
   }
   return { ok: true, mimeType: "video/mp4" };

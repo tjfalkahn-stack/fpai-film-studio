@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import worker from "../worker/index.js";
 import { createHiggsfieldProvider } from "../worker/providers/higgsfield.js";
 import { makeMp4, makePng } from "./imageFixtures.js";
-import { matchProviderDuration } from "../src/referenceVideoClient.js";
+import { matchProviderDuration, uploadReferenceVideo } from "../src/referenceVideoClient.js";
 
 const TOKEN = "control";
 const requestId = "d7e6c0f3-6699-4f6c-bb45-2ad7fd9158ff";
@@ -58,10 +58,30 @@ async function uploadMp4(env, file = new File([makeMp4()], "mascot-motion.mp4", 
   }), env);
 }
 
-test("matchProviderDuration rounds up into the allowed catalog", () => {
+test("matchProviderDuration rounds up into the allowed catalog and rejects overlong clips", () => {
   assert.equal(matchProviderDuration(4.2, [1, 5, 10]), 5);
   assert.equal(matchProviderDuration(5, [4, 5, 6]), 5);
-  assert.equal(matchProviderDuration(40, [4, 5, 6]), 6);
+  assert.equal(matchProviderDuration(29.2, [1, 30]), 30);
+  assert.throws(
+    () => matchProviderDuration(40, [4, 5, 6]),
+    /30 seconds or shorter/,
+  );
+  assert.throws(
+    () => matchProviderDuration(31, [1, 30]),
+    /30 seconds or shorter/,
+  );
+  assert.throws(
+    () => matchProviderDuration(8, [4, 5, 6]),
+    /up to 6 seconds/,
+  );
+});
+
+test("client upload rejects overlong duration before contacting the adapter", async () => {
+  const file = new File([makeMp4()], "long-mascot.mp4", { type: "video/mp4" });
+  await assert.rejects(
+    uploadReferenceVideo(file, { duration: 45 }),
+    /30 seconds or shorter/,
+  );
 });
 
 test("reference MP4 upload requires the owner control token", async () => {
@@ -73,6 +93,22 @@ test("reference MP4 upload requires the owner control token", async () => {
     body: form,
   }), env);
   assert.equal(response.status, 401);
+});
+
+test("reference upload rejects clips longer than 30 seconds without starting generation", async () => {
+  const env = envWithMedia();
+  const form = new FormData();
+  form.set("file", new File([makeMp4()], "long-mascot.mp4", { type: "video/mp4" }));
+  form.set("duration", "45");
+  const response = await worker.fetch(new Request("https://studio.example/api/reference-videos", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}` },
+    body: form,
+  }), env);
+  const payload = await response.json();
+  assert.equal(response.status, 400);
+  assert.match(payload.error.message, /30 seconds or shorter/);
+  assert.equal(payload.generationStarted, undefined);
 });
 
 test("reference upload rejects non-MP4 files without starting generation", async () => {

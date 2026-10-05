@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertFrontendProductionConfig } from "../scripts/frontend-production-config.mjs";
 import worker, {
   adapterOrigin,
   buildAdapterTarget,
@@ -224,10 +225,11 @@ test("frontend wrangler config is worker-first and uses a service binding", () =
 
 test("production frontend config keeps owner-only Access and does not use placeholders", () => {
   const toml = readFileSync(join(root, "wrangler.frontend.production.toml"), "utf8");
-  assert.match(toml, /ACCESS_TEAM_DOMAIN\s*=\s*"black-dream-df71\.cloudflareaccess\.com"/);
-  assert.match(toml, /ACCESS_AUD\s*=\s*"ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47"/);
-  assert.equal(toml.includes("YOUR-TEAM"), false);
-  assert.equal(toml.includes("REPLACE_WITH_ACCESS_APPLICATION_AUD"), false);
+  const parsed = assertFrontendProductionConfig(toml);
+  assert.equal(parsed.vars.ACCESS_TEAM_DOMAIN, "black-dream-df71.cloudflareaccess.com");
+  assert.equal(parsed.vars.ACCESS_AUD, "ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47");
+  assert.equal(Object.hasOwn(parsed.vars, "LOCAL_DEV"), false);
+  assert.equal(Object.hasOwn(parsed.vars, "FPAI_CONTROL_TOKEN"), false);
 });
 
 test("POST /api/reference-videos forwards multipart through the service binding", async () => {

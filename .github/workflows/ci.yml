@@ -24,6 +24,8 @@ jobs:
         run: npm ci
       - name: Test
         run: npm test
+      - name: Validate frontend production Wrangler config
+        run: node scripts/frontend-production-config.mjs
       - name: Typecheck film domain
         run: npm run typecheck
       - name: Build

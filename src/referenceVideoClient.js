@@ -1,11 +1,29 @@
 export const REFERENCE_VIDEO_MAX_BYTES = 32 * 1024 * 1024;
+export const REFERENCE_VIDEO_MAX_SECONDS = 30;
 
 export function matchProviderDuration(seconds, allowed = []) {
-  const values = Array.isArray(allowed) && allowed.length ? allowed : [Math.max(1, Math.ceil(Number(seconds) || 1))];
-  const rounded = Math.max(1, Math.ceil(Number(seconds) || 1));
+  const raw = Number(seconds);
+  if (!Number.isFinite(raw) || raw < 1) {
+    throw new Error("Reference videos must be at least 1 second.");
+  }
+  if (raw > REFERENCE_VIDEO_MAX_SECONDS) {
+    throw new Error("Reference videos must be 30 seconds or shorter. Trim the clip before uploading.");
+  }
+  const values = (Array.isArray(allowed) ? allowed : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value >= 1 && value <= REFERENCE_VIDEO_MAX_SECONDS);
+  const rounded = Math.ceil(raw);
+  if (!values.length) return rounded;
+  const maxAllowed = Math.max(...values);
+  if (raw > maxAllowed) {
+    throw new Error(`This model accepts clips up to ${maxAllowed} seconds. Trim the clip before uploading.`);
+  }
   if (values.includes(rounded)) return rounded;
   const next = values.find((value) => value >= rounded);
-  return next ?? values[values.length - 1];
+  if (next == null) {
+    throw new Error(`This model accepts clips up to ${maxAllowed} seconds. Trim the clip before uploading.`);
+  }
+  return next;
 }
 
 export async function readVideoDuration(file, createObjectURL = URL.createObjectURL, revokeObjectURL = URL.revokeObjectURL) {
@@ -28,6 +46,12 @@ export async function uploadReferenceVideo(file, { duration } = {}) {
   const mime = String(file.type || "").split(";")[0].trim().toLowerCase();
   if (mime !== "video/mp4") throw new Error("Upload an MP4 reference video.");
   if (file.size > REFERENCE_VIDEO_MAX_BYTES) throw new Error("Reference videos must be 32 MB or smaller.");
+  if (duration != null && duration !== "") {
+    const seconds = Number(duration);
+    if (!Number.isFinite(seconds) || seconds < 1 || seconds > REFERENCE_VIDEO_MAX_SECONDS) {
+      throw new Error("Reference videos must be 30 seconds or shorter. Trim the clip before uploading.");
+    }
+  }
   const form = new FormData();
   form.set("file", file);
   if (duration != null && duration !== "") form.set("duration", String(duration));

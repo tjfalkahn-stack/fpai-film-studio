@@ -66,17 +66,7 @@ jobs:
           EOF
 
           cp wrangler.frontend.production.toml wrangler.frontend.deploy.toml
-          python3 - <<'PY'
-          from pathlib import Path
-          text = Path("wrangler.frontend.production.toml").read_text()
-          assert 'binding = "VIDEO_ADAPTER"' in text
-          assert 'service = "fpai-film-studio-video-adapter"' in text
-          assert 'ACCESS_TEAM_DOMAIN = "black-dream-df71.cloudflareaccess.com"' in text
-          assert "LOCAL_DEV" not in text
-          assert "FPAI_CONTROL_TOKEN" not in text
-          assert "YOUR-TEAM" not in text
-          print("frontend production config keeps VIDEO_ADAPTER and owner-only Access")
-          PY
+          node scripts/frontend-production-config.mjs
 
       - name: Deploy video adapter
         run: npx wrangler deploy --config wrangler.deploy.toml --keep-vars
