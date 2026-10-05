@@ -78,3 +78,14 @@ export function makeWebp(width = 64, height = 64, salt = 0) {
   riff.writeUInt32LE(riff.length - 8, 4);
   return riff;
 }
+
+export function makeMp4() {
+  const box = Buffer.alloc(24, 0);
+  box.writeUInt32BE(24, 0);
+  box.write("ftyp", 4);
+  box.write("isom", 8);
+  box.writeUInt32BE(1, 12);
+  box.write("isom", 16);
+  box.write("iso2", 20);
+  return box;
+}

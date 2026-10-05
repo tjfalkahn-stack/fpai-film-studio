@@ -523,7 +523,14 @@ async function create(request, env) {
         referenceImagesTransmitted: provider.capabilities.manual
           ? 0
           : input.referenceImages.length,
-        referenceMode: input.referenceMode || null,
+          referenceMode: input.referenceMode || null,
+        referenceVideos: Array.isArray(input.referenceVideos)
+          ? input.referenceVideos.map((ref) => ({
+              hasUrl: Boolean(ref?.url),
+              assetId: ref?.assetId || null,
+              mimeType: ref?.mimeType || null,
+            }))
+          : [],
         generateAudio: input.generateAudio !== false,
         rationale: quote.rationale || null,
       },

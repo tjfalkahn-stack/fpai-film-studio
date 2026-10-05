@@ -1,6 +1,6 @@
 # Higgsfield video provider
 
-Adds Kling 3.0 Standard and Pro (text or image), Seedance 2.5 (text or image), and Genjutsu Motion Transfer to Generate Take. Image routes use exactly one composed Shot Start Frame. Text routes send no image. Motion Transfer uses a public HTTPS reference video URL and one to eight selected images. The model selector determines the endpoint and input shape.
+Adds Kling 3.0 Standard and Pro (text or image), Seedance 2.5 (text or image), and Genjutsu Motion Transfer to Generate Take. Image routes use exactly one composed Shot Start Frame. Text routes send no image. Motion Transfer uses an uploaded MP4 (stored privately in R2) or a public HTTPS reference video URL, plus one to eight selected images. The model selector determines the endpoint and input shape.
 
 ## Server setup
 
@@ -30,7 +30,7 @@ The same four Kling rates apply to the corresponding text and image routes. Set 
 
 - Server uploads selected images using Higgsfield presigned storage, then submits the selected model endpoint. Text routes make no upload.
 - Direct Video Creation and the Shot Editor accept separate start and optional end images for Kling 3 image-to-video and Seedance 2.5 image-to-video. The adapter sends Kling's `last_image_url` or Seedance's `end_image_url`; other routes cannot receive an end frame.
-- Genjutsu is motion transfer: it needs a source video URL and reference image, and does not use start/end frame controls.
+- Genjutsu is motion transfer: it needs an uploaded MP4 or a source video URL, plus one to eight reference images, and does not use start/end frame controls.
 - Queue stores the returned status URL and polls it; API credentials only go to api.higgsfield.ai.
 - Lost responses, server errors and malformed successful submissions remain uncertain; their budget reservation is retained. No automatic resubmission.
 - Duplicate pending shots and unacknowledged uncertain jobs block another paid attempt across LTX, Veo and Higgsfield.

@@ -1,7 +1,7 @@
 import { authorizeStudio } from "./auth.js";
 const DEFAULT_ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev";
 
-const PROXY_HEADER_ALLOWLIST = ["content-type", "accept", "range", "if-range", "x-fpai-owner-override"];
+const PROXY_HEADER_ALLOWLIST = ["content-type", "accept", "range", "if-range", "content-length", "x-fpai-owner-override"];
 const STRIP_RESPONSE_HEADERS = [
   "access-control-allow-origin",
   "access-control-allow-credentials",
