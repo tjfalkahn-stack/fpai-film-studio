@@ -557,13 +557,7 @@ async function create(request, env) {
   const hash = await sha(JSON.stringify(input));
   // Yard takes share the project ceiling. The session ceiling for the other
   // controlled render tests remains unchanged.
-  const reservationSessionId = input.projectId === YARD_PROJECT_ID
-    ? (["TSU", ...YARD_REMAINING_SHOTS].includes(input.shotId) ? `yard-${input.shotId.toLowerCase()}-pro-first-test` : policy.sessionId)
-    : enemiesVeoShot(input)
-      ? `enemies-veo-${input.sceneId}-${input.shotId}`
-    : enemiesProShot(input)
-      ? `enemies-pro-${input.sceneId}-${input.shotId}`
-    : policy.sessionId;
+  const reservationSessionId = reservationSessionFor(input, policy);
   const reviewedShot = input.projectId === YARD_PROJECT_ID || enemiesVeoShot(input) || directVeoShot(input) || enemiesProShot(input) || isHiggsfieldProvider(input.provider);
   const db = dbOf(env);
   const existing = await db
@@ -1089,7 +1083,17 @@ export async function renderRoutes(request, env) {
 
 export function singleRenderCeiling(input, defaultCeiling) {
   const approved = input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" &&
-    input.provider === "higgsfield-genjutsu-motion" && input.resolution === "720p" && input.duration === 8 &&
+    input.provider === "higgsfield-genjutsu-motion" && /^DIRECT_[\w-]+$/.test(input.shotId || "") && input.resolution === "720p" && input.duration === 8 &&
     input.referenceVideos?.[0]?.assetId === "5acfa827-35d8-4168-8564-af5bc37fdc6b";
   return approved ? 6 : defaultCeiling;
+}
+
+export function reservationSessionFor(input, policy) {
+  return input.projectId === YARD_PROJECT_ID && input.sceneId === "YARD" && Boolean(yardTrialFor(input.shotId, input.provider))
+    ? (["TSU", ...YARD_REMAINING_SHOTS].includes(input.shotId) ? `yard-${input.shotId.toLowerCase()}-pro-first-test` : policy.sessionId)
+    : enemiesVeoShot(input)
+      ? `enemies-veo-${input.sceneId}-${input.shotId}`
+    : enemiesProShot(input)
+      ? `enemies-pro-${input.sceneId}-${input.shotId}`
+    : policy.sessionId;
 }
