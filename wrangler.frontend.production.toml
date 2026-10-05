@@ -10,7 +10,7 @@ workers_dev = true
 
 [vars]
 ACCESS_TEAM_DOMAIN = "black-dream-df71.cloudflareaccess.com"
-ACCESS_AUD = "ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47"
+ACCESS_AUD = "6e7f30290052789eb600d8f444f927c89d2159a4d3df4434777397fbd4163271"
 VIDEO_ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev"
 
 [assets]

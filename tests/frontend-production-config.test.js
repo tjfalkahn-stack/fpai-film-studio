@@ -14,7 +14,7 @@ const valid = `# --keep-vars preserves FPAI_CONTROL_TOKEN. Do not set LOCAL_DEV.
 name = "fpai-film-studio"
 [vars]
 ACCESS_TEAM_DOMAIN = "black-dream-df71.cloudflareaccess.com"
-ACCESS_AUD = "ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47"
+ACCESS_AUD = "6e7f30290052789eb600d8f444f927c89d2159a4d3df4434777397fbd4163271"
 VIDEO_ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev"
 [[services]]
 binding = "VIDEO_ADAPTER"
@@ -49,5 +49,16 @@ test("LOCAL_DEV or FPAI_CONTROL_TOKEN in [vars] fail closed", () => {
       "FPAI_CONTROL_TOKEN = \"leaked\"\nVIDEO_ADAPTER_URL = \"https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev\"",
     )),
     /FPAI_CONTROL_TOKEN/,
+  );
+});
+
+// The obsolete audience caused owner login to fail after a production deployment.
+test("production frontend rejects the obsolete Access application audience", () => {
+  assert.throws(
+    () => assertFrontendProductionConfig(valid.replace(
+      "6e7f30290052789eb600d8f444f927c89d2159a4d3df4434777397fbd4163271",
+      "ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47",
+    )),
+    /ACCESS_AUD/,
   );
 });

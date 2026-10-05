@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PRODUCTION_ACCESS_TEAM = "black-dream-df71.cloudflareaccess.com";
-const PRODUCTION_ACCESS_AUD = "ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47";
+const PRODUCTION_ACCESS_AUD = "6e7f30290052789eb600d8f444f927c89d2159a4d3df4434777397fbd4163271";
 
 function stripTomlComment(line) {
   let inString = false;
