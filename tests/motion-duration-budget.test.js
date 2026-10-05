@@ -33,11 +33,23 @@ test('six-dollar single-job approval is bound to the exact Yard 720p asset',()=>
 test('legacy Yard shot sessions are restricted to their intended scene and providers',()=>{
  const policy={sessionId:'existing-session'};
  const motion={...input,projectId:'the-yard-homecoming'};
- for(const shotId of ['TSU','LAMAR','DIRECT_valid']) {
+ for(const shotId of ['TSU','LAMAR']) {
   assert.equal(reservationSessionFor({...motion,shotId},policy),'existing-session');
   assert.equal(reservationSessionFor({...motion,sceneId:'YARD',shotId},policy),'existing-session');
  }
  assert.equal(reservationSessionFor({...motion,sceneId:'YARD',shotId:'TSU',provider:'ltx-2.5-pro'},policy),'yard-tsu-pro-first-test');
  assert.equal(reservationSessionFor({...motion,sceneId:'YARD',shotId:'LAMAR',provider:'veo-fast'},policy),'yard-lamar-pro-first-test');
  assert.equal(reservationSessionFor({...motion,shotId:'TSU',provider:'ltx-2.5-pro'},policy),'existing-session');
+});
+
+test('dedicated ten-dollar mascot session leaves all other session assignments unchanged',()=>{
+ const policy={sessionId:'old-session'};
+ const approved={...input,projectId:'the-yard-homecoming'};
+ assert.equal(reservationSessionFor(approved,policy),'yard-mascot-motion-2026-10-05');
+ assert.equal(singleRenderCeiling(approved,4),6);
+ for(const delta of [{shotId:'TSU'},{resolution:'480p'},{duration:5},{projectId:'enemies-closer-ep01'}]) {
+   const altered={...approved,...delta};
+   if(altered.projectId==='enemies-closer-ep01')continue;
+   assert.equal(reservationSessionFor(altered,policy),'old-session');
+ }
 });

@@ -638,7 +638,7 @@ async function create(request, env) {
       ))
       AND (?=0 OR (
         (SELECT COUNT(*) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') < 5
-        AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') + ? <= 6
+        AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') + ? <= 10
       ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
@@ -664,7 +664,8 @@ async function create(request, env) {
       policy.projectCeiling,
       reservationSessionId,
       quote.estimatedCost,
-      input.projectId === YARD_PROJECT_ID ? Math.min(policy.projectCeiling, policy.sessionCeiling)
+      approvedMascotDirect(input) ? 10
+        : input.projectId === YARD_PROJECT_ID ? Math.min(policy.projectCeiling, policy.sessionCeiling)
         : enemiesVeoShot(input) ? Math.min(ENEMIES_VEO_SHOT_CEILING_USD, policy.projectCeiling)
         : enemiesProShot(input) ? Math.min(ENEMIES_PRO_SHOT_CEILING_USD, policy.projectCeiling)
         : policy.sessionCeiling,
@@ -1081,14 +1082,18 @@ export async function renderRoutes(request, env) {
   }
 }
 
-export function singleRenderCeiling(input, defaultCeiling) {
-  const approved = input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" &&
+export function approvedMascotDirect(input) {
+  return input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" &&
     input.provider === "higgsfield-genjutsu-motion" && /^DIRECT_[\w-]+$/.test(input.shotId || "") && input.resolution === "720p" && input.duration === 8 &&
     input.referenceVideos?.[0]?.assetId === "5acfa827-35d8-4168-8564-af5bc37fdc6b";
-  return approved ? 6 : defaultCeiling;
+}
+
+export function singleRenderCeiling(input, defaultCeiling) {
+  return approvedMascotDirect(input) ? 6 : defaultCeiling;
 }
 
 export function reservationSessionFor(input, policy) {
+  if (approvedMascotDirect(input)) return "yard-mascot-motion-2026-10-05";
   return input.projectId === YARD_PROJECT_ID && input.sceneId === "YARD" && Boolean(yardTrialFor(input.shotId, input.provider))
     ? (["TSU", ...YARD_REMAINING_SHOTS].includes(input.shotId) ? `yard-${input.shotId.toLowerCase()}-pro-first-test` : policy.sessionId)
     : enemiesVeoShot(input)

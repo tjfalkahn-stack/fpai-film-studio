@@ -150,6 +150,8 @@ test("direct Google model quotes accept prompt, start frame, and optional end fr
   }
 });
 test("a direct photo render queues without a preset shot or Yard trial", async (t) => {
+  const previousBudget = { session: env.RENDER_SESSION_CEILING_USD, project: env.RENDER_PROJECT_CEILING_USD, sessionId: env.RENDER_SESSION_ID };
+  Object.assign(env, { RENDER_SESSION_CEILING_USD: "10", RENDER_PROJECT_CEILING_USD: "20", RENDER_SESSION_ID: `fixture-${crypto.randomUUID()}` });
   const network = noNetwork(t);
   const created = [];
   env.HF_CREDENTIALS = "test-id:test-secret";
@@ -172,6 +174,9 @@ test("a direct photo render queues without a preset shot or Yard trial", async (
     }
     assert.equal(network.mock.callCount(), 0);
   } finally {
+    env.RENDER_SESSION_CEILING_USD = previousBudget.session;
+    env.RENDER_PROJECT_CEILING_USD = previousBudget.project;
+    if (previousBudget.sessionId == null) delete env.RENDER_SESSION_ID; else env.RENDER_SESSION_ID = previousBudget.sessionId;
     for (const id of created) {
       await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
       await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
@@ -253,6 +258,8 @@ test("recover a paid Higgsfield job into its uncertain Studio render without gen
   }
 });
 test("unavailable stored picture releases the quote before any paid provider call", async (t) => {
+  const previousBudget = { session: env.RENDER_SESSION_CEILING_USD, project: env.RENDER_PROJECT_CEILING_USD, sessionId: env.RENDER_SESSION_ID };
+  Object.assign(env, { RENDER_SESSION_CEILING_USD: "10", RENDER_PROJECT_CEILING_USD: "20", RENDER_SESSION_ID: `fixture-${crypto.randomUUID()}` });
   const network = noNetwork(t);
   const bucket = env.GENERATION_MEDIA;
   env.HF_CREDENTIALS = "test-id:test-secret";
@@ -277,6 +284,9 @@ test("unavailable stored picture releases the quote before any paid provider cal
     assert.equal(checked.data.render.error.code, "RENDER_INPUT_UNAVAILABLE");
     assert.equal(network.mock.callCount(), 0);
   } finally {
+    env.RENDER_SESSION_CEILING_USD = previousBudget.session;
+    env.RENDER_PROJECT_CEILING_USD = previousBudget.project;
+    if (previousBudget.sessionId == null) delete env.RENDER_SESSION_ID; else env.RENDER_SESSION_ID = previousBudget.sessionId;
     env.GENERATION_MEDIA = bucket;
     if (id) {
       await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
@@ -286,6 +296,8 @@ test("unavailable stored picture releases the quote before any paid provider cal
   }
 });
 test("direct video acknowledgement allows a new shot after an unrelated uncertain take", async (t) => {
+  const previousBudget = { session: env.RENDER_SESSION_CEILING_USD, project: env.RENDER_PROJECT_CEILING_USD, sessionId: env.RENDER_SESSION_ID };
+  Object.assign(env, { RENDER_SESSION_CEILING_USD: "10", RENDER_PROJECT_CEILING_USD: "20", RENDER_SESSION_ID: `fixture-${crypto.randomUUID()}` });
   const network = noNetwork(t);
   env.HF_CREDENTIALS = "test-id:test-secret";
   const created = [];
@@ -309,6 +321,9 @@ test("direct video acknowledgement allows a new shot after an unrelated uncertai
     created.push(retried.data.render.id);
     assert.equal(network.mock.callCount(), 0);
   } finally {
+    env.RENDER_SESSION_CEILING_USD = previousBudget.session;
+    env.RENDER_PROJECT_CEILING_USD = previousBudget.project;
+    if (previousBudget.sessionId == null) delete env.RENDER_SESSION_ID; else env.RENDER_SESSION_ID = previousBudget.sessionId;
     for (const id of created) {
       await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
       await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
@@ -932,6 +947,14 @@ test("Yard uncertain Google take keeps its reservation and requires explicit ack
     assert.equal(lost.data.render.reservedCost, 0.96);
     const blocked = await call("/api/renders", { ...request, requestKey: crypto.randomUUID() });
     assert.equal(blocked.data.error.code, "UNCERTAIN_RETRY_ACK");
+    const acknowledgedButOverBudget = await call("/api/renders", {
+      ...request, requestKey: crypto.randomUUID(), acknowledgeUncertainRenderId: id,
+    });
+    assert.equal(acknowledgedButOverBudget.response.status, 409);
+    assert.equal(acknowledgedButOverBudget.data.error.code, "COST_CEILING");
+    // Acknowledging uncertainty does not release the first reservation. This
+    // fixture explicitly funds two $0.96 takes to test the acknowledgement path.
+    env.RENDER_SESSION_CEILING_USD = "1.92";
     const second = await call("/api/renders", {
       ...request, requestKey: crypto.randomUUID(), acknowledgeUncertainRenderId: id,
     });
