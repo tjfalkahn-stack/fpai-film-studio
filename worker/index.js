@@ -443,7 +443,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
-    if (/^\/api\/renders\/[a-f0-9-]{36}\/input$/i.test(url.pathname) && request.method === "GET")
+    if (/^\/api\/renders\/[a-f0-9-]{36}\/input$/i.test(url.pathname) && (request.method === "GET" || request.method === "HEAD"))
       return serveHiggsfieldInput(request, env);
     const signedVideo = await serveSignedReferenceVideo(request, env);
     if (signedVideo) return signedVideo;

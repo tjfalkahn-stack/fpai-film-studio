@@ -30,7 +30,7 @@ export async function signedHiggsfieldInputUrl(env, renderId, now = Date.now(), 
 export async function serveHiggsfieldInput(request, env, now = Date.now()) {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/renders\/([a-f0-9-]{36})\/input$/i);
-  if (!match || request.method !== "GET") return null;
+  if (!match || !["GET", "HEAD"].includes(request.method)) return null;
   const expires = url.searchParams.get("expires");
   const frame = url.searchParams.get("frame") || "start";
   if (!["start", "end"].includes(frame) && !/^ref-[0-7]$/.test(frame)) return new Response("Unavailable", { status: 404 });
@@ -46,7 +46,13 @@ export async function serveHiggsfieldInput(request, env, now = Date.now()) {
   const ref = frame === "end" ? input.endFrameImage : input.referenceImages?.[frame === "start" ? 0 : Number(frame.slice(4))];
   if (!ref || !["image/jpeg", "image/png"].includes(ref.mimeType) || typeof ref.data !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(ref.data))
     return new Response("Unavailable", { status: 404 });
-  return new Response(Uint8Array.from(atob(ref.data), char => char.charCodeAt(0)), {
-    headers: { "content-type": ref.mimeType, "cache-control": "private, no-store", "x-content-type-options": "nosniff" },
-  });
+  const payload = Uint8Array.from(atob(ref.data), char => char.charCodeAt(0));
+  const headers = {
+    "content-type": ref.mimeType,
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+    "content-length": String(payload.byteLength),
+  };
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+  return new Response(payload, { headers });
 }

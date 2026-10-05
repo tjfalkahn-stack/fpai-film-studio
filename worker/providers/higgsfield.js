@@ -1,5 +1,5 @@
 import { ProviderError, fail } from "./contract.js";
-import { signedHiggsfieldInputUrl } from "./higgsfieldInput.js";
+import { serveHiggsfieldInput, signedHiggsfieldInputUrl } from "./higgsfieldInput.js";
 import { referenceVideoExists, signedReferenceVideoUrl } from "../referenceVideos.js";
 
 const ORIGIN = "https://api.higgsfield.ai";
@@ -48,14 +48,37 @@ function auth(env) {
   if (!higgsfieldConfigured(env)) fail("PROVIDER_CONFIG", "Set the server HF_CREDENTIALS secret to the complete Higgsfield API key.", 503);
   return { Authorization: `Key ${String(env.HF_CREDENTIALS).trim()}` };
 }
+function request(fetchImpl, url, init = {}) {
+  // Workers rejects redirect: "error" before contacting the origin, which
+  // previously discarded Higgsfield's HTTP status during image-upload init.
+  return fetchImpl(url, { ...init, redirect: "manual" });
+}
+function providerDetail(text, env) {
+  const credential = String(env.HF_CREDENTIALS || "").trim();
+  let value = String(text || "");
+  if (credential) value = value.replaceAll(credential, "[redacted]");
+  return value.replace(/https?:\/\/[^\s"'\\]+/gi, "[url]").replace(/\s+/g, " ").trim().slice(0, 180);
+}
+async function jsonDetail(response, env) {
+  const text = await response.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text);
+    const detail = parsed?.detail;
+    if (typeof detail === "string") return providerDetail(detail, env);
+    if (Array.isArray(detail)) {
+      return providerDetail(detail.map((item) => item?.msg || item?.message || "").filter(Boolean).join("; "), env);
+    }
+  } catch {}
+  return "";
+}
 export async function probeHiggsfieldUploadConnection(env, fetchImpl = fetch) {
   const startedAt = Date.now();
   if (!higgsfieldConfigured(env)) return { transport: "not-configured" };
   try {
     // Requesting an upload slot does not submit a video. Never return its signed URLs.
-    const response = await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
+    const response = await request(fetchImpl, `${ORIGIN}/files/generate-upload-url`, {
       method: "POST", headers: { ...auth(env), "Content-Type": "application/json" },
-      body: JSON.stringify({ content_type: "image/png" }), redirect: "manual",
+      body: JSON.stringify({ content_type: "image/png" }),
       signal: AbortSignal.timeout(10000),
     });
     return { transport: "response", httpStatus: response.status, redirect: response.status >= 300 && response.status < 400, elapsedMs: Date.now() - startedAt };
@@ -69,9 +92,41 @@ export async function probeHiggsfieldUploadConnection(env, fetchImpl = fetch) {
     };
   }
 }
-async function checked(response, stage) {
-  if (!response.ok) throw new ProviderError("HIGGSFIELD_API_ERROR", `Higgsfield ${stage} failed (HTTP ${response.status}).`, { httpStatus: 502, retryable: response.status >= 500 });
-  return response;
+async function checked(response, stage, env) {
+  if (response.ok) return response;
+  const detail = await jsonDetail(response, env);
+  throw new ProviderError("HIGGSFIELD_API_ERROR", `Higgsfield ${stage} failed (HTTP ${response.status}${detail ? `: ${detail}` : ""}).`, {
+    httpStatus: 502,
+    retryable: response.status >= 500,
+    providerHttpStatus: response.status,
+    ...(detail ? { providerDetails: detail } : {}),
+  });
+}
+async function verifySignedInputs(env, urls) {
+  for (const href of urls) {
+    const served = await serveHiggsfieldInput(new Request(href), env);
+    if (!served || served.status !== 200) throw new Error("stored image is not readable");
+    const type = served.headers.get("content-type");
+    if (!["image/png", "image/jpeg"].includes(type)) throw new Error("stored image is not readable");
+    const body = await served.arrayBuffer();
+    if (!body.byteLength) throw new Error("stored image is not readable");
+  }
+}
+function preparationError(uploadStage, error) {
+  const http = error.providerHttpStatus ? `HTTP ${error.providerHttpStatus}` : "";
+  const detail = typeof error.providerDetails === "string" ? error.providerDetails : "";
+  const transport = !http && ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "";
+  const suffix = [http, detail || transport].filter(Boolean).join(": ");
+  return new ProviderError(
+    "HIGGSFIELD_IMAGE_PREPARATION",
+    `Higgsfield ${uploadStage} failed before video submission${suffix ? ` (${suffix})` : ""}. No video request was submitted.`,
+    {
+      httpStatus: 502,
+      retryable: true,
+      ...(error.providerHttpStatus ? { providerHttpStatus: error.providerHttpStatus } : {}),
+      ...(detail ? { providerDetails: detail } : {}),
+    },
+  );
 }
 
 export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "pro") {
@@ -136,16 +191,20 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
           for (let index = 0; index < input.referenceImages.length; index++)
             imageUrls.push(await signedHiggsfieldInputUrl(env, input.renderId, Date.now(), `ref-${index}`));
         }
+        if (imageUrls.length && input.renderId) {
+          uploadStage = "signed input verification";
+          await verifySignedInputs(env, imageUrls);
+        }
         const uploadRefs = ["image", "motion"].includes(spec.kind) && input.renderId ? [] : [
           ...(input.referenceImages || []),
           ...(spec.kind === "image" && input.endFrameImage ? [input.endFrameImage] : []),
         ];
         for (const ref of uploadRefs) {
           uploadStage = "upload initialization";
-          const upload = await (await checked(await fetchImpl(`${ORIGIN}/files/generate-upload-url`, {
+          const upload = await (await checked(await request(fetchImpl, `${ORIGIN}/files/generate-upload-url`, {
             method: "POST", headers: { ...headers, "Content-Type": "application/json" },
-            body: JSON.stringify({ content_type: ref.mimeType }), redirect: "error",
-          }), "upload initialization")).json();
+            body: JSON.stringify({ content_type: ref.mimeType }),
+          }), "upload initialization", env)).json();
           uploadStage = "upload URL validation";
           const uploadUrl = safeUrl(upload.upload_url);
           const imageUrl = safeUrl(upload.public_url);
@@ -155,14 +214,14 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
           uploadStage = "image decoding";
           const bytes = Uint8Array.from(atob(ref.data), c => c.charCodeAt(0));
           uploadStage = "storage upload";
-          await checked(await fetchImpl(uploadUrl, { method: "PUT", headers: uploadHeaders,
-            body: bytes, redirect: "error" }), "image upload");
+          await checked(await request(fetchImpl, uploadUrl, { method: "PUT", headers: uploadHeaders,
+            body: bytes }), "image upload", env);
           imageUrls.push(imageUrl);
         }
       } catch (error) {
-        if (error instanceof ProviderError && error.code === "HIGGSFIELD_API_ERROR") throw error;
+        if (error instanceof ProviderError && error.code === "HIGGSFIELD_IMAGE_PREPARATION") throw error;
         // Nothing has been sent to the paid generation endpoint yet.
-        throw new ProviderError("HIGGSFIELD_IMAGE_PREPARATION", `Higgsfield ${uploadStage} failed before video submission. No video request was submitted.`, { httpStatus: 502, retryable: true });
+        throw preparationError(uploadStage, error);
       }
       const payload = spec.kind === "motion"
         ? { prompt: input.prompt, video_url: motionUrl, image_urls: imageUrls, resolution: input.resolution }
@@ -176,11 +235,11 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
       // A lost or malformed submission response may still represent a billed job.
       let submissionDetail = "transport error";
       try {
-        const response = await fetchImpl(`${ORIGIN}/${model}`, {
-          method: "POST", headers: { ...headers, "Content-Type": "application/json" }, redirect: "manual",
+        const response = await request(fetchImpl, `${ORIGIN}/${model}`, {
+          method: "POST", headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (!response.ok && response.status >= 400 && response.status < 500) await checked(response, "submission");
+        if (!response.ok && response.status >= 400 && response.status < 500) await checked(response, "submission", env);
         submissionDetail = `HTTP ${response.status}`;
         if (!response.ok) throw new Error("Unknown submission outcome");
         submissionDetail = "HTTP 2xx with unreadable JSON";
@@ -201,7 +260,7 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
       // Polling remains possible when new submissions are disabled.
       let result;
       try {
-        const response = await checked(await fetchImpl(safeUrl(row.operation_id, true), { headers: auth(env), redirect: "error" }), "status");
+        const response = await checked(await request(fetchImpl, safeUrl(row.operation_id, true), { headers: auth(env) }), "status", env);
         result = await response.json();
       } catch (error) {
         if (error instanceof ProviderError) throw error;
@@ -217,7 +276,7 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
     },
     async asset(row) {
       const asset = JSON.parse(row.asset_json || "null");
-      return checked(await fetchImpl(safeUrl(asset?.url), { redirect: "error" }), "video download");
+      return checked(await request(fetchImpl, safeUrl(asset?.url)), "video download", env);
     },
     async cancel() { fail("CANCEL_UNSUPPORTED", "Higgsfield jobs cannot be canceled from Studio after submission.", 409); },
   };
