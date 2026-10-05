@@ -195,7 +195,9 @@ jobs:
 
       # Read-only: uses the adapter's GEMINI_API_KEY via service binding. Never predictLongRunning.
       # continue-on-error: operation records expire; do not block production deploys.
+      # Legacy diagnostic creates temporary credentials; keep it out of routine releases.
       - name: Diagnose failed Veo operation (read-only)
+        if: ${{ false }}
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

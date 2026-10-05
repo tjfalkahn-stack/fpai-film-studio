@@ -92,6 +92,10 @@ import { applyTarmacCharacterLocks, TARMAC_CHARACTER_LOCKS } from "./tarmacConti
 import { validateShotStartFrame } from "./shotStartFrame.js";
 import { YARD_PROJECT_ID, yardProduction } from "./yardProduction.js";
 
+import { GROOVES_PROJECT_ID, groovesProduction } from "./groovesProduction.js";
+const GROOVES_STORAGE_KEY = "fpai-film-studio-grooves-pv-v1";
+const productionStorage = (id) => id === GROOVES_PROJECT_ID ? GROOVES_STORAGE_KEY : id === YARD_PROJECT_ID ? YARD_STORAGE_KEY : STORAGE_KEY;
+const loadProduction = (id) => id === GROOVES_PROJECT_ID ? (JSON.parse(localStorage.getItem(GROOVES_STORAGE_KEY) || "null") || groovesProduction) : id === YARD_PROJECT_ID ? migrateYardData() : migrateData();
 const STORAGE_KEY = "fpai-film-studio-v1.2";
 const YARD_STORAGE_KEY = "fpai-film-studio-the-yard-v1";
 const ACTIVE_PRODUCTION_KEY = "fpai-film-studio-active-production";
@@ -325,16 +329,16 @@ function migrateYardData() {
 }
 
 function useData() {
-  const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_PRODUCTION_KEY) === YARD_PROJECT_ID ? YARD_PROJECT_ID : PROJECT_ID);
-  const [data, setData] = useState(() => activeId === YARD_PROJECT_ID ? migrateYardData() : migrateData());
+  const [activeId, setActiveId] = useState(() => [YARD_PROJECT_ID, GROOVES_PROJECT_ID].includes(localStorage.getItem(ACTIVE_PRODUCTION_KEY)) ? localStorage.getItem(ACTIVE_PRODUCTION_KEY) : PROJECT_ID);
+  const [data, setData] = useState(() => loadProduction(activeId));
   useEffect(() => {
-    localStorage.setItem(activeId === YARD_PROJECT_ID ? YARD_STORAGE_KEY : STORAGE_KEY, JSON.stringify(data));
+    localStorage.setItem(productionStorage(activeId), JSON.stringify(data));
   }, [activeId, data]);
   function switchProduction(id) {
     if (id === activeId) return;
-    localStorage.setItem(activeId === YARD_PROJECT_ID ? YARD_STORAGE_KEY : STORAGE_KEY, JSON.stringify(data));
+    localStorage.setItem(productionStorage(activeId), JSON.stringify(data));
     localStorage.setItem(ACTIVE_PRODUCTION_KEY, id);
-    setData(id === YARD_PROJECT_ID ? migrateYardData() : migrateData());
+    setData(loadProduction(id));
     setActiveId(id);
   }
   return [data, setData, switchProduction];
@@ -434,7 +438,7 @@ function App() {
     return () => { canceled = true; clearTimeout(timer); };
   }, [data.project.id]);
 
-  const tabs = data.project.id === YARD_PROJECT_ID
+  const tabs = data.project.id === GROOVES_PROJECT_ID ? ["Create Video", "Budget"] : data.project.id === YARD_PROJECT_ID
     ? ["Create Video", "Overview", "Economy", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"]
     : ["Create Video", "Overview", "Film Engine", "Economy", "Characters", "Scenes", "Shots", "Takes", "Assets", "Continuity", "Router", "Budget"];
   const character = data.characters.find((item) => item.id === characterId) || null;
@@ -869,6 +873,7 @@ function App() {
           <select value={data.project.id} onChange={(event) => { setShotId(null); setCharacterId(null); setPackageShotId(null); setRenders([]); setTab("Create Video"); switchProduction(event.target.value); }}>
             <option value={PROJECT_ID}>Enemies Closer</option>
             <option value={YARD_PROJECT_ID}>The Yard Is Home</option>
+            <option value={GROOVES_PROJECT_ID}>Grooves PV</option>
           </select>
         </label>
         <nav>
