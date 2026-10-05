@@ -53,3 +53,15 @@ test('dedicated ten-dollar mascot session leaves all other session assignments u
    assert.equal(reservationSessionFor(altered,policy),'old-session');
  }
 });
+
+test('continuation exception requires server-verified exact bytes and original scope',()=>{
+ const next={...input,projectId:'the-yard-homecoming',referenceVideos:[{assetId:'next-asset',verifiedSha256:'7f23ca4a6f26db7164758afeb8e2672e4d59d6d99e414428a9f8dde2ee17febb'}]};
+ assert.equal(singleRenderCeiling(next,4),6);
+ for(const delta of [{resolution:'480p'},{duration:9},{projectId:'another'},{referenceVideos:[{assetId:'next-asset',verifiedSha256:'other'}]}])assert.equal(singleRenderCeiling({...next,...delta},4),4);
+});
+test('caller cannot forge the continuation fingerprint to expand job allowance',async(t)=>{
+ t.mock.method(globalThis,'fetch',()=>{throw Error('No provider calls allowed');});
+ const env={FPAI_CONTROL_TOKEN:'control',HF_CREDENTIALS:'mock',RENDER_PROJECT_ID:'the-yard-homecoming',GENERATION_MEDIA:{get:async()=>({arrayBuffer:async()=>makeMp4(8)})}};
+ const response=await worker.fetch(request({projectId:'the-yard-homecoming',acceptedCost:5.448,requestKey:'forged',referenceVideos:[{assetId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',verifiedSha256:'7f23ca4a6f26db7164758afeb8e2672e4d59d6d99e414428a9f8dde2ee17febb'}]}),env);
+ assert.equal(response.status,409);assert.match(JSON.stringify(await response.json()),/COST_CEILING/);
+});

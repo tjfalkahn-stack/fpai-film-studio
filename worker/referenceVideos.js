@@ -232,8 +232,10 @@ export async function bindMotionVideoDuration(input, env) {
   if (!ASSET_ID.test(assetId || "")) fail("UNVERIFIED_VIDEO_DURATION", "Upload the MP4 so Studio can verify its billable duration.", 400);
   const object = await env.GENERATION_MEDIA?.get(objectKey(assetId));
   if (!object) fail("NOT_FOUND", "Reference video not found.", 404);
-  const { duration, billedSeconds } = inspectMotionVideo(new Uint8Array(await object.arrayBuffer()));
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  const { duration, billedSeconds } = inspectMotionVideo(bytes);
+  const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
   if (Number(input.duration) !== billedSeconds) fail("VIDEO_DURATION_MISMATCH", `Uploaded MP4 bills ${billedSeconds} seconds; requested Length must match.`, 409);
   input.duration = billedSeconds;
-  input.referenceVideos[0] = { ...input.referenceVideos[0], duration };
+  input.referenceVideos[0] = { ...input.referenceVideos[0], duration, verifiedSha256: sha256 };
 }

@@ -638,7 +638,7 @@ async function create(request, env) {
       ))
       AND (?=0 OR (
         (SELECT COUNT(*) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') < 5
-        AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') + ? <= 10
+        AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') + ? <= 10.08
       ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
@@ -664,7 +664,7 @@ async function create(request, env) {
       policy.projectCeiling,
       reservationSessionId,
       quote.estimatedCost,
-      approvedMascotDirect(input) ? 10
+      approvedMascotDirect(input) ? 10.08
         : input.projectId === YARD_PROJECT_ID ? Math.min(policy.projectCeiling, policy.sessionCeiling)
         : enemiesVeoShot(input) ? Math.min(ENEMIES_VEO_SHOT_CEILING_USD, policy.projectCeiling)
         : enemiesProShot(input) ? Math.min(ENEMIES_PRO_SHOT_CEILING_USD, policy.projectCeiling)
@@ -1085,7 +1085,8 @@ export async function renderRoutes(request, env) {
 export function approvedMascotDirect(input) {
   return input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" &&
     input.provider === "higgsfield-genjutsu-motion" && /^DIRECT_[\w-]+$/.test(input.shotId || "") && input.resolution === "720p" && input.duration === 8 &&
-    input.referenceVideos?.[0]?.assetId === "5acfa827-35d8-4168-8564-af5bc37fdc6b";
+    (input.referenceVideos?.[0]?.assetId === "5acfa827-35d8-4168-8564-af5bc37fdc6b" ||
+      (Boolean(input.referenceVideos?.[0]?.assetId) && input.referenceVideos[0].verifiedSha256 === "7f23ca4a6f26db7164758afeb8e2672e4d59d6d99e414428a9f8dde2ee17febb"));
 }
 
 export function singleRenderCeiling(input, defaultCeiling) {
