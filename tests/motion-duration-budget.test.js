@@ -16,3 +16,16 @@ test('eight-second stored MP4 rejects Length five in quotes and submissions; mat
  const stale=await worker.fetch(request({acceptedCost:3.405,requestKey:'stable-request'}),env);assert.equal(stale.status,409);assert.match(JSON.stringify(await stale.json()),/QUOTE_CHANGED/);
  const single=await worker.fetch(request({acceptedCost:5.448,requestKey:'stable-request'}),env);assert.equal(single.status,409);assert.match(JSON.stringify(await single.json()),/COST_CEILING/);
 });
+
+import {durationAfterModelSwitch} from '../src/referenceVideoClient.js';
+import {singleRenderCeiling} from '../worker/renders.js';
+test('switching away and back restores eight-second uploaded motion duration',()=>{
+ const refs={referenceVideo:{duration:8}};
+ assert.equal(durationAfterModelSwitch({id:'higgsfield-kling-3-pro',durations:[5]},refs),5);
+ assert.equal(durationAfterModelSwitch({id:'higgsfield-genjutsu-motion',durations:[5,8]},refs),8);
+});
+test('six-dollar single-job approval is bound to the exact Yard 720p asset',()=>{
+ const approved={...input,projectId:'the-yard-homecoming'};
+ assert.equal(singleRenderCeiling(approved,4),6);
+ for(const delta of [{duration:5},{resolution:'480p'},{provider:'higgsfield-kling-3-pro'},{projectId:'another'},{referenceVideos:[{assetId:'another'}]}])assert.equal(singleRenderCeiling({...approved,...delta},4),4);
+});

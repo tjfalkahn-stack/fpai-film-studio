@@ -549,10 +549,7 @@ async function create(request, env) {
       "Review and accept the current cost before rendering.",
       409,
     );
-  const approvedMascot720 = input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" &&
-    input.provider === "higgsfield-genjutsu-motion" && input.resolution === "720p" && input.duration === 8 &&
-    input.referenceVideos?.[0]?.assetId === "5acfa827-35d8-4168-8564-af5bc37fdc6b";
-  if (quote.estimatedCost > (approvedMascot720 ? 6 : policy.singleCeiling))
+  if (quote.estimatedCost > singleRenderCeiling(input, policy.singleCeiling))
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   if (input.projectId === YARD_PROJECT_ID && input.sceneId !== "CREATE" && provider.capabilities.paid && !isHiggsfieldProvider(input.provider)) authorizeYardJob(input, quote, env);
@@ -1088,4 +1085,11 @@ export async function renderRoutes(request, env) {
   } catch (error) {
     return json({ error: err(error) }, error.httpStatus || 500);
   }
+}
+
+export function singleRenderCeiling(input, defaultCeiling) {
+  const approved = input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" &&
+    input.provider === "higgsfield-genjutsu-motion" && input.resolution === "720p" && input.duration === 8 &&
+    input.referenceVideos?.[0]?.assetId === "5acfa827-35d8-4168-8564-af5bc37fdc6b";
+  return approved ? 6 : defaultCeiling;
 }

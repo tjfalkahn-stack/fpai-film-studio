@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { renderIdentity, renderRequest, renderRequestKey } from "./renderClient.js";
 import { START_FRAME_PROVIDER_LIMIT } from "./shotStartFrame.js";
 import { encodeSourceAudio } from "./audioInput.js";
-import { matchProviderDuration, readVideoDuration, uploadReferenceVideo } from "./referenceVideoClient.js";
+import { durationAfterModelSwitch, matchProviderDuration, readVideoDuration, uploadReferenceVideo } from "./referenceVideoClient.js";
 
 const DEFAULT_MODEL = "veo-fast";
 
@@ -283,7 +283,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
             const next = options.find((item) => item.id === event.target.value);
             setProvider(event.target.value);
             setQuote(null);
-            setDuration(next?.id === "higgsfield-genjutsu-motion" && referenceVideo ? referenceVideo.duration : next?.audioInput && sourceAudio ? sourceAudio.duration : next?.id.startsWith("veo-") && reference ? 8 : next?.durations?.includes(5) ? 5 : next?.durations?.[0] || 5);
+            setDuration(durationAfterModelSwitch(next, { referenceVideo, sourceAudio, reference }));
             setResolution(next?.resolutions?.[0] || "720p");
           }}>{["Google Veo", "LTX · use your audio", "Higgsfield"].map((group) => <optgroup key={group} label={group}>{options.filter((item) => group === "Google Veo" ? item.id.startsWith("veo-") : group.startsWith("LTX") ? item.audioInput : item.id.startsWith("higgsfield-")).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</optgroup>)}</select></label>
           <p className="quickCreateModelHint">{isVeo ? "Google Veo generates speech, music, and effects from the prompt. Start and end frames are optional; it cannot use an uploaded soundtrack." : isLtx ? `LTX syncs the video to your uploaded audio (${provider === "ltx-2.5-pro" ? "10" : "20"} seconds max). Add a start frame if you want.` : isMotion ? "This route uses one or two mascot stills plus an uploaded MP4 motion clip." : isText ? "This route creates from text only." : "This route animates your start frame and can generate sound."}</p>
