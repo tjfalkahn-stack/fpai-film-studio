@@ -1,3 +1,4 @@
+import { inspectMotionVideo } from "../src/motionVideo.js";
 import { fail } from "./providers/contract.js";
 import { REFERENCE_VIDEO_MAX_SECONDS } from "../src/referenceVideoClient.js";
 
@@ -180,8 +181,7 @@ async function handleUpload(request, env) {
   if (!validated.ok) fail("INVALID_FILE", validated.errors[0], 400);
 
   const id = crypto.randomUUID();
-  const durationValue = form.get("duration");
-  const duration = durationValue == null || durationValue === "" ? null : Number(durationValue);
+  const duration = inspectMotionVideo(bytes).duration;
   await env.GENERATION_MEDIA.put(objectKey(id), bytes, {
     httpMetadata: { contentType: "video/mp4" },
     customMetadata: {
@@ -224,4 +224,16 @@ export async function referenceVideoRoutes(request, env) {
   } catch (error) {
     return json({ error: err(error) }, error.httpStatus || 400);
   }
+}
+
+export async function bindMotionVideoDuration(input, env) {
+  if (input.provider !== "higgsfield-genjutsu-motion") return;
+  const assetId = input.referenceVideos?.[0]?.assetId;
+  if (!ASSET_ID.test(assetId || "")) fail("UNVERIFIED_VIDEO_DURATION", "Upload the MP4 so Studio can verify its billable duration.", 400);
+  const object = await env.GENERATION_MEDIA?.get(objectKey(assetId));
+  if (!object) fail("NOT_FOUND", "Reference video not found.", 404);
+  const { duration, billedSeconds } = inspectMotionVideo(new Uint8Array(await object.arrayBuffer()));
+  if (Number(input.duration) !== billedSeconds) fail("VIDEO_DURATION_MISMATCH", `Uploaded MP4 bills ${billedSeconds} seconds; requested Length must match.`, 409);
+  input.duration = billedSeconds;
+  input.referenceVideos[0] = { ...input.referenceVideos[0], duration };
 }

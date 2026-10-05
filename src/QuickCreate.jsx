@@ -155,17 +155,17 @@ export default function QuickCreate({ projectId, renders, onRender }) {
     try {
       const seconds = await readVideoDuration(file);
       const matched = matchProviderDuration(seconds, selected?.durations || [5]);
-      const uploaded = await uploadReferenceVideo(file, { duration: matched });
+      const uploaded = await uploadReferenceVideo(file, { duration: seconds });
       setReferenceVideo({
         assetId: uploaded.id,
         mimeType: uploaded.mimeType || "video/mp4",
-        duration: matched,
+        duration: Math.ceil(uploaded.duration),
         url: uploaded.url,
       });
       setVideoName(file.name);
       setVideoPreview(URL.createObjectURL(file));
       setVideoUrl("");
-      setDuration(matched);
+      setDuration(Math.ceil(uploaded.duration));
     } catch (cause) {
       setError(cause.message);
     }
@@ -175,7 +175,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
     const motionImages = [reference, extraReference].filter(Boolean);
     return {
       projectId, sceneId: "CREATE", shotId, provider,
-      prompt: prompt.trim(), duration, resolution, aspectRatio,
+      prompt: prompt.trim(), duration: isMotion && referenceVideo ? referenceVideo.duration : duration, resolution, aspectRatio,
       referenceImages: isMotion ? motionImages : (reference ? [reference] : []),
       ...(isVeo && reference ? { referenceMode: "start-frame" } : {}),
       ...(supportsEndFrame && endReference ? { endFrameImage: endReference } : {}),
@@ -283,13 +283,13 @@ export default function QuickCreate({ projectId, renders, onRender }) {
             const next = options.find((item) => item.id === event.target.value);
             setProvider(event.target.value);
             setQuote(null);
-            setDuration(next?.audioInput && sourceAudio ? sourceAudio.duration : next?.id.startsWith("veo-") && reference ? 8 : next?.durations?.includes(5) ? 5 : next?.durations?.[0] || 5);
+            setDuration(next?.id === "higgsfield-genjutsu-motion" && referenceVideo ? referenceVideo.duration : next?.audioInput && sourceAudio ? sourceAudio.duration : next?.id.startsWith("veo-") && reference ? 8 : next?.durations?.includes(5) ? 5 : next?.durations?.[0] || 5);
             setResolution(next?.resolutions?.[0] || "720p");
           }}>{["Google Veo", "LTX · use your audio", "Higgsfield"].map((group) => <optgroup key={group} label={group}>{options.filter((item) => group === "Google Veo" ? item.id.startsWith("veo-") : group.startsWith("LTX") ? item.audioInput : item.id.startsWith("higgsfield-")).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</optgroup>)}</select></label>
           <p className="quickCreateModelHint">{isVeo ? "Google Veo generates speech, music, and effects from the prompt. Start and end frames are optional; it cannot use an uploaded soundtrack." : isLtx ? `LTX syncs the video to your uploaded audio (${provider === "ltx-2.5-pro" ? "10" : "20"} seconds max). Add a start frame if you want.` : isMotion ? "This route uses one or two mascot stills plus an uploaded MP4 motion clip." : isText ? "This route creates from text only." : "This route animates your start frame and can generate sound."}</p>
           {isMotion && !referenceVideo && <label>Public reference video URL · optional if you uploaded an MP4<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://…/clip.mp4" /></label>}
           <div className="formGrid two">
-            <label>Length{isLtx && sourceAudio ? <input value={`${sourceAudio.duration} seconds (from audio)`} readOnly /> : <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{(isVeo && (reference || resolution === "1080p") ? [8] : selected?.durations || [5]).map((value) => <option key={value} value={value}>{value} seconds</option>)}</select>}</label>
+            <label>Length{isMotion && referenceVideo ? <input value={`${referenceVideo.duration} seconds (from MP4)`} readOnly /> : isLtx && sourceAudio ? <input value={`${sourceAudio.duration} seconds (from audio)`} readOnly /> : <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{(isVeo && (reference || resolution === "1080p") ? [8] : selected?.durations || [5]).map((value) => <option key={value} value={value}>{value} seconds</option>)}</select>}</label>
             <label>Resolution<select value={resolution} onChange={(event) => { setResolution(event.target.value); if (isVeo && event.target.value === "1080p") setDuration(8); }}>{(selected?.resolutions || ["720p"]).map((value) => <option key={value}>{value}</option>)}</select></label>
             <label>Frame<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>{(selected?.aspectRatios || ["16:9", "9:16"]).map((value) => <option key={value}>{value}</option>)}</select></label>
             {!isMotion && !isLtx && !isVeo && <label className="checkLabel"><input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} /> Generate audio</label>}

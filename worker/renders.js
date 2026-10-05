@@ -1,3 +1,4 @@
+import { bindMotionVideoDuration } from "./referenceVideos.js";
 import { isHiggsfieldProvider, higgsfieldConfigured, higgsfieldLiveEnabled } from "./providers/higgsfield.js";
 import { providers, providerFor } from "./providers/index.js";
 import { fail, validateInput, ProviderError } from "./providers/contract.js";
@@ -368,6 +369,7 @@ async function inputFrom(body, env) {
       403,
     );
   await attachCharacterReferences(body, input, provider, env);
+  await bindMotionVideoDuration(input, env);
   validateInput(input, provider.capabilities);
   if (input.referenceMode != null) {
     if (!isVeoProvider(input.provider) ||
@@ -547,7 +549,10 @@ async function create(request, env) {
       "Review and accept the current cost before rendering.",
       409,
     );
-  if (quote.estimatedCost > policy.singleCeiling)
+  const approvedMascot720 = input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" &&
+    input.provider === "higgsfield-genjutsu-motion" && input.resolution === "720p" && input.duration === 8 &&
+    input.referenceVideos?.[0]?.assetId === "5acfa827-35d8-4168-8564-af5bc37fdc6b";
+  if (quote.estimatedCost > (approvedMascot720 ? 6 : policy.singleCeiling))
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   if (input.projectId === YARD_PROJECT_ID && input.sceneId !== "CREATE" && provider.capabilities.paid && !isHiggsfieldProvider(input.provider)) authorizeYardJob(input, quote, env);
@@ -668,7 +673,7 @@ async function create(request, env) {
       policy.projectCeiling,
       reservationSessionId,
       quote.estimatedCost,
-      input.projectId === YARD_PROJECT_ID ? policy.projectCeiling
+      input.projectId === YARD_PROJECT_ID ? Math.min(policy.projectCeiling, policy.sessionCeiling)
         : enemiesVeoShot(input) ? Math.min(ENEMIES_VEO_SHOT_CEILING_USD, policy.projectCeiling)
         : enemiesProShot(input) ? Math.min(ENEMIES_PRO_SHOT_CEILING_USD, policy.projectCeiling)
         : policy.sessionCeiling,
