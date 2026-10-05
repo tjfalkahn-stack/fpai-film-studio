@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { renderIdentity, renderRequest, renderRequestKey } from "./renderClient.js";
 import { START_FRAME_PROVIDER_LIMIT } from "./shotStartFrame.js";
 import { encodeSourceAudio } from "./audioInput.js";
+import { matchProviderDuration, readVideoDuration, uploadReferenceVideo } from "./referenceVideoClient.js";
 
 const DEFAULT_MODEL = "veo-fast";
 
@@ -72,6 +73,12 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [sourceAudio, setSourceAudio] = useState(null);
   const [sourceAudioName, setSourceAudioName] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+  const [referenceVideo, setReferenceVideo] = useState(null);
+  const [videoName, setVideoName] = useState("");
+  const [videoPreview, setVideoPreview] = useState("");
+  const [extraPhoto, setExtraPhoto] = useState(null);
+  const [extraPreview, setExtraPreview] = useState("");
+  const [extraReference, setExtraReference] = useState(null);
   const [quote, setQuote] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -108,16 +115,20 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   }, []);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   useEffect(() => () => { if (endPreview) URL.revokeObjectURL(endPreview); }, [endPreview]);
+  useEffect(() => () => { if (extraPreview) URL.revokeObjectURL(extraPreview); }, [extraPreview]);
+  useEffect(() => () => { if (videoPreview) URL.revokeObjectURL(videoPreview); }, [videoPreview]);
 
-  async function choosePhoto(file, end = false) {
+  async function choosePhoto(file, slot = "start") {
     if (!file) return;
     setError("");
     setQuote(null);
-    if (end) { setEndPhoto(null); setEndPreview(""); setEndReference(null); }
+    if (slot === "end") { setEndPhoto(null); setEndPreview(""); setEndReference(null); }
+    else if (slot === "extra") { setExtraPhoto(null); setExtraPreview(""); setExtraReference(null); }
     else { setPhoto(null); setPreview(""); setReference(null); }
     try {
       const encoded = await encodePhoto(file);
-      if (end) { setEndPhoto(file); setEndReference(encoded); setEndPreview(URL.createObjectURL(file)); }
+      if (slot === "end") { setEndPhoto(file); setEndReference(encoded); setEndPreview(URL.createObjectURL(file)); }
+      else if (slot === "extra") { setExtraPhoto(file); setExtraReference(encoded); setExtraPreview(URL.createObjectURL(file)); }
       else { setPhoto(file); setReference(encoded); setPreview(URL.createObjectURL(file)); if (isVeo) setDuration(8); }
     } catch (cause) {
       setError(cause.message);
@@ -134,14 +145,42 @@ export default function QuickCreate({ projectId, renders, onRender }) {
     } catch (cause) { setError(cause.message); }
   }
 
+  async function chooseVideo(file) {
+    if (!file) return;
+    setError("");
+    setQuote(null);
+    setReferenceVideo(null);
+    setVideoName("");
+    setVideoPreview("");
+    try {
+      const seconds = await readVideoDuration(file);
+      const matched = matchProviderDuration(seconds, selected?.durations || [5]);
+      const uploaded = await uploadReferenceVideo(file, { duration: matched });
+      setReferenceVideo({
+        assetId: uploaded.id,
+        mimeType: uploaded.mimeType || "video/mp4",
+        duration: matched,
+        url: uploaded.url,
+      });
+      setVideoName(file.name);
+      setVideoPreview(URL.createObjectURL(file));
+      setVideoUrl("");
+      setDuration(matched);
+    } catch (cause) {
+      setError(cause.message);
+    }
+  }
+
   function input(shotId) {
+    const motionImages = [reference, extraReference].filter(Boolean);
     return {
       projectId, sceneId: "CREATE", shotId, provider,
       prompt: prompt.trim(), duration, resolution, aspectRatio,
-      referenceImages: reference ? [reference] : [],
+      referenceImages: isMotion ? motionImages : (reference ? [reference] : []),
       ...(isVeo && reference ? { referenceMode: "start-frame" } : {}),
       ...(supportsEndFrame && endReference ? { endFrameImage: endReference } : {}),
-      ...(isMotion ? { referenceVideos: [{ url: videoUrl.trim() }] } : {}),
+      ...(isMotion && referenceVideo?.assetId ? { referenceVideos: [{ assetId: referenceVideo.assetId, mimeType: "video/mp4" }] } : {}),
+      ...(isMotion && !referenceVideo?.assetId && videoUrl.trim() ? { referenceVideos: [{ url: videoUrl.trim() }] } : {}),
       ...(isLtx && sourceAudio ? { sourceAudio } : {}),
       generateAudio: isVeo ? true : isLtx && sourceAudio ? false : isMotion ? false : audio,
       continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
@@ -151,14 +190,14 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   useEffect(() => {
     let canceled = false;
     setQuote(null);
-    if (!catalog || incompatibleInput || !prompt.trim() || (!isText && !isVeo && !reference) || (isLtx && !sourceAudio) || (isMotion && !/^https:\/\/[^\s]+$/i.test(videoUrl.trim()))) return;
+    if (!catalog || incompatibleInput || !prompt.trim() || (!isText && !isVeo && !reference) || (isLtx && !sourceAudio) || (isMotion && !referenceVideo?.assetId && !/^https:\/\/[^\s]+$/i.test(videoUrl.trim()))) return;
     const timer = setTimeout(() => {
       renderRequest("/api/renders", { ...input("DIRECT_PREVIEW"), estimateOnly: true })
         .then((result) => { if (!canceled) { setQuote(result); setError(""); } })
         .catch((cause) => { if (!canceled) setError(cause.message); });
     }, 350);
     return () => { canceled = true; clearTimeout(timer); };
-  }, [catalog, projectId, provider, reference, endReference, prompt, duration, resolution, aspectRatio, audio, sourceAudio, videoUrl, incompatibleInput]);
+  }, [catalog, projectId, provider, reference, extraReference, endReference, prompt, duration, resolution, aspectRatio, audio, sourceAudio, videoUrl, referenceVideo, incompatibleInput]);
 
   async function generate() {
     if (!quote || busy || incompatibleInput || !ready) return;
@@ -199,25 +238,39 @@ export default function QuickCreate({ projectId, renders, onRender }) {
     <section className="panel quickCreate">
       <span className="eyebrow">DIRECT VIDEO CREATION</span>
       <h2>Choose your model and drop in what you want</h2>
-      <p className="sub">Add a starting picture, a final picture, or your own dialogue or rap track. The model selector shows what can use each input. Google Veo makes sound from your prompt; LTX follows your uploaded audio.</p>
+      <p className="sub">Add pictures, an MP4 motion clip, or your own dialogue or rap track. Motion transfer can use two mascot stills plus one uploaded MP4. The model selector shows what can use each input. Google Veo makes sound from your prompt; LTX follows your uploaded audio.</p>
       <div className="quickCreateGrid">
         <div>
           <h3>Your inputs</h3>
           <div className="quickCreateFrames">
             <label className={`quickCreateDrop ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); choosePhoto(event.dataTransfer.files?.[0]); }}>
-              {preview ? <img src={preview} alt={isMotion ? "Reference image preview" : "Start frame preview"} /> : <strong>{isMotion ? "Reference image" : "Start frame"}</strong>}
+              {preview ? <img src={preview} alt={isMotion ? "First mascot reference preview" : "Start frame preview"} /> : <strong>{isMotion ? "Mascot image 1" : "Start frame"}</strong>}
               <span>{photo ? `${photo.name} · Change image` : "Drop or choose a PNG or JPEG"}</span>
-              <input type="file" aria-label={isMotion ? "Reference image" : "Start frame"} accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0])} />
+              <input type="file" aria-label={isMotion ? "Mascot image 1" : "Start frame"} accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0])} />
             </label>
-            <div>
-              <label className="quickCreateDrop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); choosePhoto(event.dataTransfer.files?.[0], true); }}>
+            {isMotion ? <label className="quickCreateDrop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); choosePhoto(event.dataTransfer.files?.[0], "extra"); }}>
+              {extraPreview ? <img src={extraPreview} alt="Second mascot reference preview" /> : <strong>Mascot image 2</strong>}
+              <span>{extraPhoto ? `${extraPhoto.name} · Change image` : "Drop or choose a PNG or JPEG"}</span>
+              <input type="file" aria-label="Mascot image 2" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0], "extra")} />
+            </label> : <div>
+              <label className="quickCreateDrop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); choosePhoto(event.dataTransfer.files?.[0], "end"); }}>
                 {endPreview ? <img src={endPreview} alt="End frame preview" /> : <strong>End frame · optional</strong>}
                 <span>{endPhoto ? `${endPhoto.name} · Change image` : "Drop or choose a PNG or JPEG"}</span>
-                <input type="file" aria-label="End frame" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0], true)} />
+                <input type="file" aria-label="End frame" accept="image/png,image/jpeg" onChange={(event) => choosePhoto(event.target.files?.[0], "end")} />
               </label>
               {endReference && <button className="ghost" type="button" onClick={() => { setEndPhoto(null); setEndReference(null); setEndPreview(""); setQuote(null); }}>Remove end frame</button>}
-            </div>
+            </div>}
           </div>
+          {isMotion && extraReference && <button className="ghost" type="button" onClick={() => { setExtraPhoto(null); setExtraReference(null); setExtraPreview(""); setQuote(null); }}>Remove second mascot image</button>}
+          {isMotion && <div className="quickCreateAudio" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer.files?.[0]; if (file?.type === "video/mp4") chooseVideo(file); }}>
+            <label>Reference MP4 · motion clip (up to 32 MB)
+              <input type="file" aria-label="Reference MP4" accept="video/mp4" onChange={(event) => chooseVideo(event.target.files?.[0])} />
+            </label>
+            <small>Drop an MP4 here or choose a file. Studio uploads it privately; you do not need a public URL.</small>
+            {videoPreview && <video controls src={videoPreview} preload="metadata" />}
+            {referenceVideo && <small>{videoName} · {referenceVideo.duration}s uploaded</small>}
+            {referenceVideo && <button type="button" className="ghost" onClick={() => { setReferenceVideo(null); setVideoName(""); setVideoPreview(""); setQuote(null); }}>Remove MP4</button>}
+          </div>}
           <div className="quickCreateAudio" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); chooseAudio(event.dataTransfer.files?.[0]); }}><label>Own audio · dialogue, vocals, or rap (WAV, MP3, M4A, OGG; up to 3 MB, 20 seconds)
             <input type="file" accept=".wav,.mp3,.m4a,.ogg,audio/wav,audio/x-wav,audio/mpeg,audio/mp4,audio/ogg" onChange={(event) => chooseAudio(event.target.files?.[0])} /></label>
             <small>Drop a track here or choose a file.</small>
@@ -233,15 +286,15 @@ export default function QuickCreate({ projectId, renders, onRender }) {
             setDuration(next?.audioInput && sourceAudio ? sourceAudio.duration : next?.id.startsWith("veo-") && reference ? 8 : next?.durations?.includes(5) ? 5 : next?.durations?.[0] || 5);
             setResolution(next?.resolutions?.[0] || "720p");
           }}>{["Google Veo", "LTX · use your audio", "Higgsfield"].map((group) => <optgroup key={group} label={group}>{options.filter((item) => group === "Google Veo" ? item.id.startsWith("veo-") : group.startsWith("LTX") ? item.audioInput : item.id.startsWith("higgsfield-")).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</optgroup>)}</select></label>
-          <p className="quickCreateModelHint">{isVeo ? "Google Veo generates speech, music, and effects from the prompt. Start and end frames are optional; it cannot use an uploaded soundtrack." : isLtx ? `LTX syncs the video to your uploaded audio (${provider === "ltx-2.5-pro" ? "10" : "20"} seconds max). Add a start frame if you want.` : isMotion ? "This route uses a reference picture and public motion clip." : isText ? "This route creates from text only." : "This route animates your start frame and can generate sound."}</p>
-          {isMotion && <label>Public reference video URL<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://…/clip.mp4" /></label>}
+          <p className="quickCreateModelHint">{isVeo ? "Google Veo generates speech, music, and effects from the prompt. Start and end frames are optional; it cannot use an uploaded soundtrack." : isLtx ? `LTX syncs the video to your uploaded audio (${provider === "ltx-2.5-pro" ? "10" : "20"} seconds max). Add a start frame if you want.` : isMotion ? "This route uses one or two mascot stills plus an uploaded MP4 motion clip." : isText ? "This route creates from text only." : "This route animates your start frame and can generate sound."}</p>
+          {isMotion && !referenceVideo && <label>Public reference video URL · optional if you uploaded an MP4<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://…/clip.mp4" /></label>}
           <div className="formGrid two">
             <label>Length{isLtx && sourceAudio ? <input value={`${sourceAudio.duration} seconds (from audio)`} readOnly /> : <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{(isVeo && (reference || resolution === "1080p") ? [8] : selected?.durations || [5]).map((value) => <option key={value} value={value}>{value} seconds</option>)}</select>}</label>
             <label>Resolution<select value={resolution} onChange={(event) => { setResolution(event.target.value); if (isVeo && event.target.value === "1080p") setDuration(8); }}>{(selected?.resolutions || ["720p"]).map((value) => <option key={value}>{value}</option>)}</select></label>
             <label>Frame<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>{(selected?.aspectRatios || ["16:9", "9:16"]).map((value) => <option key={value}>{value}</option>)}</select></label>
             {!isMotion && !isLtx && !isVeo && <label className="checkLabel"><input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} /> Generate audio</label>}
           </div>
-          {isMotion && <small>The reference clip must be publicly reachable. Set the length to that clip’s rounded-up duration.</small>}
+          {isMotion && <small>Set the length to the clip’s rounded-up duration. The quote is an estimate; Create Video still submits a paid job.</small>}
           {catalog && provider.startsWith("higgsfield-") && !catalog.policy?.higgsfieldConfigured && <p className="validation">{catalog.policy?.higgsfieldCredentialPresent
             ? <>The video adapter has <b>HF_CREDENTIALS</b>, but its value contains spaces or is otherwise unusable. Edit the existing secret to the complete key copied from Higgsfield and deploy the change.</>
             : <>The video adapter cannot see <b>HF_CREDENTIALS</b>. Check that the existing secret is on <b>fpai-film-studio-video-adapter</b>, then deploy the change in Cloudflare.</>}</p>}
@@ -259,7 +312,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
           {incompatibleInput && <p className="validation" role="alert">{incompatibleInput}</p>}
           {catalog && !ready && <p className="validation">{selected?.availability?.detail || "This model is not ready to render."}</p>}
           {pending.current && <button className="ghost" onClick={() => { pending.current = null; localStorage.removeItem(`fpai-direct-render:${projectId}`); setError(""); }}>Clear unresolved request after checking recent videos</button>}
-          <p>Estimated cost: <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : incompatibleInput || isLtx && !sourceAudio ? "Choose compatible inputs to see a quote" : isVeo || isText ? "Enter a prompt to see a quote" : "Enter a prompt and picture to see a quote"}</b></p>
+          <p>Estimated cost: <b>{quote ? `$${quote.estimatedCost.toFixed(2)}` : incompatibleInput || isLtx && !sourceAudio ? "Choose compatible inputs to see a quote" : isMotion && !referenceVideo?.assetId && !videoUrl.trim() ? "Upload an MP4 or paste a public URL to see a quote" : isVeo || isText ? "Enter a prompt to see a quote" : "Enter a prompt and picture to see a quote"}</b></p>
           <button className="primary full" disabled={!quote || busy || incompatibleInput || (uncertain && !acknowledged) || !ready} onClick={generate}>{busy ? "Submitting…" : quote ? `Create video · $${quote.estimatedCost.toFixed(2)}` : "Create video"}</button>
         </div>
       </div>

@@ -15,6 +15,7 @@ import {
 import { withCharacterContinuity } from "./characterContinuity.js";
 import { YARD_PROJECT_ID } from "./yardProduction.js";
 import { encodeSourceAudio } from "./audioInput.js";
+import { matchProviderDuration, readVideoDuration, uploadReferenceVideo } from "./referenceVideoClient.js";
 import {
   START_FRAME_PROVIDER_LIMIT,
   isLtxProviderId,
@@ -113,6 +114,8 @@ export default function RenderPanel({
   const [sourceAudio, setSourceAudio] = useState(null);
   const [sourceAudioName, setSourceAudioName] = useState("");
   const [referenceVideoUrl, setReferenceVideoUrl] = useState("");
+  const [referenceVideo, setReferenceVideo] = useState(null);
+  const [referenceVideoName, setReferenceVideoName] = useState("");
   const isHiggsfield = String(provider).startsWith("higgsfield-");
   const isHiggsfieldMotion = capabilities?.inputKind === "motion";
   const isHiggsfieldText = capabilities?.inputKind === "text";
@@ -147,7 +150,7 @@ export default function RenderPanel({
   }, [usesStartFrame, shot.startFrame?.key]);
   async function input() {
     if (capabilities?.requiresStartFrame && !shot.startFrame?.key) throw new Error("Upload a composed Shot Start Frame for this model.");
-    if (isHiggsfieldMotion && !/^https:\/\/[^\s]+$/i.test(referenceVideoUrl)) throw new Error("Paste a public HTTPS reference video URL.");
+    if (isHiggsfieldMotion && !referenceVideo?.assetId && !/^https:\/\/[^\s]+$/i.test(referenceVideoUrl)) throw new Error("Upload an MP4 or paste a public HTTPS reference video URL.");
     // Fail closed when local metadata points to missing blobs before any paid submission.
     if (capabilities?.paid && !isHiggsfield) {
       for (const c of characters)
@@ -188,7 +191,8 @@ export default function RenderPanel({
       referenceImages: inline,
       ...(isLtx && sourceAudio ? { sourceAudio } : {}),
       ...(endFrameFile ? { endFrameImage: await encodeImage(endFrameFile) } : {}),
-      ...(isHiggsfieldMotion ? { referenceVideos: [{ url: referenceVideoUrl.trim() }] } : {}),
+      ...(isHiggsfieldMotion && referenceVideo?.assetId ? { referenceVideos: [{ assetId: referenceVideo.assetId, mimeType: "video/mp4" }] } : {}),
+      ...(isHiggsfieldMotion && !referenceVideo?.assetId ? { referenceVideos: [{ url: referenceVideoUrl.trim() }] } : {}),
       ...(provider === "veo-fast" ? { referenceMode: usesStartFrame ? "start-frame" : "reference-images" } : {}),
       generateAudio: isHiggsfield ? higgsfieldAudio : String(provider).startsWith("seedance-") ? true : undefined,
       characterIds: characters.map((c) => c.id),
@@ -241,6 +245,7 @@ export default function RenderPanel({
     sourceAudio,
     higgsfieldAudio,
     referenceVideoUrl,
+    referenceVideo,
     duration,
     resolution,
     aspectRatio,
@@ -505,7 +510,21 @@ export default function RenderPanel({
     <section className="renderPanel">
       <h3>Generate Take</h3>
       {isHiggsfield && capabilities?.audio && <label><input type="checkbox" checked={higgsfieldAudio} onChange={(e) => setHiggsfieldAudio(e.target.checked)} /> Generate audio with Higgsfield</label>}
-      {isHiggsfieldMotion && <label>Reference video URL <input type="url" aria-label="Reference video URL" placeholder="https://…/clip.mp4" value={referenceVideoUrl} onChange={(e) => setReferenceVideoUrl(e.target.value)} /></label>}
+      {isHiggsfieldMotion && <label>Reference MP4 <input type="file" aria-label="Reference MP4" accept="video/mp4" onChange={async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setError(""); setQuote(null); setReferenceVideo(null); setReferenceVideoName("");
+        try {
+          const seconds = await readVideoDuration(file);
+          const matched = matchProviderDuration(seconds, capabilities?.durations || [5]);
+          const uploaded = await uploadReferenceVideo(file, { duration: matched });
+          setReferenceVideo({ assetId: uploaded.id, mimeType: "video/mp4", duration: matched });
+          setReferenceVideoName(file.name);
+          setReferenceVideoUrl("");
+          setDuration(matched);
+        } catch (cause) { setError(cause.message); }
+      }} />{referenceVideoName ? <small>{referenceVideoName} uploaded</small> : <small>Upload an MP4 or paste a public HTTPS URL.</small>}</label>}
+      {isHiggsfieldMotion && !referenceVideo && <label>Reference video URL <input type="url" aria-label="Reference video URL" placeholder="https://…/clip.mp4" value={referenceVideoUrl} onChange={(e) => setReferenceVideoUrl(e.target.value)} /></label>}
       <div className="formGrid two">
         <label>
           Renderer

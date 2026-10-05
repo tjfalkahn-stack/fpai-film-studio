@@ -98,7 +98,7 @@ npx wrangler d1 execute fpai-film-studio-generation --config wrangler.toml --rem
 npx wrangler d1 execute fpai-film-studio-generation --config wrangler.toml --remote --file=worker/character-schema.sql
 ```
 
-4. Configure a Cloudflare Access **self-hosted application** covering the entire frontend hostname, with an Allow policy restricted to the owner. Put its team domain and application AUD in `wrangler.frontend.toml` as `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`. Keep the `VIDEO_ADAPTER` service binding. The frontend verifies the JWT itself and returns 401 if these are absent or incorrect. Protect every alternate hostname, including workers.dev; an unprotected hostname still fails closed at the Worker.
+4. Configure a Cloudflare Access **self-hosted application** covering the entire frontend hostname, with an Allow policy restricted to the owner. Production deploys use `wrangler.frontend.production.toml` (`ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`) with `--keep-vars`. Keep the `VIDEO_ADAPTER` service binding. The frontend verifies the JWT itself and returns 401 if these are absent or incorrect. Do not deploy `wrangler.frontend.toml` placeholders and do not set `LOCAL_DEV` on the public hostname. Protect every alternate hostname, including workers.dev; an unprotected hostname still fails closed at the Worker.
 
 5. If not already set, store the same strong private control token on **both** Workers using the interactive secret prompts. Keep the existing token if both services already share one. Never put it in browser code or Vite variables:
 
@@ -115,9 +115,9 @@ No Gemini key is needed for mock deployment. If Workers already have secrets, th
 npm test
 npm run build
 npx wrangler deploy --dry-run --config wrangler.toml
-npx wrangler deploy --dry-run --config wrangler.frontend.toml
+npx wrangler deploy --dry-run --config wrangler.frontend.production.toml
 npm run render:deploy
-npx wrangler deploy --config wrangler.frontend.toml
+npx wrangler deploy --config wrangler.frontend.production.toml --keep-vars
 ```
 
 7. Check the deployed adapter's `/health` URL printed by Wrangler. `liveExecutionReady` and `liveRenderingEnabled` must both be `false`. Sign in to the frontend through Access and repeat the mock smoke test. Test signed-in playback as well as an unauthenticated API request (must receive 401).

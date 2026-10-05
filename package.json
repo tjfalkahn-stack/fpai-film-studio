@@ -17,7 +17,7 @@
     "render:dev": "wrangler dev --config wrangler.render.local.toml --ip 127.0.0.1 --port 8787",
     "render:schema:local": "wrangler d1 execute fpai-film-studio-generation --config wrangler.render.local.toml --local --file=worker/render-schema.sql",
     "render:deploy": "wrangler deploy --config wrangler.toml",
-    "frontend:deploy": "npm run build && wrangler deploy --config wrangler.frontend.toml",
+    "frontend:deploy": "npm run build && wrangler deploy --config wrangler.frontend.production.toml --keep-vars",
     "typecheck": "tsc --noEmit",
     "test:film": "node --test tests/film-*.test.js"
   },

@@ -1,5 +1,6 @@
 import { ProviderError, fail } from "./contract.js";
 import { signedHiggsfieldInputUrl } from "./higgsfieldInput.js";
+import { referenceVideoExists, signedReferenceVideoUrl } from "../referenceVideos.js";
 
 const ORIGIN = "https://api.higgsfield.ai";
 const seconds = (minimum, maximum) => Array.from({ length: maximum - minimum + 1 }, (_, index) => minimum + index);
@@ -26,6 +27,22 @@ function safeUrl(value, api = false) {
       (api && (url.origin !== ORIGIN || !/^\/requests\/[a-f0-9-]+\/status$/i.test(url.pathname))))
     fail("HIGGSFIELD_RESPONSE", "Unsafe Higgsfield response URL.", 502);
   return url.href;
+}
+function motionVideoRef(input) {
+  const videos = Array.isArray(input.referenceVideos) ? input.referenceVideos : [];
+  if (videos.length !== 1) fail("INVALID_REFERENCES", "Motion transfer needs one HTTPS reference video URL or one uploaded MP4.");
+  const video = videos[0] || {};
+  if (typeof video.assetId === "string" && /^[a-f0-9-]{36}$/i.test(video.assetId)) return { kind: "asset", assetId: video.assetId };
+  if (typeof video.url === "string" && video.url) return { kind: "url", url: safeUrl(video.url) };
+  fail("INVALID_REFERENCES", "Motion transfer needs one HTTPS reference video URL or one uploaded MP4.");
+}
+async function motionVideoUrl(env, input) {
+  const video = motionVideoRef(input);
+  if (video.kind === "url") return video.url;
+  if (env.GENERATION_MEDIA && !(await referenceVideoExists(env, video.assetId))) {
+    fail("INVALID_REFERENCES", "Upload the reference MP4 again before generating.", 404);
+  }
+  return signedReferenceVideoUrl(env, video.assetId);
 }
 function auth(env) {
   if (!higgsfieldConfigured(env)) fail("PROVIDER_CONFIG", "Set the server HF_CREDENTIALS secret to the complete Higgsfield API key.", 503);
@@ -69,8 +86,7 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
     if (spec.kind === "text" && refs.length) fail("INVALID_REFERENCES", "Text to video does not take image references.");
     if (spec.kind === "motion") {
       if (!refs.length || refs.length > 8) fail("INVALID_REFERENCES", "Motion transfer needs one to eight reference images.");
-      if (input.referenceVideos?.length !== 1) fail("INVALID_REFERENCES", "Motion transfer needs one HTTPS reference video URL.");
-      safeUrl(input.referenceVideos[0]?.url);
+      motionVideoRef(input);
     }
     const sound = input.generateAudio === false ? "SILENT" : "AUDIO";
     const rateKey = spec.kind === "motion"
@@ -100,12 +116,13 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
       referenceImages: spec.kind !== "text", requiresStartFrame: spec.kind === "image",
       requiresVideoUrl: spec.kind === "motion", audio: spec.kind !== "motion", generateAudio: spec.kind !== "motion", cancelRunning: false,
       ledgerRoutes: Object.fromEntries(spec.resolutions.map(resolution => [resolution, id])),
-      uiHint: spec.kind === "motion" ? "Paste a public HTTPS clip URL and choose character images. Match Source duration to the clip for the cost quote." : spec.kind === "image" ? "Upload a start frame and, optionally, an end frame. Match their aspect ratios." : "Text only; no frames are sent.",
+      uiHint: spec.kind === "motion" ? "Upload an MP4 or paste a public HTTPS clip URL, then add one to eight character images. Match Source duration to the clip for the cost quote." : spec.kind === "image" ? "Upload a start frame and, optionally, an end frame. Match their aspect ratios." : "Text only; no frames are sent.",
     },
     estimate,
     async start(input) {
       const headers = auth(env);
       estimate(input);
+      const motionUrl = spec.kind === "motion" ? await motionVideoUrl(env, input) : null;
       const imageUrls = [];
       let uploadStage = "image preparation";
       try {
@@ -143,7 +160,7 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
         throw new ProviderError("HIGGSFIELD_IMAGE_PREPARATION", `Higgsfield ${uploadStage} failed before video submission. No video request was submitted.`, { httpStatus: 502, retryable: true });
       }
       const payload = spec.kind === "motion"
-        ? { prompt: input.prompt, video_url: safeUrl(input.referenceVideos[0].url), image_urls: imageUrls, resolution: input.resolution }
+        ? { prompt: input.prompt, video_url: motionUrl, image_urls: imageUrls, resolution: input.resolution }
         : spec.price === "HIGGSFIELD_SEEDANCE25"
           ? { prompt: input.prompt, duration: input.duration, resolution: input.resolution,
               ...(spec.kind === "image" ? { image_url: imageUrls[0], ...(input.endFrameImage ? { end_image_url: imageUrls[1] } : {}) } : { aspect_ratio: input.aspectRatio }),

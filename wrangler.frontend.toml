@@ -1,3 +1,6 @@
+# Local/example config. ACCESS_* placeholders fail closed and must not be
+# deployed. Production deploys use wrangler.frontend.production.toml with
+# --keep-vars so owner-only Access and FPAI_CONTROL_TOKEN stay in place.
 name = "fpai-film-studio"
 main = "frontend-worker/index.js"
 compatibility_date = "2026-09-04"

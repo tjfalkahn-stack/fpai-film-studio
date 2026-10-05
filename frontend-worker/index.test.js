@@ -206,7 +206,7 @@ test("sanitized responses never include the control token", () => {
 });
 
 test("frontend wrangler config is worker-first and uses a service binding", () => {
-  for (const file of ["wrangler.frontend.toml", "wrangler.frontend.example.toml"]) {
+  for (const file of ["wrangler.frontend.toml", "wrangler.frontend.example.toml", "wrangler.frontend.production.toml"]) {
     const toml = readFileSync(join(root, file), "utf8");
     assert.match(toml, /main\s*=\s*"frontend-worker\/index\.js"/);
     assert.match(toml, /workers_dev\s*=\s*true/);
@@ -218,5 +218,50 @@ test("frontend wrangler config is worker-first and uses a service binding", () =
     assert.match(toml, /service\s*=\s*"fpai-film-studio-video-adapter"/);
     assert.equal(toml.includes(TOKEN), false);
     assert.equal(/FPAI_CONTROL_TOKEN\s*=/.test(toml), false);
+    assert.equal(/LOCAL_DEV\s*=/.test(toml), false);
   }
+});
+
+test("production frontend config keeps owner-only Access and does not use placeholders", () => {
+  const toml = readFileSync(join(root, "wrangler.frontend.production.toml"), "utf8");
+  assert.match(toml, /ACCESS_TEAM_DOMAIN\s*=\s*"black-dream-df71\.cloudflareaccess\.com"/);
+  assert.match(toml, /ACCESS_AUD\s*=\s*"ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47"/);
+  assert.equal(toml.includes("YOUR-TEAM"), false);
+  assert.equal(toml.includes("REPLACE_WITH_ACCESS_APPLICATION_AUD"), false);
+});
+
+test("POST /api/reference-videos forwards multipart through the service binding", async () => {
+  let captured;
+  const env = {
+    LOCAL_DEV: "true",
+    FPAI_CONTROL_TOKEN: TOKEN,
+    VIDEO_ADAPTER: {
+      async fetch(req) {
+        captured = {
+          url: req.url,
+          method: req.method,
+          contentType: req.headers.get("content-type"),
+          authorization: req.headers.get("authorization"),
+          body: await req.arrayBuffer(),
+        };
+        return new Response(JSON.stringify({ id: "ok", generationStarted: false }), {
+          status: 201,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        });
+      },
+    },
+    ASSETS: { fetch: async () => new Response("nope", { status: 500 }) },
+  };
+  const form = new FormData();
+  form.set("file", new File([new Uint8Array([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70])], "clip.mp4", { type: "video/mp4" }));
+  const response = await worker.fetch(new Request("http://localhost/api/reference-videos", {
+    method: "POST",
+    body: form,
+  }), env);
+  assert.equal(response.status, 201);
+  assert.equal(captured.method, "POST");
+  assert.equal(captured.url, `${ADAPTER_URL}/api/reference-videos`);
+  assert.equal(captured.authorization, `Bearer ${TOKEN}`);
+  assert.match(captured.contentType, /multipart\/form-data/);
+  assert.ok(captured.body.byteLength > 0);
 });

@@ -4,6 +4,7 @@ import { filmRoutes } from "./filmEngine.js";
 import { createCharacterFactoryRuntime } from "./characterFactoryRuntime.js";
 import { serveHiggsfieldInput } from "./providers/higgsfieldInput.js";
 import { probeHiggsfieldUploadConnection } from "./providers/higgsfield.js";
+import { referenceVideoRoutes, serveSignedReferenceVideo } from "./referenceVideos.js";
 import { readVeoOutcome } from "./providers/veo.js";
 import { ROUTES } from "../src/economy.js";
 
@@ -444,6 +445,8 @@ export default {
     const url = new URL(request.url);
     if (/^\/api\/renders\/[a-f0-9-]{36}\/input$/i.test(url.pathname) && request.method === "GET")
       return serveHiggsfieldInput(request, env);
+    const signedVideo = await serveSignedReferenceVideo(request, env);
+    if (signedVideo) return signedVideo;
     if (url.pathname === "/health/veo" && request.method === "GET")
       return json({ ok: true, probe: await probeVeoConnection(env) }, 200, cors);
     if (url.pathname === "/health") {
@@ -522,6 +525,13 @@ export default {
       }
       if (url.pathname === "/api/higgsfield/probe" && request.method === "POST")
         return json({ probe: await probeHiggsfieldUploadConnection(env), videoSubmitted: false }, 200, cors);
+      if (url.pathname.startsWith("/api/reference-videos")) {
+        const response = await referenceVideoRoutes(request, env);
+        if (response) {
+          for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);
+          return response;
+        }
+      }
       if (url.pathname.startsWith("/api/renders") || url.pathname === "/api/renderers") return renderRoutes(request, env);
       if (url.pathname.startsWith("/api/generation-jobs") && request.method === "POST") return json({ error: "Legacy provider execution is disabled. Use /api/renders with the render cost gate." }, 403, cors);
       if (request.method === "POST" && url.pathname === "/api/generation-jobs") {

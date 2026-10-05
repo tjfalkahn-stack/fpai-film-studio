@@ -731,7 +731,7 @@ svg{display:block}
 .quickCreateFrames .quickCreateDrop img{height:210px}
 .quickCreateAudio{padding:16px;margin:14px 0;border:1px dashed #7657aa;border-radius:14px;background:#1b1426}
 .quickCreateAudio input[type=file]{max-width:100%}
-.quickCreateAudio audio{display:block;width:100%;margin:10px 0}
+.quickCreateAudio audio,.quickCreateAudio video{display:block;width:100%;margin:10px 0}
 .quickCreateAudio small{display:block;color:#c5addf;margin:8px 0}
 .quickCreateModelHint{padding:12px;border-radius:10px;background:#23192f;color:#e1d1ed;line-height:1.45}
 .quickCreateDrop.dragging{border-color:#d1afff;background:#241a32}

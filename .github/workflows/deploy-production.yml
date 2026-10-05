@@ -65,28 +65,18 @@ jobs:
           bucket_name = "fpai-film-studio-generation-media"
           EOF
 
-          cat > wrangler.frontend.deploy.toml <<'EOF'
-          name = "fpai-film-studio"
-          main = "frontend-worker/index.js"
-          compatibility_date = "2026-09-04"
-          workers_dev = true
-
-          [vars]
-          ACCESS_TEAM_DOMAIN = "black-dream-df71.cloudflareaccess.com"
-          ACCESS_AUD = "ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47"
-          VIDEO_ADAPTER_URL = "https://fpai-film-studio-video-adapter.tjfalkahn.workers.dev"
-
-          [assets]
-          directory = "./dist"
-          binding = "ASSETS"
-          not_found_handling = "single-page-application"
-          html_handling = "auto-trailing-slash"
-          run_worker_first = true
-
-          [[services]]
-          binding = "VIDEO_ADAPTER"
-          service = "fpai-film-studio-video-adapter"
-          EOF
+          cp wrangler.frontend.production.toml wrangler.frontend.deploy.toml
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("wrangler.frontend.production.toml").read_text()
+          assert 'binding = "VIDEO_ADAPTER"' in text
+          assert 'service = "fpai-film-studio-video-adapter"' in text
+          assert 'ACCESS_TEAM_DOMAIN = "black-dream-df71.cloudflareaccess.com"' in text
+          assert "LOCAL_DEV" not in text
+          assert "FPAI_CONTROL_TOKEN" not in text
+          assert "YOUR-TEAM" not in text
+          print("frontend production config keeps VIDEO_ADAPTER and owner-only Access")
+          PY
 
       - name: Deploy video adapter
         run: npx wrangler deploy --config wrangler.deploy.toml --keep-vars
@@ -95,7 +85,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
 
       - name: Deploy frontend
-        run: npx wrangler deploy --config wrangler.frontend.deploy.toml --keep-vars
+        run: npx wrangler deploy --config wrangler.frontend.production.toml --keep-vars
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: "923ec9549d7b93161155bd4d207fbd9f"
