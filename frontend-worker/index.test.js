@@ -227,7 +227,7 @@ test("production frontend config keeps owner-only Access and does not use placeh
   const toml = readFileSync(join(root, "wrangler.frontend.production.toml"), "utf8");
   const parsed = assertFrontendProductionConfig(toml);
   assert.equal(parsed.vars.ACCESS_TEAM_DOMAIN, "black-dream-df71.cloudflareaccess.com");
-  assert.equal(parsed.vars.ACCESS_AUD, "ce69ac4d6fad40fd463939b248b4dbec611d2e315370486dc00a03782d680d47");
+  assert.equal(parsed.vars.ACCESS_AUD, "6e7f30290052789eb600d8f444f927c89d2159a4d3df4434777397fbd4163271");
   assert.equal(Object.hasOwn(parsed.vars, "LOCAL_DEV"), false);
   assert.equal(Object.hasOwn(parsed.vars, "FPAI_CONTROL_TOKEN"), false);
 });
