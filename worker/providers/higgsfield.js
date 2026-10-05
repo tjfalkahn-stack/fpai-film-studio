@@ -131,7 +131,12 @@ export function createHiggsfieldProvider(env = {}, fetchImpl = fetch, route = "p
           imageUrls.push(await signedHiggsfieldInputUrl(env, input.renderId));
           if (input.endFrameImage) imageUrls.push(await signedHiggsfieldInputUrl(env, input.renderId, Date.now(), "end"));
         }
-        const uploadRefs = spec.kind === "image" && input.renderId ? [] : [
+        if (spec.kind === "motion" && input.renderId) {
+          uploadStage = "signed input link creation";
+          for (let index = 0; index < input.referenceImages.length; index++)
+            imageUrls.push(await signedHiggsfieldInputUrl(env, input.renderId, Date.now(), `ref-${index}`));
+        }
+        const uploadRefs = ["image", "motion"].includes(spec.kind) && input.renderId ? [] : [
           ...(input.referenceImages || []),
           ...(spec.kind === "image" && input.endFrameImage ? [input.endFrameImage] : []),
         ];

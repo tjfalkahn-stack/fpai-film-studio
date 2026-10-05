@@ -1,3 +1,4 @@
+import { bindMotionVideoDuration } from "./referenceVideos.js";
 import { isHiggsfieldProvider, higgsfieldConfigured, higgsfieldLiveEnabled } from "./providers/higgsfield.js";
 import { providers, providerFor } from "./providers/index.js";
 import { fail, validateInput, ProviderError } from "./providers/contract.js";
@@ -368,6 +369,7 @@ async function inputFrom(body, env) {
       403,
     );
   await attachCharacterReferences(body, input, provider, env);
+  await bindMotionVideoDuration(input, env);
   validateInput(input, provider.capabilities);
   if (input.referenceMode != null) {
     if (!isVeoProvider(input.provider) ||
@@ -547,7 +549,7 @@ async function create(request, env) {
       "Review and accept the current cost before rendering.",
       409,
     );
-  if (!isHiggsfieldProvider(input.provider) && quote.estimatedCost > policy.singleCeiling)
+  if (quote.estimatedCost > singleRenderCeiling(input, policy.singleCeiling))
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   if (input.projectId === YARD_PROJECT_ID && input.sceneId !== "CREATE" && provider.capabilities.paid && !isHiggsfieldProvider(input.provider)) authorizeYardJob(input, quote, env);
@@ -555,13 +557,7 @@ async function create(request, env) {
   const hash = await sha(JSON.stringify(input));
   // Yard takes share the project ceiling. The session ceiling for the other
   // controlled render tests remains unchanged.
-  const reservationSessionId = input.projectId === YARD_PROJECT_ID
-    ? (["TSU", ...YARD_REMAINING_SHOTS].includes(input.shotId) ? `yard-${input.shotId.toLowerCase()}-pro-first-test` : policy.sessionId)
-    : enemiesVeoShot(input)
-      ? `enemies-veo-${input.sceneId}-${input.shotId}`
-    : enemiesProShot(input)
-      ? `enemies-pro-${input.sceneId}-${input.shotId}`
-    : policy.sessionId;
+  const reservationSessionId = reservationSessionFor(input, policy);
   const reviewedShot = input.projectId === YARD_PROJECT_ID || enemiesVeoShot(input) || directVeoShot(input) || enemiesProShot(input) || isHiggsfieldProvider(input.provider);
   const db = dbOf(env);
   const existing = await db
@@ -607,6 +603,7 @@ async function create(request, env) {
     } : undefined,
     referenceVideos: Array.isArray(input.referenceVideos)
       ? input.referenceVideos.map((ref) => ({
+          ...(ref.assetId ? { assetId: ref.assetId } : {}),
           ...(ref.url ? { url: ref.url } : {}),
           ...(ref.mimeType ? { mimeType: ref.mimeType } : {}),
           role: "reference-video",
@@ -639,6 +636,10 @@ async function create(request, env) {
         (SELECT COUNT(*) FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status IN ('queued','starting','running')) = 0
         AND COALESCE((SELECT CASE WHEN id=? THEN '' ELSE id END FROM renders WHERE project_id=? AND shot_id=? AND (provider LIKE 'ltx-2.5-%' OR provider LIKE 'veo-%' OR provider LIKE 'higgsfield-%') AND status='uncertain' ORDER BY created_at DESC, rowid DESC LIMIT 1),'') = ''
       ))
+      AND (?=0 OR (
+        (SELECT COUNT(*) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') < 5
+        AND (SELECT COALESCE(SUM(COALESCE(actual_cost,0)+reserved_cost),0) FROM renders WHERE project_id=? AND scene_id='CREATE' AND provider='higgsfield-genjutsu-motion') + ? <= 10
+      ))
     ON CONFLICT(project_id,request_key) DO NOTHING`,
     )
     .bind(
@@ -656,14 +657,15 @@ async function create(request, env) {
       JSON.stringify(storedInput),
       stamp(),
       stamp(),
-      isHiggsfieldProvider(input.provider) ? 0 : quote.estimatedCost,
+      quote.estimatedCost,
       input.projectId,
       input.projectId,
       quote.estimatedCost,
       policy.projectCeiling,
       reservationSessionId,
       quote.estimatedCost,
-      input.projectId === YARD_PROJECT_ID ? policy.projectCeiling
+      approvedMascotDirect(input) ? 10
+        : input.projectId === YARD_PROJECT_ID ? Math.min(policy.projectCeiling, policy.sessionCeiling)
         : enemiesVeoShot(input) ? Math.min(ENEMIES_VEO_SHOT_CEILING_USD, policy.projectCeiling)
         : enemiesProShot(input) ? Math.min(ENEMIES_PRO_SHOT_CEILING_USD, policy.projectCeiling)
         : policy.sessionCeiling,
@@ -675,6 +677,10 @@ async function create(request, env) {
       body.acknowledgeUncertainRenderId || "",
       input.projectId,
       input.shotId,
+      input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" && input.provider === "higgsfield-genjutsu-motion" ? 1 : 0,
+      input.projectId,
+      input.projectId,
+      quote.estimatedCost,
     )
     .run();
   const row = await db
@@ -1074,4 +1080,25 @@ export async function renderRoutes(request, env) {
   } catch (error) {
     return json({ error: err(error) }, error.httpStatus || 500);
   }
+}
+
+export function approvedMascotDirect(input) {
+  return input.projectId === YARD_PROJECT_ID && input.sceneId === "CREATE" &&
+    input.provider === "higgsfield-genjutsu-motion" && /^DIRECT_[\w-]+$/.test(input.shotId || "") && input.resolution === "720p" && input.duration === 8 &&
+    input.referenceVideos?.[0]?.assetId === "5acfa827-35d8-4168-8564-af5bc37fdc6b";
+}
+
+export function singleRenderCeiling(input, defaultCeiling) {
+  return approvedMascotDirect(input) ? 6 : defaultCeiling;
+}
+
+export function reservationSessionFor(input, policy) {
+  if (approvedMascotDirect(input)) return "yard-mascot-motion-2026-10-05";
+  return input.projectId === YARD_PROJECT_ID && input.sceneId === "YARD" && Boolean(yardTrialFor(input.shotId, input.provider))
+    ? (["TSU", ...YARD_REMAINING_SHOTS].includes(input.shotId) ? `yard-${input.shotId.toLowerCase()}-pro-first-test` : policy.sessionId)
+    : enemiesVeoShot(input)
+      ? `enemies-veo-${input.sceneId}-${input.shotId}`
+    : enemiesProShot(input)
+      ? `enemies-pro-${input.sceneId}-${input.shotId}`
+    : policy.sessionId;
 }

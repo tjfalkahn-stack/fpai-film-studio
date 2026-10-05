@@ -65,3 +65,10 @@ export async function uploadReferenceVideo(file, { duration } = {}) {
   }
   return result;
 }
+
+export function durationAfterModelSwitch(next, { referenceVideo, sourceAudio, reference } = {}) {
+  return next?.id === "higgsfield-genjutsu-motion" && referenceVideo ? referenceVideo.duration
+    : next?.audioInput && sourceAudio ? sourceAudio.duration
+    : next?.id.startsWith("veo-") && reference ? 8
+    : next?.durations?.includes(5) ? 5 : next?.durations?.[0] || 5;
+}

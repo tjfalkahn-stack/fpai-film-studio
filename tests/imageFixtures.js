@@ -79,13 +79,10 @@ export function makeWebp(width = 64, height = 64, salt = 0) {
   return riff;
 }
 
-export function makeMp4() {
-  const box = Buffer.alloc(24, 0);
-  box.writeUInt32BE(24, 0);
-  box.write("ftyp", 4);
-  box.write("isom", 8);
-  box.writeUInt32BE(1, 12);
-  box.write("isom", 16);
-  box.write("iso2", 20);
-  return box;
+export function makeMp4(duration = 5) {
+  const bytes = Buffer.alloc(52), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const box = (at, size, name) => { view.setUint32(at, size); bytes.write(name, at + 4); };
+  box(0, 16, "ftyp"); box(16, 36, "moov"); box(24, 28, "mvhd");
+  view.setUint32(44, 1000); view.setUint32(48, duration * 1000);
+  return bytes;
 }
