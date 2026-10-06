@@ -1,4 +1,4 @@
-import { GROOVES_PROJECT_ID, GROOVES_PROVIDER } from "./groovesProduction.js";
+import { groovesPlanFor } from "./groovesProduction.js";
 import React, { useEffect, useRef, useState } from "react";
 import { renderIdentity, renderRequest, renderRequestKey } from "./renderClient.js";
 import { START_FRAME_PROVIDER_LIMIT } from "./shotStartFrame.js";
@@ -58,9 +58,9 @@ function RecoverPaidJob({ job, onRender }) {
 }
 
 export default function QuickCreate({ projectId, renders, onRender }) {
-  const grooves = projectId === GROOVES_PROJECT_ID;
+  const grooves = groovesPlanFor(projectId);
   const [catalog, setCatalog] = useState(null);
-  const [provider, setProvider] = useState(grooves ? GROOVES_PROVIDER : DEFAULT_MODEL);
+  const [provider, setProvider] = useState(grooves ? grooves.provider : DEFAULT_MODEL);
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState("");
   const [reference, setReference] = useState(null);
@@ -69,7 +69,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [endReference, setEndReference] = useState(null);
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(grooves ? 10 : 5);
-  const [resolution, setResolution] = useState("720p");
+  const [resolution, setResolution] = useState(grooves?.resolution || "720p");
   const [aspectRatio, setAspectRatio] = useState(grooves ? "9:16" : "16:9");
   const [audio, setAudio] = useState(grooves);
   const [sourceAudio, setSourceAudio] = useState(null);
@@ -89,7 +89,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [dragging, setDragging] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const pending = useRef(null);
-  const options = (catalog?.providers || []).filter((item) => grooves ? item.id === GROOVES_PROVIDER : item.id.startsWith("higgsfield-") || item.audioInput || item.id.startsWith("veo-"));
+  const options = (catalog?.providers || []).filter((item) => grooves ? item.id === grooves.provider : item.id.startsWith("higgsfield-") || item.audioInput || item.id.startsWith("veo-"));
   const selected = options.find((item) => item.id === provider);
   const isVeo = provider.startsWith("veo-");
   const isLtx = Boolean(selected?.audioInput);
@@ -241,7 +241,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
       <span className="eyebrow">DIRECT VIDEO CREATION</span>
       <h2>Choose your model and drop in what you want</h2>
       <p className="sub">Add pictures, an MP4 motion clip, or your own dialogue or rap track. Motion transfer can use two mascot stills plus one uploaded MP4. The model selector shows what can use each input. Google Veo makes sound from your prompt; LTX follows your uploaded audio.</p>
-      {grooves && <p className="sub">One approved 10-second portrait clip with native audio. Total limit $1.30. No additional take is available after submission.</p>}
+      {grooves && <p className="sub">One approved 10-second portrait clip with native audio. Total limit ${grooves.cap.toFixed(2)}. No additional take is available after submission.</p>}
       <div className="quickCreateGrid">
         <div>
           <h3>Your inputs</h3>
