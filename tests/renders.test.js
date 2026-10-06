@@ -1201,7 +1201,7 @@ test("Grooves Pro preserves consumed Standard and enforces isolated scope, one a
     await db.prepare("UPDATE renders SET actual_cost=1.26,reserved_cost=0 WHERE project_id=?").bind(standardId).run();
     const original=await db.prepare("SELECT * FROM renders WHERE project_id=?").bind(standardId).first();
     assert.ok(original);
-    for (const extra of [{provider:"higgsfield-kling-3-standard"},{duration:8},{resolution:"720p"},{aspectRatio:"16:9"},{generateAudio:false},{referenceImages:[]}]) {
+    for (const extra of [{provider:"higgsfield-kling-3-standard"},{duration:8},{resolution:"720p"},{aspectRatio:"16:9"},{generateAudio:false},{generateAudio:{provider:"higgsfield-kling-3-pro"}},{referenceImages:[]}]) {
       const result=await call("/api/renders",{...request,...extra,estimateOnly:true});
       assert.equal(result.response.status,403,JSON.stringify(extra));
       assert.equal(result.data.error.code,"GROOVES_SCOPE");
