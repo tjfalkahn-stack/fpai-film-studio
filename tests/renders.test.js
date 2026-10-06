@@ -1184,3 +1184,53 @@ test("Grooves scope, isolated reservation, atomic one-attempt cap and idempotent
     assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM renders WHERE project_id=?").bind(projectId).first()).n,1);
   } finally { env=previous; }
 });
+
+
+test("Grooves Pro preserves consumed Standard and enforces isolated scope, one attempt and combined ceiling", async (t) => {
+  noNetwork(t);
+  const previous=env;
+  env={...env,HF_CREDENTIALS:"test-id:test-secret",RENDER_PROJECT_CEILING_USD:"25",RENDER_SESSION_CEILING_USD:"10",MAX_SINGLE_JOB_USD:"4"};
+  const projectId="grooves-pv-pro-2026-10-06";
+  const standardId="grooves-pv-talking-2026-10-05";
+  const request=body(undefined,{projectId,sceneId:"CREATE",shotId:"DIRECT_pro",
+    provider:"higgsfield-kling-3-pro",duration:10,resolution:"1080p",aspectRatio:"9:16",generateAudio:true,
+    referenceImages:[{mimeType:"image/png",data:"iVBORw0KGgo="}],
+    continuity:{ready:true,animaticLocked:true,timingApproved:true,hasCharacters:false}});
+  try {
+    // Previous test left the single Standard row completed with no cost; reconcile to real approved cost.
+    await db.prepare("UPDATE renders SET actual_cost=1.26,reserved_cost=0 WHERE project_id=?").bind(standardId).run();
+    const original=await db.prepare("SELECT * FROM renders WHERE project_id=?").bind(standardId).first();
+    assert.ok(original);
+    for (const extra of [{provider:"higgsfield-kling-3-standard"},{duration:8},{resolution:"720p"},{aspectRatio:"16:9"},{generateAudio:false},{referenceImages:[]}]) {
+      const result=await call("/api/renders",{...request,...extra,estimateOnly:true});
+      assert.equal(result.response.status,403,JSON.stringify(extra));
+      assert.equal(result.data.error.code,"GROOVES_SCOPE");
+    }
+    const quote=await call("/api/renders",{...request,estimateOnly:true});
+    assert.equal(quote.data.estimatedCost,1.68);
+    env.HIGGSFIELD_KLING3_PRO_AUDIO_RATE_PER_SECOND_USD="0.169";
+    const expensive=await call("/api/renders",{...request,requestKey:crypto.randomUUID(),acceptedCost:1.69});
+    assert.equal(expensive.data.error.code,"COST_CEILING");
+    delete env.HIGGSFIELD_KLING3_PRO_AUDIO_RATE_PER_SECOND_USD;
+    await db.prepare("UPDATE renders SET actual_cost=1.261 WHERE project_id=?").bind(standardId).run();
+    const overCombined=await call("/api/renders",{...request,acceptedCost:1.68});
+    assert.equal(overCombined.data.error.code,"GROOVES_JOB_LIMIT");
+    await db.prepare("UPDATE renders SET actual_cost=1.26 WHERE project_id=?").bind(standardId).run();
+    const first=await call("/api/renders",{...request,acceptedCost:1.68});
+    assert.equal(first.response.status,202);
+    const row=await db.prepare("SELECT * FROM renders WHERE id=?").bind(first.data.render.id).first();
+    assert.equal(row.session_id,"grooves-pv-pro-one-take-2026-10-06");
+    assert.equal(row.reserved_cost,1.68);
+    assert.deepEqual(await db.prepare("SELECT * FROM renders WHERE id=?").bind(original.id).first(),original);
+    const duplicate=await call("/api/renders",{...request,acceptedCost:1.68});
+    assert.equal(duplicate.data.render.id,row.id);
+    assert.equal(duplicate.data.duplicate,true);
+    for (const status of ["running","uncertain","failed","completed"]) {
+      await db.prepare("UPDATE renders SET status=?,actual_cost=0,reserved_cost=0 WHERE id=?").bind(status,row.id).run();
+      const retry=await call("/api/renders",{...request,shotId:`DIRECT_${status}`,requestKey:crypto.randomUUID(),acceptedCost:1.68,acknowledgeUncertainRenderId:row.id});
+      assert.equal(retry.data.error.code,"GROOVES_JOB_LIMIT");
+    }
+    const standardRetry=await call("/api/renders",{...request,projectId:standardId,provider:"higgsfield-kling-3-standard",resolution:"720p",requestKey:crypto.randomUUID(),acceptedCost:1.26});
+    assert.equal(standardRetry.data.error.code,"GROOVES_JOB_LIMIT");
+  } finally {env=previous;}
+});
