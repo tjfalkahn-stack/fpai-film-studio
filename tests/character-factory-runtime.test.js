@@ -43,6 +43,45 @@ test("Character Factory runtime refuses a live run without Character Bible refer
   await assert.rejects(runtime.run(plan), /Character Bible reference images/);
 });
 
+test("Character Factory runtime refuses a legacy photoreal plan without the Jasmine realism lock", async () => {
+  const runtime = createCharacterFactoryRuntime({
+    CHARACTER_FACTORY_LIVE_ENABLED: "true",
+    GENERATION_MEDIA: { put() {}, get() { return null; } },
+  });
+  await assert.rejects(
+    runtime.run({ medium: "cinematic", jobs: [{}], character: { id: "legacy", name: "Legacy" } }),
+    /current Jasmine realism lock/i,
+  );
+});
+
+test("Character Factory runtime also requires the realism lock for vintage live action", async () => {
+  const runtime = createCharacterFactoryRuntime({
+    CHARACTER_FACTORY_LIVE_ENABLED: "true",
+    GENERATION_MEDIA: { put() {}, get() { return null; } },
+  });
+  await assert.rejects(
+    runtime.run({ medium: "vintage", jobs: [{}], character: { id: "period", name: "Period Lead" } }),
+    /current Jasmine realism lock/i,
+  );
+});
+
+test("Character Factory runtime refuses photoreal references without an identity anchor", async () => {
+  const { fetchImpl } = createComfyFetchMock();
+  const runtime = createCharacterFactoryRuntime(
+    {
+      CHARACTER_FACTORY_LIVE_ENABLED: "true",
+      GENERATION_MEDIA: { put() {}, get() { return null; } },
+      COMFYUI_BASE_URL: "https://comfy.example/",
+    },
+    fetchImpl,
+  );
+  const plan = createCharacterFactorySmokePlan({
+    character: { name: "Jasmine", wardrobe: ["Tarmac Look 01"] },
+    referenceImages: [{ ...PREFLIGHT_PNG, category: "wardrobe" }],
+  });
+  await assert.rejects(runtime.run(plan), /approved primary identity anchor/i);
+});
+
 test("runner forwards plan reference images, sampler settings, and negative prompt", async () => {
   const plan = createCharacterFactoryPlan({
     character: { name: "Marcus", height: "6'2\"", build: "tall lean", wardrobe: ["black suit"] },
@@ -50,6 +89,7 @@ test("runner forwards plan reference images, sampler settings, and negative prom
   });
   plan.jobs = plan.jobs.slice(0, 1);
   plan.totals.jobs = 1;
+  plan.jobs[0].prompt = "Marcus straight-on portrait.";
   plan.negativePrompt = "watermark";
   plan.referenceImages = [{ mimeType: "image/png", data: "iVBORw0KGgo=", category: "identity_anchor" }];
 
@@ -69,12 +109,15 @@ test("runner forwards plan reference images, sampler settings, and negative prom
       status: async () => ({ status: "completed", asset: { id: "filename=out.png&subfolder=&type=output", contentType: "image/png" } }),
       asset: async () => new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } }),
     },
-    evaluateImage: async () => ({ identity: 0.95, anatomy: 0.95, framing: 0.95, wardrobe: 0.95, artifactFree: 0.95 }),
+    evaluateImage: async () => ({ identity: 0.95, photographicRealism: 0.95, anatomy: 0.95, framing: 0.95, wardrobe: 0.95, artifactFree: 0.95 }),
     persistAccepted: async () => ({ key: "accepted/front.png" }),
   });
 
   assert.equal(received.prompt.includes("Marcus"), true);
-  assert.equal(received.negativePrompt, "watermark");
+  assert.match(received.prompt, /real human being, captured in camera/i);
+  assert.match(received.prompt, /primary identity anchor as the sole authority/i);
+  assert.match(received.negativePrompt, /video game/i);
+  assert.match(received.negativePrompt, /watermark/i);
   assert.equal(received.steps, 28);
   assert.equal(received.cfg, 5.5);
   assert.equal(received.referenceImages.length, 1);

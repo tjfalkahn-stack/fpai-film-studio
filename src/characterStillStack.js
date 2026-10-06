@@ -1,3 +1,5 @@
+import { CHARACTER_REALISM_NEGATIVE_PROMPT } from "./characterRealismLock.js";
+
 /**
  * FPAI photoreal character still stack for native ComfyUI on 24GB VRAM.
  *
@@ -23,20 +25,14 @@ export const CHARACTER_STILL_VAE_NOTE =
 export const CHARACTER_STILL_IPADAPTER_PRESET = "PLUS (high strength)";
 export const CHARACTER_STILL_SAMPLER = "dpmpp_2m";
 export const CHARACTER_STILL_SCHEDULER = "karras";
-export const CHARACTER_STILL_DEFAULT_STEPS = 30;
+export const CHARACTER_STILL_DEFAULT_STEPS = 50;
 export const CHARACTER_STILL_DEFAULT_CFG = 6;
 export const CHARACTER_STILL_DEFAULT_WIDTH = 1024;
 export const CHARACTER_STILL_DEFAULT_HEIGHT = 1024;
-export const CHARACTER_STILL_APPLY_WEIGHT = 0.85;
+export const CHARACTER_STILL_APPLY_WEIGHT = 0.9;
 export const CHARACTER_STILL_COMBINE_METHOD = "norm average";
 
-export const CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT = [
-  "cartoon, anime, illustration, cgi, 3d render, plastic skin, wax skin",
-  "text, watermark, logo, signature, collage, contact sheet, split screen",
-  "duplicate person, extra person, extra limbs, extra fingers, deformed anatomy",
-  "cropped feet, mutated hands, distorted face, identity mix, different person",
-  "lowres, blurry, oversharpened, oversaturated, jpeg artifacts",
-].join(", ");
+export const CHARACTER_STILL_DEFAULT_NEGATIVE_PROMPT = CHARACTER_REALISM_NEGATIVE_PROMPT;
 
 export const CHARACTER_STILL_CUSTOM_NODES = Object.freeze([
   {
@@ -143,12 +139,17 @@ export function resolveCharacterStillSeed(seed) {
 }
 
 export function selectIdentityReferences(references = [], max = CHARACTER_STILL_MAX_REFERENCES) {
-  const ranked = (Array.isArray(references) ? references : []).map((ref, index) => ({
-    ...ref,
-    index,
-    category: ref?.category || ref?.role || "other",
-    weight: Number(ref?.weight) > 0 ? Number(ref.weight) : weightForReferenceCategory(ref?.category || ref?.role),
-  }));
+  const ranked = (Array.isArray(references) ? references : []).map((ref, index) => {
+    const category = ref?.category || ref?.role || "other";
+    const categoryWeight = weightForReferenceCategory(category);
+    const roleWeight = ref?.isPrimary ? 1 : ref?.isIdentityAnchor ? 0.92 : categoryWeight;
+    return {
+      ...ref,
+      index,
+      category,
+      weight: Number(ref?.weight) > 0 ? Math.max(Number(ref.weight), roleWeight) : roleWeight,
+    };
+  });
   ranked.sort((a, b) => b.weight - a.weight || a.index - b.index);
   return ranked.slice(0, Math.max(0, max));
 }

@@ -1,4 +1,11 @@
 import { createBenchmarkReport, scoreCharacterResult } from "./characterFactory.js";
+import {
+  CHARACTER_REALISM_NEGATIVE_PROMPT,
+  applyCharacterRealismPrompt,
+  hasCurrentCharacterRealismLock,
+  isCharacterRealismLockedMedium,
+  mergeCharacterNegativePrompts,
+} from "./characterRealismLock.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -18,6 +25,12 @@ export async function runCharacterFactoryPlan({
   if (!plan?.jobs?.length) throw new Error("Character Factory plan is required.");
   if (!executor?.start || !executor?.status || !executor?.asset) throw new Error("Character executor is required.");
   if (typeof evaluateImage !== "function") throw new Error("evaluateImage callback is required.");
+  const realismLocked = isCharacterRealismLockedMedium(plan.medium);
+  if (realismLocked && !hasCurrentCharacterRealismLock(plan.realismLock)) {
+    throw new Error(
+      "Photoreal Character Factory runs require the current Jasmine realism lock. Rebuild this legacy plan before generation.",
+    );
+  }
   const attempts = [];
 
   for (const job of plan.jobs) {
@@ -25,9 +38,17 @@ export async function runCharacterFactoryPlan({
     for (let attemptNumber = 1; attemptNumber <= maxAttempts && !accepted; attemptNumber += 1) {
       const startedAt = Date.now();
       const quote = executor.estimate?.({ job, plan }) || { estimatedCost: 0 };
+      const negativePrompt = mergeCharacterNegativePrompts(
+        realismLocked ? CHARACTER_REALISM_NEGATIVE_PROMPT : "",
+        plan.negativePrompt,
+        job.negativePrompt,
+      );
+      const prompt = realismLocked
+        ? applyCharacterRealismPrompt(job.prompt)
+        : job.prompt;
       const start = await executor.start({
-        prompt: job.prompt,
-        negativePrompt: job.negativePrompt || plan.negativePrompt,
+        prompt,
+        negativePrompt,
         width,
         height,
         seed: job.seed ?? plan.seed ?? -1,
@@ -97,6 +118,7 @@ export async function runCharacterFactoryPlan({
     factoryVersion: plan.version,
     character: plan.character,
     medium: plan.medium,
+    realismLock: plan.realismLock || null,
     acceptedAssets,
     ready: report.ready,
   };
@@ -105,6 +127,7 @@ export async function runCharacterFactoryPlan({
     schema: "fpai.character-factory.manifest.v1",
     generatedAt: new Date().toISOString(),
     planTotals: plan.totals,
+    realismLock: plan.realismLock || null,
   };
 
   return { character, manifest, attempts };

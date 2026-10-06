@@ -1,10 +1,20 @@
-export const CHARACTER_FACTORY_VERSION = "1.0.0";
+import {
+  CHARACTER_IDENTITY_LOCK_PROMPT,
+  CHARACTER_REALISM_LOCK,
+  CHARACTER_REALISM_POSITIVE_PROMPT,
+  CHARACTER_REALISM_NEGATIVE_PROMPT,
+  characterRealismLockManifest,
+  isCharacterRealismLockedMedium,
+  mergeCharacterNegativePrompts,
+} from "./characterRealismLock.js";
+
+export const CHARACTER_FACTORY_VERSION = "2.0.0";
 
 export const MEDIUM_PRESETS = Object.freeze({
   cinematic: {
     id: "cinematic",
     label: "Photoreal / Cinematic",
-    prompt: "photoreal cinematic live-action, natural skin texture, physically plausible lighting, restrained film grain",
+    prompt: CHARACTER_REALISM_POSITIVE_PROMPT,
   },
   animation: {
     id: "animation",
@@ -132,15 +142,15 @@ export function identityDescription(profile) {
 
 export function buildPrompt({ profile, medium, task, wardrobe, expression, lighting, lens }) {
   const mediumPreset = MEDIUM_PRESETS[medium] || MEDIUM_PRESETS.cinematic;
+  const realismLocked = isCharacterRealismLockedMedium(mediumPreset.id);
   const identity = identityDescription(profile);
   const protectedText = profile.protectedTraits.length
     ? ` Preserve exactly: ${profile.protectedTraits.join(", ")}.`
     : "";
-  const negativeText = profile.negativeTraits.length
-    ? ` Avoid: ${profile.negativeTraits.join(", ")}.`
-    : "";
   return [
-    `${mediumPreset.prompt}.`,
+    realismLocked ? `${CHARACTER_REALISM_POSITIVE_PROMPT}.` : `${mediumPreset.prompt}.`,
+    realismLocked && mediumPreset.id !== "cinematic" ? `${mediumPreset.prompt}.` : "",
+    realismLocked ? CHARACTER_IDENTITY_LOCK_PROMPT : "",
     `CHARACTER IDENTITY: ${identity}.`,
     task?.framing ? `FRAME: ${task.framing}.` : "",
     wardrobe ? `WARDROBE: ${wardrobe}.` : "",
@@ -148,15 +158,15 @@ export function buildPrompt({ profile, medium, task, wardrobe, expression, light
     lighting ? `LIGHTING: ${lighting}.` : "",
     lens ? `LENS: ${lens}.` : "",
     "Keep facial identity, apparent age, body proportions, height impression, skin tone, hairline, and distinguishing features consistent with the canonical identity.",
-    "Single character only unless explicitly requested. Clean production reference image. No text, watermark, collage, duplicate person, or contact sheet.",
+    "Create one standalone native-resolution image of one character. Clean production reference photograph. Do not create a collage, contact sheet, split screen, or miniature panel.",
     protectedText,
-    negativeText,
   ].filter(Boolean).join(" ");
 }
 
 export function createCharacterFactoryPlan(input = {}) {
   const profile = normalizeCharacterProfile(input.character || input);
   const medium = MEDIUM_PRESETS[input.medium]?.id || "cinematic";
+  const realismLocked = isCharacterRealismLockedMedium(medium);
   const expressions = unique((input.expressions || DEFAULT_EXPRESSIONS).map(clean));
   const wardrobes = unique((input.wardrobe || profile.wardrobe).map?.(clean) || profile.wardrobe);
   const jobs = [];
@@ -219,6 +229,11 @@ export function createCharacterFactoryPlan(input = {}) {
     character: profile,
     medium,
     mediumLabel: MEDIUM_PRESETS[medium].label,
+    realismLock: characterRealismLockManifest({ applied: realismLocked }),
+    negativePrompt: mergeCharacterNegativePrompts(
+      realismLocked ? CHARACTER_REALISM_NEGATIVE_PROMPT : "",
+      profile.negativeTraits.join(", "),
+    ) || undefined,
     jobs,
     totals: {
       jobs: jobs.length,
@@ -276,11 +291,12 @@ export function createCharacterFactorySmokePlan(input = {}) {
 
 export function scoreCharacterResult(metrics = {}) {
   const weights = {
-    identity: 0.4,
-    anatomy: 0.2,
-    framing: 0.15,
-    wardrobe: 0.1,
-    artifactFree: 0.15,
+    identity: 0.32,
+    photographicRealism: 0.22,
+    anatomy: 0.16,
+    framing: 0.12,
+    wardrobe: 0.06,
+    artifactFree: 0.12,
   };
   const normalized = {};
   for (const key of Object.keys(weights)) {
@@ -288,7 +304,15 @@ export function scoreCharacterResult(metrics = {}) {
     normalized[key] = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
   }
   const score = Object.entries(weights).reduce((sum, [key, weight]) => sum + normalized[key] * weight, 0);
-  return { score: Number(score.toFixed(4)), metrics: normalized, pass: score >= 0.82 && normalized.identity >= 0.85 && normalized.anatomy >= 0.8 };
+  return {
+    score: Number(score.toFixed(4)),
+    metrics: normalized,
+    pass:
+      score >= 0.86 &&
+      normalized.identity >= CHARACTER_REALISM_LOCK.requirements.minimumIdentityScore &&
+      normalized.photographicRealism >= CHARACTER_REALISM_LOCK.requirements.minimumPhotographicRealismScore &&
+      normalized.anatomy >= 0.82,
+  };
 }
 
 export function createBenchmarkReport(plan, attempts = []) {

@@ -31,8 +31,8 @@
   ],
   "plan": {
     "schema": "fpai.character-factory.plan.v1",
-    "version": "1.0.0",
-    "createdAt": "2026-09-10T16:27:29.143Z",
+    "version": "2.0.0",
+    "createdAt": "2026-09-15T02:08:26.017Z",
     "character": {
       "id": "jasmine",
       "name": "Jasmine",
@@ -66,6 +66,20 @@
     },
     "medium": "cinematic",
     "mediumLabel": "Photoreal / Cinematic",
+    "realismLock": {
+      "id": "fpai.character-realism-lock.v2",
+      "version": "2.0.0",
+      "benchmark": "Jasmine",
+      "applied": true,
+      "requirements": {
+        "standaloneNativeResolutionImages": true,
+        "primaryIdentityAnchorRequired": true,
+        "referenceAwareQc": true,
+        "minimumPhotographicRealismScore": 0.9,
+        "minimumIdentityScore": 0.9
+      }
+    },
+    "negativePrompt": "animation, anime, cartoon, comic, illustration, painterly, concept art, 3d, cgi, computer graphics, video game, game engine, unreal engine, octane render, digital human, doll, mannequin, plastic skin, wax skin, porcelain skin, airbrushed skin, beauty retouching, over-smoothed skin, fake pores, hyper-sharpened skin, excessive clarity, hdr, tone mapping, oversaturated, teal and orange grade, glamour lighting, movie poster, uncanny valley, synthetic face, identity drift, face morph, blended identity, different person, changed age, changed ethnicity, text, watermark, logo, signature, collage, contact sheet, split screen, duplicate person, extra person, extra limbs, extra fingers, bad hands, bad anatomy, deformed eyes, deformed mouth, distorted face, cropped feet, lowres, blurry, oversharpened, jpeg artifacts, duplicate character, warped hands, text or watermark",
     "jobs": [
       {
         "id": "jasmine/angles/identity-front",
@@ -74,7 +88,7 @@
         "label": "Identity Front",
         "required": true,
         "wardrobe": "Tarmac Look 01",
-        "prompt": "photoreal cinematic live-action, natural skin texture, physically plausible lighting, restrained film grain. CHARACTER IDENTITY: Jasmine; role: Lead; age: adult. FRAME: head-and-shoulders straight-on portrait. WARDROBE: Tarmac Look 01. EXPRESSION: neutral. LIGHTING: neutral studio lighting. LENS: 50mm lens. Keep facial identity, apparent age, body proportions, height impression, skin tone, hairline, and distinguishing features consistent with the canonical identity. Single character only unless explicitly requested. Clean production reference image. No text, watermark, collage, duplicate person, or contact sheet.  Preserve exactly: consistent canonical facial identity from Character Bible photographs, same apparent age across generations.  Avoid: identity drift, different person, duplicate character, extra limbs, warped hands, text or watermark.",
+        "prompt": "a highly realistic live-action photograph of a real human being, captured in camera, grounded documentary and editorial photography rather than character art, natural unretouched skin with visible pores, fine facial hair, subtle tonal variation, normal human asymmetry, realistic under-eye texture, and age-appropriate detail, physically plausible light falloff, shadows, reflections, and catchlights, neutral color science with restrained contrast and saturation, authentic hair, fabric, and material texture, believable full-frame photographic optics with natural depth of field, focus transition, and very fine restrained grain, honest, unstylized, production-reference photography. IDENTITY LOCK: Treat the highest-ranked primary identity anchor as the sole authority for the face and likeness. Preserve the exact facial geometry, eye shape and spacing, nose, lips, jawline, ears, hairline, skin tone, distinguishing marks, apparent age, and body proportions. Supporting references may inform only the requested angle, expression, body view, wardrobe, or pose; never average, blend, beautify, or reinterpret the identity. The result must unmistakably depict the same person as the primary identity anchor. CHARACTER IDENTITY: Jasmine; role: Lead; age: adult. FRAME: head-and-shoulders straight-on portrait. WARDROBE: Tarmac Look 01. EXPRESSION: neutral. LIGHTING: neutral studio lighting. LENS: 50mm lens. Keep facial identity, apparent age, body proportions, height impression, skin tone, hairline, and distinguishing features consistent with the canonical identity. Create one standalone native-resolution image of one character. Clean production reference photograph. Do not create a collage, contact sheet, split screen, or miniature panel.  Preserve exactly: consistent canonical facial identity from Character Bible photographs, same apparent age across generations.",
         "referenceImages": []
       }
     ],
