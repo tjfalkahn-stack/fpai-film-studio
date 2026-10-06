@@ -71,7 +71,7 @@ export default function QuickCreate({ projectId, renders, onRender }) {
   const [duration, setDuration] = useState(grooves ? 10 : 5);
   const [resolution, setResolution] = useState(grooves?.resolution || "720p");
   const [aspectRatio, setAspectRatio] = useState(grooves ? "9:16" : "16:9");
-  const [audio, setAudio] = useState(grooves);
+  const [audio, setAudio] = useState(Boolean(grooves));
   const [sourceAudio, setSourceAudio] = useState(null);
   const [sourceAudioName, setSourceAudioName] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
