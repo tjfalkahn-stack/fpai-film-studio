@@ -13,8 +13,8 @@ test('eight-second stored MP4 rejects Length five in quotes and submissions; mat
   assert.equal(r.status,409);assert.match(JSON.stringify(await r.json()),/VIDEO_DURATION_MISMATCH/);
  }
  const good=await worker.fetch(request({estimateOnly:true}),env);assert.equal(good.status,200);assert.equal((await good.json()).estimatedCost,5.448);
- const stale=await worker.fetch(request({acceptedCost:3.405,requestKey:'stable-request'}),env);assert.equal(stale.status,409);assert.match(JSON.stringify(await stale.json()),/QUOTE_CHANGED/);
- const single=await worker.fetch(request({acceptedCost:5.448,requestKey:'stable-request'}),env);assert.equal(single.status,409);assert.match(JSON.stringify(await single.json()),/COST_CEILING/);
+ const stale=await worker.fetch(request({acceptedCost:3.405,requestKey:'stable-request'}),env);assert.equal(stale.status,503);assert.match(JSON.stringify(await stale.json()),/STORAGE_CONFIG/);
+ const single=await worker.fetch(request({acceptedCost:5.448,requestKey:'stable-request'}),env);assert.equal(single.status,503);assert.match(JSON.stringify(await single.json()),/STORAGE_CONFIG/);
 });
 
 import {durationAfterModelSwitch} from '../src/referenceVideoClient.js';

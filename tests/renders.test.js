@@ -1234,3 +1234,34 @@ test("Grooves Pro preserves consumed Standard and enforces isolated scope, one a
     assert.equal(standardRetry.data.error.code,"GROOVES_JOB_LIMIT");
   } finally {env=previous;}
 });
+
+test("Higgsfield accepts a new brand project without quote approval or generic spending ceilings", async (t) => {
+  const network = noNetwork(t);
+  const previous = env;
+  env = { ...env, HF_CREDENTIALS: "test-id:test-secret", MAX_SINGLE_JOB_USD: "0.01", RENDER_SESSION_CEILING_USD: "0.01", RENDER_PROJECT_CEILING_USD: "0.01" };
+  let id;
+  try {
+    const request = body(undefined, {
+      projectId: "frnds-gta-boutique", sceneId: "wardrobe", shotId: "shirt-test",
+      provider: "higgsfield-kling-3-pro", duration: 15, resolution: "1080p",
+      referenceImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+      generateAudio: false, acceptedCost: undefined,
+      continuity: { ready: true, animaticLocked: true, timingApproved: true, hasCharacters: false },
+    });
+    const result = await call("/api/renders", request);
+    assert.equal(result.response.status, 202, JSON.stringify(result.data));
+    id = result.data.render.id;
+    assert.ok(result.data.render.estimatedCost > 0.01);
+    const list = await call("/api/renders?projectId=frnds-gta-boutique");
+    assert.ok(list.data.renders.some(row => row.id === id));
+    const duplicate = await call("/api/renders", request);
+    assert.equal(duplicate.data.render.id, id);
+    assert.equal(network.mock.callCount(), 0);
+  } finally {
+    if (id) {
+      await db.prepare("DELETE FROM renders WHERE id=?").bind(id).run();
+      await env.GENERATION_MEDIA.delete(`render-inputs/${id}.json`);
+    }
+    env = previous;
+  }
+});

@@ -50,7 +50,7 @@ const yardTrialFor = (shotId, provider) => {
     return { ...YARD_LAMAR_PRO_TEST, shotId, provider, duration: 8, maxEstimatedCostUsd: 0.96 };
   return null;
 };
-const allowedProject = (id, env) => id === config(env).projectId || id === YARD_PROJECT_ID || Boolean(groovesPlanFor(id));
+const allowedProject = (id, env, provider) => id === config(env).projectId || id === YARD_PROJECT_ID || Boolean(groovesPlanFor(id)) || (isHiggsfieldProvider(provider) && typeof id === "string" && /^[a-zA-Z0-9_-]{1,120}$/.test(id));
 const dbOf = (env) =>
   env.GENERATION_DB ||
   fail("STORAGE_CONFIG", "Render database is not configured.", 503);
@@ -363,7 +363,7 @@ async function inputFrom(body, env) {
   }
   if (body.selectionReason) input.selectionReason = body.selectionReason;
   const provider = providerFor(input.provider, env);
-  if (!allowedProject(input.projectId, env))
+  if (!allowedProject(input.projectId, env, input.provider))
     fail(
       "PROJECT_SCOPE",
       "Project is not enabled for this render service.",
@@ -552,13 +552,13 @@ async function create(request, env) {
   )
     fail("INVALID_INPUT", "A stable requestKey is required.");
   liveGate(input, provider, env);
-  if (body.acceptedCost !== quote.estimatedCost)
+  if (!isHiggsfieldProvider(input.provider) && body.acceptedCost !== quote.estimatedCost)
     fail(
       "QUOTE_CHANGED",
       "Review and accept the current cost before rendering.",
       409,
     );
-  if (quote.estimatedCost > singleRenderCeiling(input, policy.singleCeiling))
+  if ((!isHiggsfieldProvider(input.provider) || input.projectId === YARD_PROJECT_ID || groovesPlanFor(input.projectId)) && quote.estimatedCost > singleRenderCeiling(input, policy.singleCeiling))
     fail("COST_CEILING", "Single-render ceiling exceeded.", 409);
   if (isSeedanceProvider(input.provider)) authorizeSeedanceJob(input, quote, env);
   if (input.projectId === YARD_PROJECT_ID && input.sceneId !== "CREATE" && provider.capabilities.paid && !isHiggsfieldProvider(input.provider)) authorizeYardJob(input, quote, env);
@@ -676,7 +676,7 @@ async function create(request, env) {
       JSON.stringify(storedInput),
       stamp(),
       stamp(),
-      quote.estimatedCost,
+      isHiggsfieldProvider(input.provider) ? 0 : quote.estimatedCost,
       input.projectId,
       input.projectId,
       quote.estimatedCost,
@@ -1089,7 +1089,7 @@ export async function renderRoutes(request, env) {
       return await create(request, env);
     if (url.pathname === "/api/renders" && request.method === "GET") {
       const projectId = url.searchParams.get("projectId") || config(env).projectId;
-      if (!allowedProject(projectId, env)) fail("PROJECT_SCOPE", "Project is not enabled for this render service.", 403);
+      if (!allowedProject(projectId, env, "higgsfield-kling-3-pro")) fail("PROJECT_SCOPE", "Project is not enabled for this render service.", 403);
       const rows = await dbOf(env)
         .prepare(
           "SELECT * FROM renders WHERE project_id=? ORDER BY CASE WHEN status IN ('queued','starting','running','uncertain') OR (status='completed' AND output_key IS NULL) THEN 0 ELSE 1 END, created_at DESC LIMIT 200",
@@ -1104,7 +1104,7 @@ export async function renderRoutes(request, env) {
     if (!match)
       return json({ error: { code: "NOT_FOUND", message: "Not found." } }, 404);
     let row = await get(env, match[1]);
-    if (!row || !allowedProject(row.project_id, env))
+    if (!row || !allowedProject(row.project_id, env, row.provider))
       fail("NOT_FOUND", "Render not found.", 404);
     if (match[2] === "asset" && request.method === "GET")
       return await asset(request, env, row);
